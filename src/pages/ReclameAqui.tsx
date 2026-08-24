@@ -21,6 +21,7 @@ import {
   deleteReclameAquiCase,
 } from "@/services/api";
 import type { DbReclameAquiCase } from "@/types/database";
+import { usePersistedState } from "@/hooks/usePersistedState";
 
 const statusLabel = {
   aberta: "Aberta",
@@ -56,7 +57,7 @@ function corReputacao(value: number) {
 }
 
 export default function ReclameAqui() {
-  const [aba, setAba] = useState<"dashboard" | "reclamacoes" | "simulador">("dashboard");
+  const [aba, setAba] = usePersistedState<"dashboard" | "reclamacoes" | "simulador">("reclameAqui:aba", "dashboard");
   const queryClient = useQueryClient();
 
   const { data: usuarios } = useQuery({ queryKey: ["users"], queryFn: fetchUsers });
@@ -65,8 +66,8 @@ export default function ReclameAqui() {
     queryFn: fetchReclameAquiMetrics,
   });
 
-  const [statusFiltro, setStatusFiltro] = useState("");
-  const [responsavelFiltro, setResponsavelFiltro] = useState("");
+  const [statusFiltro, setStatusFiltro] = usePersistedState("reclameAqui:statusFiltro", "");
+  const [responsavelFiltro, setResponsavelFiltro] = usePersistedState("reclameAqui:responsavelFiltro", "");
 
   const { data: cases, isLoading: loadingCases } = useQuery({
     queryKey: ["ra-cases", statusFiltro, responsavelFiltro],

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { NavLink } from "react-router-dom";
-import { Users, FileText, Wrench, GraduationCap, Megaphone, Link2, LayoutGrid, ShieldCheck } from "lucide-react";
+import { Users, FileText, Wrench, GraduationCap, Megaphone, Link2, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import {
   fetchUsers,
@@ -12,7 +12,6 @@ import {
 
 const gerenciar = [
   { label: "Perfis", icon: ShieldCheck, to: "/admin/perfis", desc: "Papéis de acesso (Administrador, Colaborador, ...)" },
-  { label: "Módulos", icon: LayoutGrid, to: "/admin/modulos", desc: "Configuração da sidebar e das chaves de permissão" },
   { label: "Links rápidos", icon: Link2, to: null, desc: "Gestão via tela dedicada prevista para a próxima fase" },
 ];
 

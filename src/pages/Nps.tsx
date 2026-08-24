@@ -15,6 +15,7 @@ import { BarChart } from "@/components/ui/BarChart";
 import { fetchNpsResponses, upsertNpsResponse, deleteNpsResponse } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
 import type { DbNpsResponse } from "@/types/database";
+import { usePersistedState } from "@/hooks/usePersistedState";
 
 const classTone = { Promotor: "success", Neutro: "warning", Detrator: "danger" } as const;
 const classIcon = { Promotor: Smile, Neutro: Meh, Detrator: Frown } as const;
@@ -37,7 +38,7 @@ function corBarraNps(value: number) {
 
 export default function Nps() {
   const queryClient = useQueryClient();
-  const [classificacao, setClassificacao] = useState<"" | "Promotor" | "Neutro" | "Detrator">("");
+  const [classificacao, setClassificacao] = usePersistedState<"" | "Promotor" | "Neutro" | "Detrator">("nps:classificacao", "");
   const [busca, setBusca] = useState("");
 
   const { data: respostas, isLoading } = useQuery({

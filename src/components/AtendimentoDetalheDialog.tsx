@@ -1,0 +1,133 @@
+import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, ExternalLink, X } from "lucide-react";
+import { Dialog } from "@/components/ui/Dialog";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { formatDuration } from "@/lib/formatDuration";
+import { fetchAtendimentoTimeline, type AtendimentoComMetricas } from "@/services/api";
+
+// Valores reais de crisp_conversations.status são "pending"/"resolved".
+const statusTone: Record<string, "success" | "warning" | "neutral"> = {
+  resolved: "success",
+  pending: "warning",
+};
+const statusLabel: Record<string, string> = { resolved: "Resolvido", pending: "Pendente" };
+
+interface AtendimentoDetalheDialogProps {
+  atendimento: AtendimentoComMetricas;
+  onClose: () => void;
+}
+
+// Popup com todos os campos de um atendimento — a tabela da aba Atendimentos
+// trunca nome/e-mail do cliente e não mostra tempo de resolução em telas
+// menores; aqui mostra tudo, sem cortar.
+export function AtendimentoDetalheDialog({ atendimento: c, onClose }: AtendimentoDetalheDialogProps) {
+  const invalido = c.invalido_resposta_antes_inicio || c.invalido_tempo_negativo;
+
+  const { data: timeline, isLoading: loadingTimeline } = useQuery({
+    queryKey: ["atendimento-timeline", c.crisp_id],
+    queryFn: () => fetchAtendimentoTimeline(c.crisp_id!),
+    enabled: !!c.crisp_id,
+  });
+
+  return (
+    <Dialog onClose={onClose} className="max-w-lg">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-display text-sm font-semibold text-ink">{c.cliente_nome ?? "Cliente não identificado"}</h3>
+          <p className="text-xs text-ink/50">{c.cliente_email ?? "—"}</p>
+        </div>
+        <button type="button" onClick={onClose} className="text-ink/40 hover:text-ink">
+          <X size={16} />
+        </button>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Badge tone={c.status ? statusTone[c.status] ?? "neutral" : "neutral"}>
+          {c.status ? statusLabel[c.status] ?? c.status : "—"}
+        </Badge>
+        {c.canal && <Badge tone="neutral">{c.canal}</Badge>}
+        {c.tipo_cliente && <Badge tone="neutral">{c.tipo_cliente}</Badge>}
+        {invalido && (
+          <span title="Dado inconsistente: resposta antes do início ou tempo negativo" className="inline-flex items-center gap-1 text-xs text-rust-500">
+            <AlertTriangle size={12} /> dado inválido
+          </span>
+        )}
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Atendente</p>
+          <p className="text-ink">{c.operator_nome ?? "—"}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-ink/40">E-mail do atendente</p>
+          <p className="text-ink">{c.operator_email || "—"}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Início</p>
+          <p className="text-ink">{new Date(c.current_started_at).toLocaleString("pt-BR")}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-ink/40">1ª resposta humana</p>
+          <p className="text-ink">
+            {c.invalido_sem_resposta_humana ? "sem resposta humana" : c.primeira_resposta_humana_at ? new Date(c.primeira_resposta_humana_at).toLocaleString("pt-BR") : "—"}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Resolvido em</p>
+          <p className="text-ink">{c.resolved_at ? new Date(c.resolved_at).toLocaleString("pt-BR") : "—"}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Tempo até 1ª resposta</p>
+          <p className="text-ink">{c.invalido_sem_resposta_humana ? "—" : formatDuration(c.tempo_primeira_resposta_seg)}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Tempo até resolução</p>
+          <p className="text-ink">{formatDuration(c.tempo_resolucao_seg)}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-ink/40">1ª resposta geral (com bot)</p>
+          <p className="text-ink">{formatDuration(c.tempo_primeira_resposta_geral_seg)}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-ink/40" title="Tempo que o atendente atual ficou de posse desse chamado especificamente">Tempo ativo (atendente atual)</p>
+          <p className="text-ink">{formatDuration(c.tempo_ativo_seg)}</p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Atendentes que passaram por esse chamado</p>
+        {loadingTimeline ? (
+          <p className="mt-1 text-sm text-ink/50">Carregando...</p>
+        ) : !timeline || timeline.length === 0 ? (
+          <p className="mt-1 text-sm text-ink/50">Sem histórico de atribuição registrado.</p>
+        ) : (
+          <ul className="mt-2 space-y-2">
+            {timeline.map((t, i) => (
+              <li key={i} className="flex items-center justify-between gap-2 rounded-lg border border-sand-line px-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-ink">{t.atendente ?? "—"}</p>
+                  <p className="truncate text-xs text-ink/50">
+                    {new Date(t.atribuido_em).toLocaleString("pt-BR")}
+                    {" → "}
+                    {t.ainda_ativo ? "agora (ainda com o chamado)" : new Date(t.liberado_em).toLocaleString("pt-BR")}
+                  </p>
+                </div>
+                <span className="shrink-0 text-xs font-medium text-ink/60">{formatDuration(t.minutos_posse * 60)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {c.link_chamado && (
+        <a href={c.link_chamado} target="_blank" rel="noreferrer" className="mt-4 inline-block" onClick={(e) => e.stopPropagation()}>
+          <Button variant="secondary" size="sm">
+            <ExternalLink size={13} /> Ver chamado
+          </Button>
+        </a>
+      )}
+    </Dialog>
+  );
+}

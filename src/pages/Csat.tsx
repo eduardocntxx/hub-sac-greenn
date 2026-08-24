@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { usePersistedState } from "@/hooks/usePersistedState";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Download, ArrowUpDown, Star, FileDown, ArrowUpRight, ArrowDownRight, SlidersHorizontal, Check } from "lucide-react";
 import { cn, formatDelta, nomesCurtosDisambiguados } from "@/lib/utils";
@@ -7,7 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Kpi } from "@/components/ui/Kpi";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
-import { BarChart, corPorFaixa } from "@/components/ui/BarChart";
+import { HorizontalBarChart, corPorFaixa } from "@/components/ui/BarChart";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { fetchDistinctOperadores, fetchCsatFiltered, fetchCsatForDashboard, fetchAtendenteAliases, fetchDashboardAtendimentoSummary } from "@/services/api";
@@ -163,15 +164,15 @@ function FiltrosPopover({
 }
 
 export default function Csat() {
-  const [aba, setAba] = useState<"planilha" | "dashboard">("dashboard");
-  const [preset, setPreset] = useState<PeriodoPreset>("30dias");
-  const [personalizado, setPersonalizado] = useState({ inicio: "", fim: "" });
+  const [aba, setAba] = usePersistedState<"planilha" | "dashboard">("csat:aba", "dashboard");
+  const [preset, setPreset] = usePersistedState<PeriodoPreset>("csat:preset", "30dias");
+  const [personalizado, setPersonalizado] = usePersistedState("csat:personalizado", { inicio: "", fim: "" });
   const [busca, setBusca] = useState("");
-  const [emailAtendente, setEmailAtendente] = useState("");
-  const [topico, setTopico] = useState("");
-  const [categoriaCliente, setCategoriaCliente] = useState("");
-  const [nota, setNota] = useState("");
-  const [classificacaoCsat, setClassificacaoCsat] = useState<"" | "Promotor" | "Neutro" | "Detrator">("");
+  const [emailAtendente, setEmailAtendente] = usePersistedState("csat:emailAtendente", "");
+  const [topico, setTopico] = usePersistedState("csat:topico", "");
+  const [categoriaCliente, setCategoriaCliente] = usePersistedState("csat:categoriaCliente", "");
+  const [nota, setNota] = usePersistedState("csat:nota", "");
+  const [classificacaoCsat, setClassificacaoCsat] = usePersistedState<"" | "Promotor" | "Neutro" | "Detrator">("csat:classificacaoCsat", "");
   const [sortBy, setSortBy] = useState("data_hora");
   const [sortAsc, setSortAsc] = useState(false);
   const [page, setPage] = useState(0);
@@ -548,20 +549,20 @@ export default function Csat() {
           </div>
           <Card className="p-5">
             <h2 className="mb-3 font-display text-sm font-semibold text-ink">CSAT por colaborador</h2>
-            <BarChart
+            <HorizontalBarChart
               data={(() => {
                 const ordenado = [...porColaborador].sort((a, b) => (b.percentual ?? 0) - (a.percentual ?? 0));
                 const rotulos = nomesCurtosDisambiguados(ordenado.map((c) => c.atendente ?? "—"));
                 return ordenado.map((c, i) => ({
-                  label: `${rotulos[i]} · ${c.total} aval.`,
+                  label: `${rotulos[i]} (${c.total})`,
                   value: c.percentual ?? 0,
                   displayValue: c.percentual !== null
-                    ? `${c.percentual.toFixed(0)}% · méd ${c.media?.toFixed(1) ?? "—"}`
+                    ? `${c.percentual.toFixed(0)}% · ${c.media?.toFixed(1) ?? "—"}`
                     : "—",
                 }));
               })()}
               getColorClass={corPorFaixa}
-              height={190}
+              labelWidth={128}
             />
           </Card>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

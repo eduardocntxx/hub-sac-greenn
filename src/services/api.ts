@@ -331,17 +331,6 @@ export async function fetchModules(): Promise<DbModule[]> {
   return (data ?? []) as DbModule[];
 }
 
-export async function upsertModule(m: Partial<DbModule> & { id?: string }) {
-  const { data, error } = await client().from("modules").upsert(m).select().single();
-  if (error) throw error;
-  return data as DbModule;
-}
-
-export async function deleteModule(id: string) {
-  const { error } = await client().from("modules").delete().eq("id", id);
-  if (error) throw error;
-}
-
 export async function upsertRole(r: { id?: string; nome: string; descricao?: string }) {
   const { data, error } = await client().from("roles").upsert(r).select().single();
   if (error) throw error;
@@ -567,19 +556,34 @@ export interface TfrTtrPercentis {
   ttr_p90: number | null;
   ttr_p95: number | null;
   ttr_sla_pct: number | null;
+  // Resolução final (ttr_media acima) é a resolução mais recente — se o
+  // chamado reabriu, esse tempo inclui a demora até resolver de novo. Esta
+  // é a 1ª resolução (nunca sobrescrita), pra separar "quanto demorou a
+  // primeira vez" de "quanto demorou no total até fechar de vez".
+  ttr_primeira_resolucao_amostras: number;
+  ttr_primeira_resolucao_media: number | null;
 }
+
+// "uteis" desconta fora de expediente (minutos_uteis_entre_time); "corridas"
+// é o tempo de relógio cru, sem desconto. Afeta só TFR/TTR/tempo de
+// resolução — posse e espera do cliente já são sempre "corridas" por
+// natureza (não faz sentido descontar expediente de quanto tempo um cliente
+// literalmente esperou).
+export type ModoTempo = "uteis" | "corridas";
 
 export async function fetchTfrTtrPercentis(
   inicio: Date,
   fim: Date,
   canal?: string,
-  atendenteNome?: string
+  atendenteNome?: string,
+  modoTempo: ModoTempo = "uteis"
 ): Promise<TfrTtrPercentis | null> {
   const { data, error } = await client().rpc("tfr_ttr_percentis", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
     p_atendente_nome: atendenteNome ?? null,
+    p_modo_tempo: modoTempo,
   });
   if (error) throw error;
   return (data?.[0] ?? null) as TfrTtrPercentis | null;
@@ -620,6 +624,109 @@ export async function fetchRelogioEsperaCliente(inicio: Date, fim: Date, canal?:
   return (data?.[0] ?? null) as RelogioEsperaCliente | null;
 }
 
+// Horas de expediente cadastrado (união das jornadas de todos os usuários
+// ativos) no período — mesmo cálculo que já desconta fora de expediente em
+// TFR/TTR ("horas úteis"), só que aqui aplicado ao período inteiro, não a um
+// chamado específico. É "capacidade nominal", não "estava online de fato" —
+// o Crisp não expõe presença/status do operador pela API.
+export async function fetchHorasExpedientePeriodo(inicio: Date, fim: Date): Promise<number> {
+  const { data, error } = await client().rpc("minutos_uteis_entre_time", {
+    p_inicio: inicio.toISOString(),
+    p_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return (data as number) ?? 0;
+}
+
+export interface TransferenciasResumo {
+  total_atendidos: number;
+  total_transferidos: number;
+  taxa_pct: number | null;
+  total_eventos: number;
+  tempo_medio_antes_seg: number | null;
+}
+
+// Só conta handoff entre dois atendentes HUMANOS de verdade (exclui o
+// marcador sintético do bot e a conta real "IA Greenn"/allan@gdigital.com.br
+// — ver CLAUDE.md seção 10) — passar a bola do bot pro humano é fluxo
+// normal de escalonamento, não é "transferência" no sentido de fricção
+// operacional que essa métrica quer capturar.
+export async function fetchTransferenciasResumo(inicio: Date, fim: Date, canal?: string, atendenteNome?: string, modoTempo: ModoTempo = "uteis"): Promise<TransferenciasResumo | null> {
+  const { data, error } = await client().rpc("transferencias_resumo", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_canal: canal ?? null,
+    p_atendente_nome: atendenteNome ?? null,
+    p_modo_tempo: modoTempo,
+  });
+  if (error) throw error;
+  return (data?.[0] ?? null) as TransferenciasResumo | null;
+}
+
+export interface TransferenciaCaso {
+  crisp_id: string | null;
+  cliente_nome: string | null;
+  origem: string | null;
+  destino: string | null;
+  event_at: string;
+  tempo_antes_seg: number | null;
+  link_chamado: string | null;
+}
+
+export async function fetchTransferenciasCasos(inicio: Date, fim: Date, canal?: string, modoTempo: ModoTempo = "uteis"): Promise<TransferenciaCaso[]> {
+  const { data, error } = await client().rpc("transferencias_casos", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_canal: canal ?? null,
+    p_modo_tempo: modoTempo,
+  });
+  if (error) throw error;
+  return (data ?? []) as TransferenciaCaso[];
+}
+
+export interface FcrRecontatoResumo {
+  total_elegiveis: number;
+  total_fcr: number;
+  fcr_pct: number | null;
+  total_recontato: number;
+  recontato_pct: number | null;
+}
+
+// "Elegível" = chamado resolvido, com people_id e topico preenchidos (só dá
+// pra saber se o cliente voltou se souber quem é o cliente e sobre o quê).
+// "Mesmo motivo" = topico idêntico (texto exato — decisão confirmada com o
+// usuário, dado que topico é texto livre da Crisp); janela de 7 dias.
+export async function fetchFcrRecontatoResumo(inicio: Date, fim: Date, canal?: string, atendenteNome?: string): Promise<FcrRecontatoResumo | null> {
+  const { data, error } = await client().rpc("fcr_recontato_resumo", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_canal: canal ?? null,
+    p_atendente_nome: atendenteNome ?? null,
+  });
+  if (error) throw error;
+  return (data?.[0] ?? null) as FcrRecontatoResumo | null;
+}
+
+export interface RecontatoCaso {
+  crisp_id: string | null;
+  cliente_nome: string | null;
+  topico: string | null;
+  atendente: string | null;
+  resolved_at: string;
+  proximo_contato_at: string | null;
+  link_chamado: string | null;
+}
+
+export async function fetchRecontatoCasos(inicio: Date, fim: Date, canal?: string): Promise<RecontatoCaso[]> {
+  const { data, error } = await client().rpc("recontato_casos", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_canal: canal ?? null,
+  });
+  if (error) throw error;
+  return (data ?? []) as RecontatoCaso[];
+}
+
 export interface MotivoContatoResumo {
   topico: string;
   chamados: number;
@@ -627,14 +734,78 @@ export interface MotivoContatoResumo {
   ttr_media_seg: number | null;
 }
 
-export async function fetchMotivoContatoResumo(inicio: Date, fim: Date, canal?: string): Promise<MotivoContatoResumo[]> {
+export async function fetchMotivoContatoResumo(inicio: Date, fim: Date, canal?: string, modoTempo: ModoTempo = "uteis"): Promise<MotivoContatoResumo[]> {
   const { data, error } = await client().rpc("motivo_contato_resumo", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_canal: canal ?? null,
+    p_modo_tempo: modoTempo,
+  });
+  if (error) throw error;
+  return (data ?? []) as MotivoContatoResumo[];
+}
+
+export interface MetricaTipoCliente {
+  tipo_cliente: string;
+  chamados: number;
+  tfr_media_seg: number | null;
+  ttr_media_seg: number | null;
+}
+
+// Um card por tipo_cliente que existir DE VERDADE no período — não é uma
+// lista fixa de segmentos; quando o pipeline capturar um segmento novo,
+// aparece aqui automaticamente, sem precisar mexer no código.
+// atendenteNome escopa pro próprio colaborador (Meu Painel) — sem admin,
+// só retorna dado se atendenteNome bater com o nome do usuário autenticado
+// (checado no banco, não confiar só no parâmetro).
+export async function fetchMetricasPorTipoCliente(inicio: Date, fim: Date, canal?: string, modoTempo: ModoTempo = "uteis", atendenteNome?: string): Promise<MetricaTipoCliente[]> {
+  const { data, error } = await client().rpc("metricas_por_tipo_cliente", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_canal: canal ?? null,
+    p_modo_tempo: modoTempo,
+    p_atendente_nome: atendenteNome ?? null,
+  });
+  if (error) throw error;
+  return (data ?? []) as MetricaTipoCliente[];
+}
+
+export interface ReaberturaResumo {
+  total_resolvidos: number;
+  total_reabertos: number;
+  taxa_pct: number | null;
+  total_eventos: number;
+}
+
+export async function fetchReaberturaResumo(inicio: Date, fim: Date, canal?: string, atendenteNome?: string): Promise<ReaberturaResumo | null> {
+  const { data, error } = await client().rpc("reabertura_resumo", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_canal: canal ?? null,
+    p_atendente_nome: atendenteNome ?? null,
+  });
+  if (error) throw error;
+  return (data?.[0] ?? null) as ReaberturaResumo | null;
+}
+
+export interface ReaberturaCaso {
+  crisp_id: string | null;
+  cliente_nome: string | null;
+  topico: string;
+  atendente: string | null;
+  reopened_count: number;
+  current_started_at: string;
+  link_chamado: string | null;
+}
+
+export async function fetchReaberturaCasos(inicio: Date, fim: Date, canal?: string): Promise<ReaberturaCaso[]> {
+  const { data, error } = await client().rpc("reabertura_casos", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
   });
   if (error) throw error;
-  return (data ?? []) as MotivoContatoResumo[];
+  return (data ?? []) as ReaberturaCaso[];
 }
 
 export interface CsatDistribuicao {
@@ -698,6 +869,40 @@ export async function fetchBacklogPorIdade(canal?: string, atendenteNome?: strin
   return (data ?? []) as BacklogFaixa[];
 }
 
+export interface BacklogCaso {
+  crisp_id: string | null;
+  cliente_nome: string | null;
+  operator_nome: string | null;
+  topico: string | null;
+  canal: string | null;
+  status: string | null;
+  current_started_at: string;
+  idade_dias: number;
+  link_chamado: string | null;
+  total_count: number;
+}
+
+export async function fetchBacklogCasos(
+  faixa: string,
+  canal?: string,
+  atendenteNome?: string,
+  page = 0,
+  pageSize = 15,
+  direcao: "asc" | "desc" = "asc"
+): Promise<{ rows: BacklogCaso[]; count: number }> {
+  const { data, error } = await client().rpc("backlog_casos", {
+    p_faixa: faixa,
+    p_canal: canal ?? null,
+    p_atendente_nome: atendenteNome ?? null,
+    p_limit: pageSize,
+    p_offset: page * pageSize,
+    p_direcao: direcao,
+  });
+  if (error) throw error;
+  const rows = (data ?? []) as BacklogCaso[];
+  return { rows, count: rows[0]?.total_count ?? 0 };
+}
+
 export interface SlaConfig {
   id: string;
   meta_primeira_resposta_min: number;
@@ -748,29 +953,6 @@ export async function fetchAtendenteAliases(): Promise<DbAtendenteAlias[]> {
   const { data, error } = await client().from("atendente_aliases").select("*").order("nome_canonico");
   if (error) throw error;
   return data ?? [];
-}
-
-export async function upsertAtendenteAlias(input: {
-  id?: string;
-  email_variante: string;
-  email_canonico: string;
-  nome_canonico: string;
-}) {
-  const { id, ...campos } = input;
-  if (id) {
-    const { error } = await client().from("atendente_aliases").update(campos).eq("id", id);
-    if (error) throw error;
-    return;
-  }
-  const { error } = await client()
-    .from("atendente_aliases")
-    .upsert(campos, { onConflict: "email_variante" });
-  if (error) throw error;
-}
-
-export async function deleteAtendenteAlias(id: string) {
-  const { error } = await client().from("atendente_aliases").delete().eq("id", id);
-  if (error) throw error;
 }
 
 export async function fetchDistinctCanais(): Promise<string[]> {
@@ -1013,13 +1195,15 @@ export async function fetchAtendentePerformance(
   inicio: Date,
   fim: Date,
   canal?: string,
-  status?: string
+  status?: string,
+  modoTempo: ModoTempo = "uteis"
 ): Promise<AtendentePerformanceRow[]> {
   const { data, error } = await client().rpc("atendente_performance", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
     p_status: status ?? null,
+    p_modo_tempo: modoTempo,
   });
   if (error) throw error;
   return (data ?? []) as AtendentePerformanceRow[];
@@ -1109,18 +1293,16 @@ export async function fetchDistinctAtendentesConversas(): Promise<{ nome: string
   return (data ?? []) as { nome: string }[];
 }
 
+// tipo_cliente no banco é uma lista de tags separadas por vírgula, não um
+// valor único — por isso o filtro usa correspondência por tag (ILIKE), não
+// igualdade exata. As opções vêm direto do banco (distinct_tipos_cliente()),
+// não de uma lista fixa no frontend — uma lista hardcoded aqui já causou um
+// bug real: a opção "Produtor" apontava pra tag "vendedor", que nunca bateu
+// com o valor de verdade gravado ("Produtor"), zerando esse filtro sempre.
 export async function fetchDistinctTiposCliente(): Promise<{ label: string; tag: string }[]> {
-  // tipo_cliente no banco é uma lista de tags separadas por vírgula
-  // (ex: "seller, ia", "vendedor, whatsapp, mrgreenn"), não um valor único.
-  // Por isso o filtro usa correspondência por tag (ILIKE), não igualdade exata.
-  return [
-    { label: "Final", tag: "final" },
-    { label: "Consumidor", tag: "consumidor" },
-    { label: "Seller", tag: "seller" },
-    { label: "Produtor", tag: "vendedor" },
-    { label: "SDR", tag: "sdr" },
-    { label: "Bluee", tag: "bluee" },
-  ];
+  const { data, error } = await client().rpc("distinct_tipos_cliente");
+  if (error) throw error;
+  return ((data ?? []) as { tag: string }[]).map((r) => ({ label: r.tag, tag: r.tag }));
 }
 
 // ---------- Helpdesks ----------
@@ -1521,7 +1703,27 @@ export interface AtendimentoComMetricas {
   invalido_sem_resposta_humana: boolean;
   invalido_tempo_negativo: boolean;
   link_chamado: string | null;
+  // Tempo que o atendente ATUAL (operator_nome) ficou de posse desse chamado
+  // especificamente — soma os trechos dele em atendimento_timeline(). Não é
+  // o mesmo que "tempo até 1ª resposta": alguém pode ficar horas com um
+  // chamado sem nunca respondê-lo primeiro (handoff), ou responder rápido e
+  // não ficar mais com ele depois.
+  tempo_ativo_seg: number | null;
   total_count: number;
+}
+
+export interface AtendimentoTimelineEntry {
+  atendente: string | null;
+  atribuido_em: string;
+  liberado_em: string;
+  minutos_posse: number;
+  ainda_ativo: boolean;
+}
+
+export async function fetchAtendimentoTimeline(crispId: string): Promise<AtendimentoTimelineEntry[]> {
+  const { data, error } = await client().rpc("atendimento_timeline", { p_crisp_id: crispId });
+  if (error) throw error;
+  return (data ?? []) as AtendimentoTimelineEntry[];
 }
 
 export interface AtendimentosMetricasFilters {
@@ -1537,6 +1739,8 @@ export interface AtendimentosMetricasFilters {
   ordenarPor?: "recentes" | "tempo_aberto" | "tfr" | "tempo_resolucao";
   direcao?: "asc" | "desc";
   status?: string;
+  modoTempo?: ModoTempo;
+  motivo?: string;
 }
 
 export async function fetchAtendimentosComMetricas(
@@ -1556,6 +1760,8 @@ export async function fetchAtendimentosComMetricas(
     p_ordenar_por: f.ordenarPor ?? "recentes",
     p_status: f.status ?? null,
     p_direcao: f.direcao ?? null,
+    p_modo_tempo: f.modoTempo ?? "uteis",
+    p_motivo: f.motivo ?? null,
   });
   if (error) throw error;
   const rows = (data ?? []) as AtendimentoComMetricas[];
