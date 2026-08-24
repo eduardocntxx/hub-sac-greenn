@@ -58,8 +58,12 @@ export default function OutrosLinks() {
                       </div>
                     )}
                     <div className="flex flex-1 flex-col p-6">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-forest-50 text-forest-600">
-                        <DynamicIcon name={t.icone ?? undefined} size={24} />
+                      <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-forest-50 text-forest-600">
+                        {t.icone_url ? (
+                          <img src={t.icone_url} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <DynamicIcon name={t.icone ?? undefined} size={24} />
+                        )}
                       </div>
                       <h3 className="mt-4 font-display text-card-title text-ink">
                         {t.nome}

@@ -33,11 +33,9 @@ import AdminOutrosLinks from "@/pages/admin/AdminOutrosLinks";
 import AdminCursos from "@/pages/admin/AdminCursos";
 import AdminDocumentacao from "@/pages/admin/AdminDocumentacao";
 import AdminAtualizacoes from "@/pages/admin/AdminAtualizacoes";
-import AdminModulos from "@/pages/admin/AdminModulos";
 import AdminPerfis from "@/pages/admin/AdminPerfis";
 import AdminPermissoes from "@/pages/admin/AdminPermissoes";
 import AdminEscalas from "@/pages/admin/AdminEscalas";
-import AdminAtendenteAliases from "@/pages/admin/AdminAtendenteAliases";
 
 const queryClient = new QueryClient();
 
@@ -89,8 +87,6 @@ export default function App() {
                     <Route path="perfis" element={<AdminPerfis />} />
                     <Route path="permissoes" element={<AdminPermissoes />} />
                     <Route path="escalas" element={<AdminEscalas />} />
-                    <Route path="aliases" element={<AdminAtendenteAliases />} />
-                    <Route path="modulos" element={<AdminModulos />} />
                     <Route path="cursos" element={<AdminCursos />} />
                     <Route path="documentacao" element={<AdminDocumentacao />} />
                     <Route path="atualizacoes" element={<AdminAtualizacoes />} />

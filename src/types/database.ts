@@ -47,6 +47,9 @@ export interface DbTool {
   descricao: string | null;
   categoria: string | null;
   icone: string | null;
+  // Ícone customizado (upload); tem prioridade sobre `icone` (nome lucide-react)
+  // quando preenchido — ver DynamicIcon nos pontos de renderização.
+  icone_url: string | null;
   imagem_url: string | null;
   url: string | null;
   abrir_nova_guia: boolean;

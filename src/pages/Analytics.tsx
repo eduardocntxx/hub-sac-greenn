@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { usePersistedState } from "@/hooks/usePersistedState";
 import { useQuery } from "@tanstack/react-query";
 import {
   Star, MessagesSquare, Timer, CheckCircle2, Trophy, Lock, PhoneCall,
@@ -26,7 +27,8 @@ import { resolvePeriodo, periodoAnterior, type PeriodoPreset } from "@/lib/dateR
 import { formatDuration } from "@/lib/formatDuration";
 import { DateRangePopover } from "@/components/ui/DateRangePopover";
 
-const statusLabel: Record<string, string> = { resolved: "Resolvido", unresolved: "Pendente" };
+// Valores reais de crisp_conversations.status são "pending"/"resolved".
+const statusLabel: Record<string, string> = { resolved: "Resolvido", pending: "Pendente" };
 
 type RankingCampo = "total_chamados" | "tempo_1resposta_medio" | "tempo_encerramento_medio" | "csat_medio";
 
@@ -61,12 +63,12 @@ export default function Analytics() {
   const { isAdmin } = useAuth();
   const podeVerRanking = isAdmin || hasPermission("analytics");
 
-  const [preset, setPreset] = useState<PeriodoPreset>("30dias");
-  const [personalizado, setPersonalizado] = useState({ inicio: "", fim: "" });
-  const [operadorEmail, setOperadorEmail] = useState("");
-  const [canal, setCanal] = useState("");
-  const [estado, setEstado] = useState("");
-  const [granularidade, setGranularidade] = useState<"day" | "week" | "month">("day");
+  const [preset, setPreset] = usePersistedState<PeriodoPreset>("analytics:preset", "30dias");
+  const [personalizado, setPersonalizado] = usePersistedState("analytics:personalizado", { inicio: "", fim: "" });
+  const [operadorEmail, setOperadorEmail] = usePersistedState("analytics:operadorEmail", "");
+  const [canal, setCanal] = usePersistedState("analytics:canal", "");
+  const [estado, setEstado] = usePersistedState("analytics:estado", "");
+  const [granularidade, setGranularidade] = usePersistedState<"day" | "week" | "month">("analytics:granularidade", "day");
   const [rankingOrdenarPor, setRankingOrdenarPor] = useState<RankingCampo | undefined>(undefined);
   const [rankingDirecao, setRankingDirecao] = useState<"asc" | "desc">("desc");
 

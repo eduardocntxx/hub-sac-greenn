@@ -22,6 +22,12 @@ import {
   fetchMissionProgress,
   fetchCourseProgressForUser,
   fetchMinhasConversasMetricas,
+  fetchTfrTtrPercentis,
+  fetchFcrRecontatoResumo,
+  fetchReaberturaResumo,
+  fetchTransferenciasResumo,
+  fetchRelogioPosse,
+  fetchMetricasPorTipoCliente,
 } from "@/services/api";
 import {
   resolvePeriodo,
@@ -31,6 +37,7 @@ import {
 import { formatDuration } from "@/lib/formatDuration";
 import type { DbCsatResult } from "@/types/database";
 import { CsatDetalheDialog } from "@/components/CsatDetalheDialog";
+import { usePersistedState } from "@/hooks/usePersistedState";
 
 function media(vals: (number | null)[]) {
   const validos = vals.filter((v): v is number => v !== null);
@@ -43,13 +50,17 @@ function variacao(atual: number | null, anterior: number | null) {
 }
 
 const META_SATISFACAO = 97;
+// Amostra mínima antes de tratar o CSAT individual como estatisticamente
+// representativo — com poucas avaliações, uma nota ruim isolada distorce
+// muito o percentual.
+const MINIMO_AMOSTRAS_CSAT = 5;
 
 type SortField = "data_hora" | "nota" | "classificacao_csat";
 
 export default function MeuPainel() {
   const { user } = useAuth();
-  const [preset, setPreset] = useState<PeriodoPreset>("mes_atual");
-  const [personalizado, setPersonalizado] = useState({ inicio: "", fim: "" });
+  const [preset, setPreset] = usePersistedState<PeriodoPreset>("meuPainel:preset", "mes_atual");
+  const [personalizado, setPersonalizado] = usePersistedState("meuPainel:personalizado", { inicio: "", fim: "" });
   const [sortField, setSortField] = useState<SortField>("data_hora");
   const [sortAsc, setSortAsc] = useState(false);
   const [detalhe, setDetalhe] = useState<DbCsatResult | null>(null);
@@ -92,6 +103,47 @@ export default function MeuPainel() {
     enabled: Boolean(user?.id),
   });
 
+  // Performance individual (mesmas fontes do Overview, filtradas pro meu nome
+  // canônico) — SLA, FCR, reabertura, transferências que eu originei,
+  // produtividade (atendimentos/hora via posse). "Tempo ativo" pessoal fica
+  // de fora — o Crisp não expõe presença real, e uma soma de horário
+  // cadastrado por pessoa ainda não existe (só a cobertura do time inteiro,
+  // que não faz sentido mostrar aqui).
+  const { data: slaPessoal, isLoading: loadingSla } = useQuery({
+    queryKey: ["tfr-ttr-percentis", user?.nome, inicio.toISOString(), fim.toISOString()],
+    queryFn: () => fetchTfrTtrPercentis(inicio, fim, undefined, user!.nome),
+    enabled: Boolean(user?.nome),
+  });
+
+  const { data: fcrPessoal, isLoading: loadingFcr } = useQuery({
+    queryKey: ["fcr-recontato-resumo", user?.nome, inicio.toISOString(), fim.toISOString()],
+    queryFn: () => fetchFcrRecontatoResumo(inicio, fim, undefined, user!.nome),
+    enabled: Boolean(user?.nome),
+  });
+
+  const { data: reaberturaPessoal, isLoading: loadingReaberturaPessoal } = useQuery({
+    queryKey: ["reabertura-resumo", user?.nome, inicio.toISOString(), fim.toISOString()],
+    queryFn: () => fetchReaberturaResumo(inicio, fim, undefined, user!.nome),
+    enabled: Boolean(user?.nome),
+  });
+
+  const { data: transferenciasPessoal, isLoading: loadingTransferenciasPessoal } = useQuery({
+    queryKey: ["transferencias-resumo", user?.nome, inicio.toISOString(), fim.toISOString()],
+    queryFn: () => fetchTransferenciasResumo(inicio, fim, undefined, user!.nome),
+    enabled: Boolean(user?.nome),
+  });
+
+  const { data: posseTime } = useQuery({
+    queryKey: ["relogio-posse", inicio.toISOString(), fim.toISOString()],
+    queryFn: () => fetchRelogioPosse(inicio, fim),
+  });
+
+  const { data: metricasTipoCliente, isLoading: loadingTipoCliente } = useQuery({
+    queryKey: ["metricas-tipo-cliente", user?.nome, inicio.toISOString(), fim.toISOString()],
+    queryFn: () => fetchMetricasPorTipoCliente(inicio, fim, undefined, "uteis", user!.nome),
+    enabled: Boolean(user?.nome),
+  });
+
   if (!user) return null;
 
   const csatPeriodo = (csat ?? []).filter((c) => {
@@ -111,6 +163,7 @@ export default function MeuPainel() {
 
   const atual = calcularSatisfacao(csatPeriodo);
   const anteriorStats = calcularSatisfacao(csatAnterior);
+  const csatAmostraPequena = atual.total > 0 && atual.total < MINIMO_AMOSTRAS_CSAT;
 
   const conversasPeriodo = conversas ?? [];
   const conversasAnteriorLista = conversasAnterior ?? [];
@@ -124,6 +177,12 @@ export default function MeuPainel() {
   const tempoPrimeiraRespostaAnterior = media(conversasAnteriorLista.map((c) => c.tempo_primeira_resposta_seg));
   const tempoResolucao = media(conversasPeriodoCarteira.map((c) => c.tempo_resolucao_seg));
   const tempoResolucaoAnterior = media(conversasAnteriorCarteira.map((c) => c.tempo_resolucao_seg));
+
+  const posseMinutosPessoal = (posseTime ?? []).find((p) => p.atendente === user.nome)?.minutos_posse ?? null;
+  const atendPorHoraPessoal =
+    posseMinutosPessoal && posseMinutosPessoal > 0
+      ? conversasPeriodoCarteira.length / (posseMinutosPessoal / 60)
+      : null;
 
   const missoesConcluidas = (missions ?? []).filter(
     (m) => m.atual >= (m.missions?.meta ?? Infinity)
@@ -252,8 +311,101 @@ export default function MeuPainel() {
         </div>
         <p className="mt-2 text-xs text-ink/40">
           Tempo de primeira resposta considera apenas mensagens de atendente humano — respostas automáticas do bot da Crisp são ignoradas.
+          {csatAmostraPequena && (
+            <> · CSAT com só {atual.total} avaliação{atual.total > 1 ? "ões" : ""} neste período — amostra pequena, evite comparar como se fosse representativa.</>
+          )}
         </p>
       </div>
+
+      <div>
+        <h2 className="mb-3 font-display text-sm font-semibold text-ink">Performance individual</h2>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <Card className="p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-ink/40">SLA (1ª resposta / resolução)</p>
+            {loadingSla ? (
+              <p className="mt-1 text-sm text-ink/50">Carregando...</p>
+            ) : (
+              <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">
+                {slaPessoal?.tfr_sla_pct?.toFixed(0) ?? "—"}% <span className="text-ink/30">/</span> {slaPessoal?.ttr_sla_pct?.toFixed(0) ?? "—"}%
+              </p>
+            )}
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-ink/40">FCR</p>
+            {loadingFcr ? (
+              <p className="mt-1 text-sm text-ink/50">Carregando...</p>
+            ) : !fcrPessoal || fcrPessoal.total_elegiveis === 0 ? (
+              <p className="mt-1 text-sm text-ink/50">Sem elegíveis</p>
+            ) : (
+              <>
+                <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{fcrPessoal.fcr_pct?.toFixed(0) ?? "—"}%</p>
+                <p className="mt-1 text-[11px] text-ink/40">{fcrPessoal.total_elegiveis} elegíveis</p>
+              </>
+            )}
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Reaberturas</p>
+            {loadingReaberturaPessoal ? (
+              <p className="mt-1 text-sm text-ink/50">Carregando...</p>
+            ) : (
+              <>
+                <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{reaberturaPessoal?.total_reabertos ?? 0}</p>
+                <p className="mt-1 text-[11px] text-ink/40">de {reaberturaPessoal?.total_resolvidos ?? 0} resolvidos</p>
+              </>
+            )}
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Transferências que você originou</p>
+            {loadingTransferenciasPessoal ? (
+              <p className="mt-1 text-sm text-ink/50">Carregando...</p>
+            ) : (
+              <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{transferenciasPessoal?.total_eventos ?? 0}</p>
+            )}
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Produtividade</p>
+            <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{atendPorHoraPessoal !== null ? atendPorHoraPessoal.toFixed(1) : "—"}</p>
+            <p className="mt-1 text-[11px] text-ink/40">atendimentos/hora de posse</p>
+          </Card>
+        </div>
+        <p className="mt-2 text-xs text-ink/40">
+          "Tempo de trabalho ativo" pessoal não é mostrado aqui — o Crisp não expõe presença real do operador pela
+          API, mesma limitação do card "Relógio de trabalho ativo" em Overview. FCR/Reabertura contam "mesmo motivo"
+          por texto idêntico do tópico dentro de 7 dias.
+        </p>
+      </div>
+
+      {(metricasTipoCliente && metricasTipoCliente.length > 0) || loadingTipoCliente ? (
+        <div>
+          <h2 className="mb-3 font-display text-sm font-semibold text-ink">Meus atendimentos por tipo de cliente</h2>
+          {loadingTipoCliente ? (
+            <p className="text-sm text-ink/50">Carregando...</p>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {metricasTipoCliente!.map((m) => (
+                <Card key={m.tipo_cliente} className="p-4">
+                  <p className="text-sm font-semibold text-ink">{m.tipo_cliente}</p>
+                  <p className="mt-1 text-xs text-ink/40">{m.chamados} chamados</p>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div>
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40">TFR médio</p>
+                      <p className="font-display text-sm font-semibold text-ink">{formatDuration(m.tfr_media_seg)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40">TTR médio</p>
+                      <p className="font-display text-sm font-semibold text-ink">{formatDuration(m.ttr_media_seg)}</p>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+          <p className="mt-2 text-xs text-ink/40">
+            Só aparece aqui o tipo de cliente que existir de verdade nos seus atendimentos do período — mesma lógica
+            da seção "Por tipo de cliente" do Overview, mas escopada só pra você.
+          </p>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card>

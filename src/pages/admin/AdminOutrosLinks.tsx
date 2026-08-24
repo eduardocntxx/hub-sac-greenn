@@ -30,6 +30,7 @@ const toolSchema = z.object({
   descricao: z.string().optional(),
   categoria: z.enum(CATEGORIAS),
   icone: z.string().min(1, "Informe um ícone"),
+  icone_url: z.string().optional(),
   url: z.string().url("Informe uma URL válida"),
   abrir_nova_guia: z.boolean(),
   ordem: z.coerce.number().int().min(0),
@@ -48,6 +49,8 @@ export default function AdminOutrosLinks() {
   const [erro, setErro] = useState<string | null>(null);
   const [origemImagem, setOrigemImagem] = useState<"url" | "upload">("url");
   const [arquivoImagem, setArquivoImagem] = useState<File | null>(null);
+  const [origemIcone, setOrigemIcone] = useState<"lucide" | "upload">("lucide");
+  const [arquivoIcone, setArquivoIcone] = useState<File | null>(null);
 
   const { data: tools, isLoading } = useQuery({
     queryKey: ["tools", "admin"],
@@ -69,11 +72,14 @@ export default function AdminOutrosLinks() {
     setErro(null);
     setOrigemImagem("url");
     setArquivoImagem(null);
+    setOrigemIcone("lucide");
+    setArquivoIcone(null);
     reset({
       nome: "",
       descricao: "",
       categoria: "Utilidades",
       icone: "Link2",
+      icone_url: "",
       url: "",
       abrir_nova_guia: true,
       ordem: (tools?.length ?? 0) + 1,
@@ -88,11 +94,14 @@ export default function AdminOutrosLinks() {
     setErro(null);
     setOrigemImagem("url");
     setArquivoImagem(null);
+    setOrigemIcone(t.icone_url ? "upload" : "lucide");
+    setArquivoIcone(null);
     reset({
       nome: t.nome,
       descricao: t.descricao ?? "",
       categoria: (t.categoria as (typeof CATEGORIAS)[number]) ?? "Utilidades",
       icone: t.icone ?? "Link2",
+      icone_url: t.icone_url ?? "",
       url: t.url ?? "",
       abrir_nova_guia: t.abrir_nova_guia,
       ordem: t.ordem,
@@ -110,10 +119,15 @@ export default function AdminOutrosLinks() {
       if (origemImagem === "upload" && arquivoImagem) {
         imagemUrlFinal = await uploadToolImage(arquivoImagem);
       }
+      let iconeUrlFinal = origemIcone === "upload" ? data.icone_url : "";
+      if (origemIcone === "upload" && arquivoIcone) {
+        iconeUrlFinal = await uploadToolImage(arquivoIcone);
+      }
       await upsertTool({
         ...(editando ? { id: editando.id } : {}),
         ...data,
         imagem_url: imagemUrlFinal || null,
+        icone_url: iconeUrlFinal || null,
       });
       await queryClient.invalidateQueries({ queryKey: ["tools"] });
       setDialogAberto(false);
@@ -195,8 +209,12 @@ export default function AdminOutrosLinks() {
                 <tr key={t.id} className="border-t border-sand-line">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-forest-50 text-forest-600">
-                        <DynamicIcon name={t.icone ?? undefined} size={15} />
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-forest-50 text-forest-600">
+                        {t.icone_url ? (
+                          <img src={t.icone_url} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <DynamicIcon name={t.icone ?? undefined} size={15} />
+                        )}
                       </div>
                       <div>
                         <p className="font-medium text-ink">{t.nome}</p>
@@ -288,24 +306,60 @@ export default function AdminOutrosLinks() {
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-ink/70">
-                  Ícone (nome do lucide-react)
-                </label>
-                <div className="flex items-center gap-2">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sand-line">
-                    <DynamicIcon name={iconeAtual} size={16} />
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="block text-xs font-medium text-ink/70">Ícone</label>
+                  <div className="flex gap-1 rounded-lg bg-sand-bg p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setOrigemIcone("lucide")}
+                      className={"rounded-md px-2 py-0.5 text-xs font-medium " + (origemIcone === "lucide" ? "bg-white shadow-sm text-ink" : "text-ink/50")}
+                    >
+                      Biblioteca
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOrigemIcone("upload")}
+                      className={"rounded-md px-2 py-0.5 text-xs font-medium " + (origemIcone === "upload" ? "bg-white shadow-sm text-ink" : "text-ink/50")}
+                    >
+                      Upload
+                    </button>
                   </div>
-                  <input
-                    {...register("icone")}
-                    list="icones-sugeridos"
-                    className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm outline-none focus:border-forest-500"
-                  />
-                  <datalist id="icones-sugeridos">
-                    {ICONES_SUGERIDOS.map((i) => (
-                      <option key={i} value={i} />
-                    ))}
-                  </datalist>
                 </div>
+                {origemIcone === "lucide" ? (
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sand-line">
+                      <DynamicIcon name={iconeAtual} size={16} />
+                    </div>
+                    <input
+                      {...register("icone")}
+                      list="icones-sugeridos"
+                      className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm outline-none focus:border-forest-500"
+                    />
+                    <datalist id="icones-sugeridos">
+                      {ICONES_SUGERIDOS.map((i) => (
+                        <option key={i} value={i} />
+                      ))}
+                    </datalist>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-sand-line">
+                      {arquivoIcone ? (
+                        <img src={URL.createObjectURL(arquivoIcone)} alt="" className="h-full w-full object-cover" />
+                      ) : editando?.icone_url ? (
+                        <img src={editando.icone_url} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <DynamicIcon name={undefined} size={16} />
+                      )}
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setArquivoIcone(e.target.files?.[0] ?? null)}
+                      className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm outline-none file:mr-2 file:rounded-md file:border-0 file:bg-forest-50 file:px-2 file:py-1 file:text-xs file:text-forest-700"
+                    />
+                  </div>
+                )}
                 {errors.icone && <p className="mt-1 text-xs text-rust-500">{errors.icone.message}</p>}
               </div>
               <div>

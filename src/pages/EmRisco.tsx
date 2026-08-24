@@ -13,6 +13,7 @@ import { fetchAtendimentosComMetricas, fetchDistinctCanais, fetchDistinctAtenden
 import { formatDuration } from "@/lib/formatDuration";
 import { exportEmRiscoToCsv } from "@/lib/exportCsv";
 import { cn } from "@/lib/utils";
+import { usePersistedState } from "@/hooks/usePersistedState";
 
 type OrdenarCampo = "tempo_aberto" | "tfr";
 const DIRECAO_PADRAO: Record<OrdenarCampo, "asc" | "desc"> = { tempo_aberto: "asc", tfr: "desc" };
@@ -131,7 +132,7 @@ function FiltrosPopover({
 export default function EmRisco() {
   useRealtimeConversas();
   const { isAdmin } = useAuth();
-  const [filtros, setFiltros] = useState<FiltrosState>({ canal: "", atendenteNome: "", status: "" });
+  const [filtros, setFiltros] = usePersistedState<FiltrosState>("emRisco:filtros", { canal: "", atendenteNome: "", status: "" });
   const [ordenarPor, setOrdenarPor] = useState<OrdenarCampo>("tempo_aberto");
   const [direcao, setDirecao] = useState<"asc" | "desc">(DIRECAO_PADRAO.tempo_aberto);
   const [page, setPage] = useState(0);
