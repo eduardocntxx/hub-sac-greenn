@@ -142,12 +142,27 @@ controle de versão do frontend. Isso é um risco documentado (seção 20).
    de `roles.nome` (case-insensitive, só reconhece exatamente
    `"Administrador"`; qualquer outro valor vira `"colaborador"`).
 5. `RequireAuth` (`src/routes/RequireAuth.tsx`) é o guard de topo: sem
-   `user`, redireciona para `/login`.
+   `user`, redireciona para `/login`; com `user` mas `!user.aprovado`,
+   renderiza `AguardandoAprovacao` no lugar do `<Outlet />` (ver item 8).
 6. `Login.tsx` chama `auth.login(email, senha)` →
-   `supabase.auth.signInWithPassword`. Não há cadastro público nem "esqueci
-   minha senha" implementados na UI — contas são criadas manualmente
-   (Supabase Auth + registro em `public.users` via Admin → Usuários).
+   `supabase.auth.signInWithPassword`. Desde 2026-08-31 (ver seção 10)
+   também existe autocadastro público (aba "Criar conta", restrito a
+   `@greenn.com.br`, validado no servidor pela Edge Function
+   `self-signup`), "esqueci minha senha"
+   (`resetPasswordForEmail` → reaproveita `/definir-senha`) e login via
+   Google (`signInWithOAuth`, precisa do provider habilitado no painel
+   do Supabase — configuração externa pendente do usuário). Contas
+   continuam podendo ser criadas manualmente também (Supabase Auth +
+   registro em `public.users` via Admin → Usuários, Edge Function
+   `invite-user`) — as duas formas coexistem.
 7. Logout: `auth.logout()` → `supabase.auth.signOut()`.
+8. **Aprovação de acesso**: `public.users.aprovado` (novo, `default
+   true`) — contas criadas por convite de admin já nascem aprovadas;
+   autocadastro e primeiro login via Google nascem com `aprovado =
+   false`, sem acesso a nada além da tela "Aguardando aprovação" até um
+   admin aprovar em Administração → Usuários. Trigger
+   `prevent_self_privilege_escalation` impede um usuário não-admin de
+   mudar a própria coluna `aprovado`/`role_id`/`auth_id` via API direta.
 
 ## 6. Sistema de permissões (RBAC)
 
@@ -198,6 +213,9 @@ geração automática de tipos configurada). Tabelas principais, por domínio:
 - `users` (`DbUser`) — perfil de cada colaborador; `auth_id` vincula ao
   Supabase Auth; carrega jornada de trabalho (`horario_entrada`,
   `horario_saida_almoco`, `horario_retorno_almoco`, `horario_saida`).
+  `aprovado` (novo, 2026-08-31, `default true`) — `false` só pra contas
+  vindas de autocadastro/Google ainda não revisadas por um admin; ver
+  seção 5, item 8.
 - `user_permissions` (`DbUserPermission`) — permissão granular por módulo.
 - `modules` (`DbModule`) — catálogo de módulos (nome, rota, slug,
   categoria, se aparece na sidebar/Home).
@@ -1798,6 +1816,1555 @@ Overview (sem o clique-pra-filtrar, que não faz sentido aqui — não tem
 outra seção pra filtrar). Validado com dado real do Eduardo: 17 chamados
 Produtor / 4 Final, cada um com TFR/TTR próprios.
 
+**Bug real corrigido em 2026-08-24 (mesmo dia, mais tarde) — "Tempo médio
+de 1ª resposta" do bot inflado por um outlier de reabertura:** usuário
+notou o card "Bot (IA Greenn)" mostrando 1min 45s, quando o esperado (por
+achado documentado em 2026-08-18, acima nesta seção) era algo perto de
+15s. Investigação: `tempo_resposta_bot()` calcula `avg(...)`, não
+mediana — apesar do texto de 2026-08-18 já chamar o resultado esperado de
+"mediana real do bot", a função nunca tinha sido implementada assim.
+Com o volume real de dado atual (2028 amostras), a mediana genuína é
+6,5s (p90 7,8s) — mas **um único outlier de 54,7 horas** (`session_
+ae73a52c-...`, cliente "Diogo Alima89") sozinho puxava a média pra 104,5s.
+Causa do outlier: a última mensagem antes de `current_started_at` era do
+próprio cliente ("ok, obrigado."), e a resposta do bot só veio dias
+depois — o mesmo tipo de ambiguidade de "quando uma conversa realmente
+recomeça" já documentado como pendência pro relógio de posse (ver
+"Pendência descoberta em 2026-08-17" nesta seção). Corrigido trocando
+`avg()` por `percentile_cont(0.5)` — resultado real após o fix: 7s.
+Card ganhou tooltips explicando (a) que o valor é mediana, não média, e
+por quê, e (b) por que "Atendimentos" (1261) e "Chamados c/ posse" (1309)
+podem divergir pro bot — mesma lógica já usada no rodapé da tabela de Ranking humano
+("Total de atendimentos" vs. "Chamados c/ posse"), só que o card do bot
+nunca tinha essa explicação. Motivo do
+pedido do usuário: "ninguém é obrigado a adivinhar" — a explicação agora
+fica no próprio produto (hover no rótulo), não só numa conversa com o
+Claude.
+
+**Auditoria em 2026-08-24 (mesmo dia, mais tarde) — usuário pediu pra
+conferir mais alguns números "esquisitos"; todos corretos, nenhum bug
+novo, só falta de explicação na UI (mesmo padrão do item acima):**
+
+1. **Soma de "Total de atendimentos" vs. "Total de chamados"**: usuário
+   somou manualmente as linhas do Ranking (bot + todos os atendentes) e
+   bateu um número bem diferente do KPI do topo em dois testes seguidos
+   (uma vez 3394, depois — já mais cuidadoso — 2097, contra ~1808 do
+   KPI). Verificado buscando os dois ao mesmo instante (`atendente_
+   performance` somado vs. `dashboard_atendimento_summary`): bateram
+   exatamente — soma = total_chamados − chamados sem atendente ainda
+   (1803 = 1808 − 5). A causa das divergências do usuário não era bug de
+   cálculo, era o dado mudando entre uma leitura e outra — confirmado
+   observando o próprio número do bot no card mudar de 1263 pra 1079 pra
+   1265 em poucos minutos, só de tráfego real do n8n. Não deu pra "corrigir"
+   isso (não é bug), mas fica registrado como o motivo mais provável na
+   próxima vez que alguém reportar "os números não fecham".
+2. **`csat_distribuicao_notas()`**: conferido boas+neutras+ruins = total
+   exatamente (sem nota nula sumindo da soma) — função correta.
+3. **"Tempo ativo" muito maior que "Tempo até resolução"**: chamado real
+   da Fernando Machado (`session_9d21a52d-...`) mostrava Tempo até
+   resolução 15h5min mas Tempo ativo 70h5min — parecia inconsistente.
+   Confirmado com `EXPLAIN`/cálculo direto: são as MESMAS 70,09h corridas
+   entre início e resolução, só que "Tempo até resolução" desconta fora de
+   expediente (15,09h úteis) e "Tempo ativo" nunca descontou (é posse,
+   sempre relógio corrido — mesma decisão de projeto de `relogio_posse_
+   periodo`/`relogio_espera_cliente`, ver acima nesta seção). O chamado
+   caiu numa sexta 17h até segunda 15h, atravessando um fim de semana
+   inteiro sem desconto — por isso a diferença ficou tão grande. Não é
+   bug, mas também não tinha explicação nenhuma no popup nem na coluna da
+   tabela — adicionado tooltip nos dois lugares (`AtendimentoDetalheDialog.
+   tsx` e o `<th>` "Tempo ativo" da aba Atendimentos) explicando a
+   diferença de critério.
+
+**Feature nova em 2026-08-24 (mesmo dia, mais tarde) — `formatDuration()`
+ganhou dias/semanas/meses:** pedido direto do usuário depois do achado
+acima — "70h 5min" é bem mais difícil de ler que "2d 22h 5min". Acima de
+24h passou a mostrar dias (+ horas/min, sem segundos — viram ruído nessa
+escala); acima de 7 dias mostra semanas (+ dias, sem horas/min); acima de
+30 dias (aproximação, não acompanha mês corrido) mostra meses (+ semanas).
+Abreviação sempre no singular mesmo pra plural ("2mês", não "2meses"),
+mesmo padrão já usado pra "h"/"min"/"s". Comportamento abaixo de 24h
+**não mudou** (só a faixa acima de 24h é nova). Como `formatDuration` é
+compartilhada por toda a plataforma (seção 12, "nunca reimplementar
+formatação de duração"), o efeito é automático em qualquer tela que
+exiba durações longas (Tempo ativo, posse, backlog, etc.) sem precisar
+tocar em cada uma. Validado em navegador com o mesmo chamado da Fernando
+Machado usado no achado acima: "Tempo ativo" foi de "70h 5min" pra
+"2d 22h 5min", e "Tempo até resolução" (15h5min14s, abaixo de 24h)
+continuou exatamente igual, confirmando que só a faixa longa mudou.
+
+**Bug real corrigido em 2026-08-24 (mesmo dia, mais tarde) — timeline de
+atendentes duplicava segmento e mostrava "ainda ativo" em mais de uma
+pessoa ao mesmo tempo:** usuário reportou (com session_id) um chamado
+mostrando a Ana Paula com DOIS segmentos de posse (12s e 0s) e o Eduardo
+com um terceiro — os três marcados "ainda com o chamado", o que é
+logicamente impossível (só quem tem o chamado agora deveria aparecer
+assim). Causa raiz: tanto `atendimento_timeline()` quanto o Tier A de
+`relogio_posse_periodo()` (mesmo padrão, replicado — ver "Bug de
+segurança" e o fix de O(N²), ambos nesta seção) faziam **um intervalo de
+posse por LINHA CRUA do forward-fill**, em vez de colapsar linhas
+consecutivas que não mudam o operador vigente. Um evento de
+`crisp_conversation_state_history` (ex: NULL→"unresolved", uma transição
+que não é resolução) no meio de uma posse do mesmo atendente criava uma
+linha extra no forward-fill — e como o código gerava um intervalo por
+linha (não por "trecho contínuo do mesmo atendente"), isso duplicava o
+segmento e, pior, cada pedaço espúrio calculava seu próprio "ainda_ativo"
+independentemente, podendo marcar mais de um atendente como ativo ao
+mesmo tempo se os eventos caíssem dentro da mesma janela de 1 minuto
+usada nesse cálculo.
+
+Corrigido nas duas funções com uma segunda passada de gap-and-island:
+depois do forward-fill (que já estava correto), agrupa linhas
+consecutivas que não mudam nem o operador vigente nem "está resolvido"
+(`coalesce(estado_vigente = 'resolved', false) is distinct from
+coalesce(lag(...) = 'resolved', false)` — o `coalesce` é necessário
+porque sem ele `NULL IS DISTINCT FROM false` dá `true`, quebrando o
+agrupamento logo no primeiro evento de estado de qualquer conversa nova,
+erro que eu mesmo cometi na primeira tentativa desse fix e só peguei
+testando de novo antes de considerar resolvido). Cada grupo colapsado
+vira UM intervalo (início = primeiro evento do grupo, fim = início do
+próximo grupo ou agora). Validado: o chamado reportado passou de 3
+segmentos (Ana Paula 12s + Ana Paula 0s + Eduardo "ativo") pra 2 corretos
+(Ana Paula única, Eduardo "ativo" — só ele). Revalidado também o caso de
+estresse já conhecido (Paulo Lucena, 16-18 handoffs reais) pra garantir
+que o colapso não afeta segmentos que são trocas de operador de verdade:
+continuou com 17 segmentos e exatamente 1 "ainda_ativo", soma de minutos
+consistente com antes do fix. Os totais agregados de
+`relogio_posse_periodo()` (soma de minutos/conversas por atendente) não
+mudaram de forma anômala — pequenas variações batem com ~15min de
+tráfego real do n8n entre uma consulta e outra, não com perda ou
+duplicação de dado (segmentos espúrios eram contíguos do mesmo atendente,
+então a SOMA de duração já estava certa antes; o que estava errado era
+só a quantidade de linhas exibidas e o "ainda_ativo" por linha).
+
+**Feature nova em 2026-08-25 — filtro de Atendente na aba Atendimentos do
+Overview virou multi-seleção:** pedido do usuário. `atendimentos_com_
+metricas()` tinha `p_atendente_nome text` (um nome só); trocado por
+`p_atendente_nomes text[]`, filtro virou `nome_canonico_por_operator_id(...)
+= any(p_atendente_nomes)` (união, não interseção — mostra chamados de
+QUALQUER um dos selecionados). Mudança de assinatura exigiu o
+`DROP FUNCTION` explícito de sempre antes do `CREATE` (mesmo problema de
+sobrecarga-fantasma, ver primeira ocorrência nesta seção) — confirmado 1
+versão só depois. Validado com 3 chamadas reais (1 nome, 2 nomes, sem
+filtro): 279 / 312 / 2188 chamados respectivamente — 312 > 279 confirma
+que é união de verdade, não os dois nomes se anulando nem filtrando por
+interseção (que teria dado 0, já que ninguém é os dois atendentes ao
+mesmo tempo).
+
+Frontend: estado local trocou de `atendenteNome: string` (usePersistedState
+`overview:atendenteNome`) pra `atendenteNomes: string[]` (chave nova
+`overview:atendenteNomes` — deliberadamente uma chave diferente, não
+reaproveitada, pra evitar o localStorage antigo guardando uma STRING
+solta ser lido como se fosse array e quebrar de forma silenciosa). UI: o
+`<select>` único virou uma lista de checkboxes rolável (`max-h-40
+overflow-y-auto`) dentro do mesmo popover "Filtros", com contador
+"Atendentes (N)" e um link "Limpar". Outros dois call-sites de
+`fetchAtendimentosComMetricas` que usavam nome único (o popup "Chamados
+de {atendente}" da Ranking/bot, e o filtro — esse sim continua
+single-select de propósito, não fazia parte do pedido — da tela Em
+Risco) foram adaptados só envolvendo o nome num array de 1 item, sem
+mudar comportamento nenhum deles.
+
+**Nota de teste (não é bug, é sobre a ferramenta de automação):**
+validar checkbox via `dispatchEvent(new Event('change'))` depois de setar
+`.checked` pelo setter nativo **não** disparou o `onChange` do React
+nesta tela — o estado ficava visualmente marcado no DOM mas
+`atendenteNomes` no React continuava `[]`. Só funcionou com um clique de
+verdade (via `computer` tool). Registrado aqui só como lembrete pra quem
+for testar checkbox controlado por React nesta base no futuro — não
+mexi em nada do componente por causa disso, o componente está correto.
+
+**Feature nova em 2026-08-25 — filtro de Atendente passou a existir também
+na aba Dashboard do Overview (antes só em Atendimentos):** pedido direto
+do usuário. O checkbox list de "Atendentes" saiu de dentro do branch
+`aba === "atendimentos"` do popover "Filtros" e virou uma seção
+compartilhada (renderizada sempre, antes do `{aba === "ranking" ? ... :
+...}`), com uma nota explicando que no Dashboard ele filtra a página
+inteira. `atendenteNomes` já era um estado único no nível da página (não
+por aba), então não precisou de estado novo — só de expor o mesmo
+controle visualmente nos dois lugares. Botão "Filtros" com destaque
+visual (`border-forest-300`) passou a acender por `atendenteNomes.length
+> 0` incondicional (antes só considerava isso quando `aba ===
+"atendimentos"`).
+
+Duas famílias de dado por trás do Dashboard, tratadas diferente:
+- **`atendente_performance` (Ranking) e `relogio_posse_periodo` (gráfico
+  "Posse por atendente humano")**: já retornam uma linha por atendente —
+  filtrado **no cliente** (`rankingHumano`/`posseFiltrada`, dois `useMemo`
+  novos), sem tocar SQL nenhum. Mais simples e mais barato que reescrever
+  as funções, e o resultado é idêntico a filtrar no banco já que as duas
+  só agregam por atendente mesmo.
+- **`tfr_ttr_percentis` (Velocidade), `backlog_por_idade` (Backlog),
+  `reabertura_resumo`/`reabertura_casos`, `transferencias_resumo`/
+  `transferencias_casos`, `fcr_recontato_resumo`/`recontato_casos`,
+  `metricas_por_tipo_cliente` (Por tipo de cliente)**: essas agregam o
+  time inteiro num número só, então precisavam de filtro real no banco.
+  As 5 que já tinham `p_atendente_nome text` (usado até então só pelo Meu
+  Painel, pra auto-visualização) tiveram a assinatura trocada pra
+  `p_atendente_nomes text[]`, mesmo padrão `= any(...)` já usado em
+  `atendimentos_com_metricas` (ver acima nesta seção); as 3 variantes
+  `_casos` (`reabertura_casos`, `transferencias_casos`, `recontato_casos`)
+  não tinham NENHUM filtro de atendente até então (usadas só com
+  `is_admin()` puro) — ganharam o parâmetro novo do zero. Todas as 8
+  passaram pelo `DROP FUNCTION` explícito de sempre (mesma
+  sobrecarga-fantasma de sempre) — confirmado 1 versão de cada no fim.
+  `backlog_por_idade` também converteu seu `p_atendente_nome` existente,
+  mesmo não sendo escopada por período (é sempre "backlog atual").
+
+Segurança preservada: as 5 funções com o guard de auto-acesso pro Meu
+Painel (`is_admin() or (p_atendente_nome is not null and p_atendente_nome
+= nome do usuário logado)`) viraram `is_admin() or (p_atendente_nomes is
+not null and array_length(p_atendente_nomes,1) = 1 and
+p_atendente_nomes[1] = nome do usuário logado)` — um colaborador sem
+`is_admin()` só consegue passar um array de exatamente 1 elemento igual
+ao próprio nome; um array com o próprio nome + outro nome misturado (na
+tentativa de ver dado de terceiro) cai fora da condição e a função não
+retorna nada, igual antes só aceitava exatamente o próprio nome sozinho.
+`src/pages/MeuPainel.tsx` (5 call-sites) só precisou envolver
+`user!.nome` num array de 1 item — nenhuma mudança de comportamento lá.
+
+Validação: como a conexão MCP não tem JWT real (`is_admin()` sempre
+falso por ali, ver nota de sessões anteriores), a comparação
+antes/depois foi feita pela sessão autenticada real do navegador
+(`supabase.rpc(...)` via `javascript_tool`), capturando um baseline com
+as funções antigas (ainda não substituídas) e comparando com as novas
+depois do deploy. A maioria bateu exato; algumas (`tfr_vittor`,
+`transferencias_vittor`, `backlog_vittor`) divergiram por ±1 registro —
+investigado e confirmado ser **drift real de dado ao vivo** entre as duas
+chamadas (segundos de diferença, sistema em produção com conversas sendo
+atendidas de verdade), não bug: reforçado com uma comparação **no mesmo
+snapshot** (uma única query SQL aplicando o predicado antigo
+`= 'nome'` e o novo `= any(array['nome'])` lado a lado sobre a mesma
+leitura de `crisp_conversations`) que deu 0 divergências pra 1 e 2 nomes.
+
+**Bug real encontrado e corrigido durante a validação**: `transferencias_
+casos` (a lista de casos por trás do card "Transferências") só filtrava
+pela origem (`previous_operator_crisp_id`), mas `transferencias_resumo`
+(o card com o número "X eventos" acima da lista) sempre exigiu **origem E
+operador atual da conversa** batendem com o filtro (dupla condição já
+pré-existente antes desta sessão, dentro do join dá `conversas` com
+`eventos_humanos`) — resultado: filtrando por "Vittor" o resumo mostrava
+"14 eventos" mas a lista expandida mostraria 119 linhas (todo handoff que
+já teve Vittor como origem alguma vez, não só os que ele ainda segura).
+Corrigido replicando a mesma condição dupla em `transferencias_casos`;
+revalidado no navegador, resumo e lista batem exato (14 = 14). A
+narrowness da definição original de `transferencias_resumo` (só contar
+transferência se o chamado ainda estiver com quem transferiu, o que é
+raro) não foi alterada — fora de escopo redesenhar essa métrica agora,
+só garantir que a lista e o resumo nunca divirjam entre si.
+
+Mesma checagem repetida por precaução em `backlog_casos` (a lista por
+trás do popup que abre ao clicar num card de faixa do Backlog, ex: "0-1
+dia") — essa função também já existia sem filtro de atendente nenhum
+(só `is_admin()`), então clicar num card já filtrado por Vittor abriria
+um popup com TODOS os 326 chamados da faixa, não só os 31 dele. Corrigida
+com o mesmo `p_atendente_nome text → p_atendente_nomes text[]` +
+`= any(...)`. Validado no navegador: card "0-1 dia" mostrou 31 com Vittor
+selecionado, popup abriu com "31 chamados" no rodapé de paginação e as
+15 linhas da 1ª página todas com "Vittor Fernandes" na coluna Atendente.
+
+**Deliberadamente fora do filtro por atendente no Dashboard** (ficam
+sempre agregados do time inteiro, mesmo com atendentes selecionados):
+`motivo_contato_resumo` (Motivo de contato), `relogio_espera_cliente`
+(Relógio de espera do cliente), `minutos_uteis_entre_time`/
+`fetchHorasExpedientePeriodo` (Relógio de trabalho ativo — é "cobertura
+do time", filtrar por pessoa mudaria o que o número representa),
+`csat_distribuicao_notas` (CSAT usa identidade por e-mail, sistema de
+reconciliação separado de `operator_crisp_id` — ver decisão arquitetural
+já documentada nesta seção), `contagem_periodo` e `tempo_resposta_bot`
+(sobre o bot, filtro de atendente humano não se aplica). Não é
+esquecimento — decisão consciente de escopo pra não estourar o tamanho
+da mudança; registrado aqui pra não parecer bug numa auditoria futura.
+
+Validado em navegador de ponta a ponta: com "Vittor Fernandes"
+selecionado, Ranking mostrou só a linha dele (290 atendimentos, 42
+reaberturas, 14 transferências — bateu com os números validados via
+RPC), "Volume de atendimentos por pessoa" mostrou só "Vittor: 290",
+Velocidade saiu de "Sem amostras" pra TFR/TTR reais (289 amostras),
+Backlog mudou de 1625 pra 62 chamados em aberto, Reabertura mostrou
+227/42/54 (bate exato com a chamada RPC direta). Trocar pra aba
+Atendimentos manteve a mesma seleção (estado compartilhado, como
+esperado) e o popover lá continuou mostrando só canal/tipo de
+cliente/motivo além de Atendentes — sem o select "Tipo de cliente (seção
+'Por tipo de cliente')" duplicado do Dashboard.
+
+**Achado em 2026-08-25 — por que a soma dos trechos de "Atendentes que
+passaram por esse chamado" pode ficar menor que "Tempo até resolução":**
+usuário estranhou um chamado real (`session_88219c50-...`) com o Vittor
+aparecendo DUAS vezes na lista de atendentes, e o total de resolução 12s
+maior que a soma visível dos trechos. Investigado com os eventos brutos
+(`operator_routing_history`/`crisp_conversation_state_history`): não é
+bug, são dois fenômenos genuínos e distintos, ambos consequência direta
+de decisões já documentadas nesta seção:
+1. **Vittor duas vezes** — o chamado foi resolvido (`first_resolved_at`)
+   e reaberto 3s depois (`reopened_count = 1`) antes de resolver de novo
+   (`resolved_at`), sem trocar de atendente. `atendimento_timeline()`
+   corta o trecho na fronteira de resolução mesmo quando o operador é o
+   mesmo dos dois lados — comportamento intencional do fix de
+   2026-08-24 (ver acima nesta seção), que existe exatamente pra não
+   esconder que o chamado reabriu.
+2. **12s de diferença** — o chamado nasceu (`current_started_at`) ~12s
+   antes do 1º roteamento pra um humano (ainda sem atendente, só
+   pending/com o bot); esse intervalo não aparece em nenhum trecho da
+   lista mas conta em "Tempo até resolução" (que é sempre do início real
+   ao fim real). Achou-se também um segundo gap menor (~3s) durante a
+   janela resolvido→reaberto do item 1, mesmo motivo.
+
+Primeira correção foi um `title` (tooltip) estático no rótulo "Atendentes
+que passaram por esse chamado" explicando os dois casos em prosa. Usuário
+auditou mais 2 chamados reais no mesmo dia (`session_74efd17a-...`,
+gap de 8min56s de fila + 4min12s resolvido-aguardando-reabertura;
+`session_96e21498-...`, só 2min6s de fila, sem reabertura) e perguntou se
+dava pra "remover o gap" em vez de só explicar por tooltip — decisão:
+melhor que tooltip genérico é mostrar o gap como uma LINHA própria na
+lista, com a duração real desse chamado específico, então a soma bate
+visualmente sem precisar calcular nada.
+
+**Feature nova em 2026-08-25 (mesmo dia) — `atendimento_timeline()` passou
+a devolver os trechos sem atendente, não só os com atendente:** função
+reescrita — `intervalos_a` (Tier A, o de melhor fidelidade) ganhou duas
+correções estruturais antes de virar `runs_a`/`gaps_a`: (1) o `inicio` do
+1º intervalo agora é `least(inicio, current_started_at)` — o chamado pode
+ter nascido alguns segundos antes do 1º evento registrado (ex:
+`current_started_at` 18:11:38.446 vs. 1º evento de estado 18:11:43.518 —
+5s que ficavam de fora antes); (2) o `fim` de todo intervalo agora é
+capado em `coalesce(resolved_at, now())` — sem isso, o trecho "resolvido"
+final de um chamado que nunca reabre cresceria pra sempre em direção a
+"agora" toda vez que o popup fosse reaberto, o que seria um gap falso (o
+chamado está fechado, não "aguardando" nada). `runs_a` (que já existia,
+filtra pra fora null-operador/resolvido) ganhou uma irmã `gaps_a` com a
+condição exatamente complementar — juntas as duas cobrem 100% dos
+intervalos, sem sobra nem buraco. Cada linha ganhou uma coluna nova
+`tipo`: `'atendente'` (posse real, como antes), `'fila'` (ainda sem
+roteamento pra humano) ou `'resolvido'` (marcado resolvido, aguardando
+reabertura ou fim real) — `atendente` vem `null` nos dois últimos casos.
+Tier B (só roteamento, sem histórico de estado — dado mais antigo) ganhou
+uma versão simplificada só do gap de fila (`gap_b`, antes do 1º evento de
+roteamento) — não dá pra detectar o gap de "resolvido" nessa tier por
+faltar o histórico de estado. Tier C (sem roteamento nenhum, fallback por
+mensagem) não ganhou gap nenhum — já é a aproximação mais fraca, não
+compensa a complexidade. Mudança de `RETURNS TABLE` (coluna nova) exigiu
+o `DROP FUNCTION` de sempre antes do `CREATE`.
+
+`tempo_ativo_seg` em `atendimentos_com_metricas()` (que chama
+`atendimento_timeline()` internamente e soma só os trechos do atendente
+da linha via `filter (where at.atendente = c.operator_nome_exibicao)`)
+não precisou de nenhuma mudança — `atendente = null` nunca bate numa
+comparação de igualdade em SQL, então os trechos de gap já ficam fora da
+soma automaticamente pela própria semântica de `NULL`. Validado mesmo
+assim: `session_96e21498-...` continuou com `tempo_ativo_seg = 618`
+(10min18s da Amanda) depois do deploy, idêntico a antes.
+
+Frontend: `AtendimentoDetalheDialog.tsx` ganhou `labelDoTrecho()`/
+`aindaAtivoDoTrecho()` (mapeiam `tipo` pro texto certo — "Sem atendente
+(fila)" / "Sem atendente (resolvido, aguardando reabertura)") e estilo
+diferenciado pras linhas de gap (`border-dashed` + itálico + texto mais
+apagado) pra não parecer atendente de verdade na lista. O tooltip
+estático do rótulo da seção foi removido — não faz mais sentido explicar
+"a soma pode ficar menor" quando a soma agora inclui os gaps e sempre
+bate.
+
+Validado nos 3 chamados reais desta conversa via `supabase.rpc(...)` no
+console do navegador (sessão admin real): a soma de todos os trechos
+(atendente + fila + resolvido) reconcilia com `resolved_at -
+current_started_at` em cada um, com diferença residual de 0,3–4,7s —
+inteiramente explicada pelo arredondamento de exibição já conhecido
+(`round(minutos_posse::numeric,1)`, granularidade de 6s), não um erro
+novo. Revalidado também em navegador de verdade abrindo o popup do
+chamado "Mr Carneiro" (`session_74efd17a-...`): as 5 linhas (fila 8min54s
+→ Amanda 6s → resolvido 4min12s → Amanda 0s → Vittor 2min6s) aparecem na
+ordem certa, com as 2 linhas de gap visualmente tracejadas/apagadas.
+
+**Fix aplicado em 2026-08-25 (mesmo dia, logo em seguida) — arredondamento
+duplo em `atendimento_timeline()` removido:** usuário achou mais um
+chamado real (`session_a507c67c-...`, "Felipe Bertaggi") onde a soma das
+3 linhas exibidas (12s + 1min30s + 6s = 1min48s) ainda ficava 3s abaixo
+de "Tempo até resolução" (1min51s), mesmo já com os gaps virando linhas
+explícitas. Causa: a função arredondava `minutos_posse` pra 1 casa decimal
+(`round(...,1)`, granularidade de 6 segundos) **antes** de devolver pro
+frontend, que arredonda de novo (`formatDuration`, segundo a segundo) —
+dois arredondamentos em granularidades diferentes empilhados, cada linha
+podendo perder até ~3s. Removido o `round(...,1)` da função (última linha
+do `SELECT` final) — `minutos_posse` agora sai com precisão completa, e
+quem arredonda pra exibição é só o `formatDuration()` do frontend, uma
+vez só. Revalidado nos 4 chamados reais desta conversa: a soma **bruta**
+(sem nenhum arredondamento) bate exata com `resolved_at -
+current_started_at` nos 4 (diferença 0.00s, contra até 4.7s antes); a
+soma dos valores **exibidos** (cada um já arredondado ao segundo mais
+próximo) caiu pra no máximo ~1.7s de diferença — o mínimo matematicamente
+possível ao somar números já arredondados individualmente, não mais um
+sinal de dado faltando. Chamado do Felipe revalidado no popup real:
+trocou de "12s / 1min 30s / 6s" (somava 1min48s) pra "11s / 1min 32s /
+8s" (soma 1min51s, bate exato).
+
+**Bug sistêmico encontrado e corrigido em 2026-08-25/26 — evento de um
+ciclo anterior do mesmo `crisp_id` vazava pro cálculo do ciclo atual, em
+5 funções:** pedido do usuário pra auditar mais chamados e confirmar que
+o fix acima realmente fechava a conta. Rodei uma auditoria de 400
+chamados reais (últimos 60 dias) comparando a soma bruta dos trechos de
+`atendimento_timeline()` contra `resolved_at - current_started_at` —
+achado: 97,5% batia dentro de 1s, mas a média do erro absoluto era
+**2587s (43min)** e o pior caso **425713s (4,9 dias)**, escondido atrás
+da média de "dentro de 1s" parecer boa.
+
+Causa raiz: o mesmo `crisp_id` do Crisp pode ser reaproveitado em ciclos
+bem separados no tempo — um chamado resolve, fica dormente, o cliente
+manda mensagem nova dias/semanas depois, `current_started_at` avança pro
+início desse novo ciclo — mas `operator_routing_history`/
+`crisp_conversation_state_history`/`crisp_messages` continuam guardando
+os eventos do ciclo ANTERIOR pra sempre, sem nenhum marcador de "isso
+aqui já era outro ciclo". `atendimento_timeline()` (e as 4 funções
+irmãs abaixo) liam esses eventos só filtrando por `session_id`, sem piso
+nenhum — um evento de 5 dias atrás virava "o operador atual" ou inflava
+um gap, multiplicando o erro por 400+ vezes o tamanho real do chamado.
+Prevalência real (60 dias, 2456 conversas): 19 com evento de roteamento
+vazado, 59 com evento de estado vazado — raro (~1-2%), mas cada caso
+inflava um card em horas ou dias.
+
+Primeira tentativa de fix (`event_at >= current_started_at` cru) resolveu
+os casos óbvios mas criou um falso positivo: um chamado real
+(`session_660bb833-...`) tinha seu evento de roteamento genuíno ~18min
+ANTES de `current_started_at` (atraso de pipeline no MESMO ciclo, sem
+nenhuma resolução no meio) — o corte cru descartava esse roteamento
+legítimo, derrubando o chamado de Tier A pra Tier C (fallback por
+mensagem, sem o mesmo rigor). Investigando a distribuição real de "quantos
+minutos antes de current_started_at" um evento vazado aparece, achei uma
+separação limpa: casos legítimos de atraso ficam todos abaixo de ~18min;
+todo caso confirmadamente de ciclo anterior tem, sem exceção, um evento
+`state = 'resolved'` real ANTES do vazamento (a prova de que aquele
+ciclo já tinha fechado) — inclusive um caso de 92min que só bateu com
+essa regra (não com um corte por tempo fixo).
+
+Fix definitivo, **`piso_ciclo`**: só corta evento anterior a
+`current_started_at` se existir um `'resolved'` real antes dele (prova
+de ciclo fechado); sem esse marcador, é só atraso de pipeline no mesmo
+ciclo e nada é cortado. Aplicado como CTE em todas as 5 funções que leem
+`operator_routing_history`/`crisp_conversation_state_history` por
+`session_id`: `atendimento_timeline`, `relogio_posse_periodo`,
+`relogio_espera_cliente`, `transferencias_resumo`, `transferencias_casos`.
+
+Ainda faltava um segundo ajuste em `atendimento_timeline()`: o 1º
+intervalo (depois do `piso_ciclo`) tinha o início preso em
+`current_started_at` só quando esse intervalo sobrevivia ao filtro
+`fim > início` — mas um intervalo "fila" residual de poucos segundos
+(sobra de atraso de pipeline, não ciclo antigo) tinha seu `fim` ANTES de
+`current_started_at`, então era descartado pelo filtro, e o intervalo
+seguinte (o do atendente de verdade) virava o novo 1º sobrevivente sem
+nunca receber o clamp. Corrigido calculando `fim` de todo intervalo
+primeiro, descartando os que terminam inteiramente antes de
+`current_started_at`, e só then prendendo o início do novo 1º
+sobrevivente — mesma técnica replicada em `relogio_posse_periodo`
+(particionada por `session_id`, já que essa função agrega muitas
+conversas de uma vez, não uma só).
+
+Validado com uma função de debug temporária (`security definer`, dropada
+depois) rodando a mesma auditoria de 400 chamados: Tier A foi de "97,5%
+dentro de 1s, média de erro 2587s" pra **100% dentro de 1s, média de erro
+0,00s, pior caso 0,00s** — reconciliação exata nos 364 chamados Tier A da
+amostra. Tier C (sem histórico de roteamento, fallback só por mensagem —
+dado anterior à instalação do plugin) continua com erro grande por
+design, decisão de escopo já documentada (não ganhou tratamento de gap
+nem de `piso_ciclo` — é a aproximação mais fraca, não compensa a
+complexidade pra dado que só existe antes de 2026-08-18).
+
+Sanity-check nas outras 4 funções após o fix: `relogio_posse_periodo`,
+`relogio_espera_cliente`, `transferencias_resumo`/`transferencias_casos`
+rodam sem erro e devolvem número em faixa plausível. O card "Bot (IA
+Greenn)" mostrando centenas de milhares de minutos de posse numa janela
+larga (60 dias) **não é regressão desta correção** — é o mesmo fenômeno
+já documentado (seção 10, achado de 2026-08-18: a conta real
+`b8b993a0-.../allan@gdigital.com.br` acumula posse de muitos chamados
+ainda `pending` nunca retomados por um humano) — como o `piso_ciclo` só
+EXCLUI evento (nunca inclui mais do que antes) e o clamp só ENCURTA o 1º
+trecho, o fix é matematicamente incapaz de aumentar posse de qualquer
+chamado; se o número parece grande, já era pelo menos tão grande antes.
+Como o banco foi zerado em 2026-08-18 (ver seção 10) e há só ~8 dias de
+dado real acumulado, uma janela de 30 ou 60 dias captura o dataset
+inteiro por igual — por isso os dois deram o mesmo resultado no teste,
+não é bug de filtro de data.
+
+**Bug encontrado em 2026-08-26 — "duas Amanda" no filtro de Atendentes:**
+usuário notou o checklist de Atendentes (Filtros do Overview) mostrando
+"Amanda" e "Amanda Felix" como duas pessoas separadas. Causa: mesmo
+`operator_crisp_id` (`2c2aec92-...`) mas `crisp_conversations.operator_nome`
+gravado de forma inconsistente pelo n8n — 47 linhas como `"Amanda"`, 2
+como `"Amanda Felix"` — e como `operator_id_aliases` nunca tinha ganhado
+uma linha pra esse ID (pendência já registrada em 2026-08-24, nunca
+concluída), `nome_canonico_por_operator_id()` cai no fallback (`coalesce(
+alias, nome_bruto_da_linha)`) e devolve os dois valores brutos como se
+fossem atendentes diferentes. Corrigido com o mesmo mecanismo de sempre:
+`insert into operator_id_aliases (operator_crisp_id, nome_canonico)
+values ('2c2aec92-...', 'Amanda Felix')`. Validado via `distinct_
+atendentes_canonico()` no navegador: só "Amanda Felix" aparece agora.
+
+Discutido com o usuário um fix estrutural pra essa categoria inteira de
+bug (não só a Amanda — qualquer atendente sem alias ainda fica exposto a
+`operator_nome` inconsistente): puxar periodicamente a lista de
+operadores da API do Crisp (`GET /v1/website/{website_id}/operators/list`,
+mesmo endpoint/autenticação por Plugin Token usado pra popular
+`operator_id_aliases` pra o time inteiro em 2026-08-18 — ver seção 10
+acima) e fazer upsert em `operator_id_aliases` a partir do nome oficial
+cadastrado no Crisp, não do texto solto de `operator_nome` por
+mensagem/conversa. Isso pegaria automaticamente operador novo (nome
+completo desde o 1º dia) e corrigiria inconsistência de nome sem precisar
+de alias manual um por um. Usuário optou por n8n (workflow "Request de
+users no Crisp"): `Schedule Trigger → HTTP Request (GET operators/list na
+Crisp) → Split Out (campo "data") → HTTP Request (POST pro PostgREST do
+Supabase, `/rest/v1/operator_id_aliases`, com header `Prefer:
+resolution=merge-duplicates` pra fazer upsert em vez de só insert — PATCH
+foi cogitado e descartado, porque não cria linha nova pra operador que
+ainda não tem alias, só atualiza existente).
+
+Nesse mesmo lote, `operator_id_aliases` ganhou uma coluna `email text`
+(`alter table ... add column`, sem dado ainda) — pedido do usuário pra
+esse cron também gravar o e-mail do operador vindo da Crisp, não só nome.
+Sem RLS nova (política de tabela já existente cobre a coluna, RLS é por
+linha não por coluna).
+
+**Cron confirmado funcionando em 2026-08-26**: usuário montou e rodou o
+fluxo (`Schedule Trigger` 7h → `HTTP Request` GET na Crisp → node `Code`
+mapeando `operador.details.user_id`/`first_name`/`last_name`/`email`
+— campos vêm aninhados dentro de `details`, não no nível raiz do item,
+por isso o primeiro teste tinha dado tudo vazio → `HTTP Request` POST pro
+Supabase). 1ª rodada gravou uma linha lixo (`operator_crisp_id` vazio,
+nome só espaço em branco) por causa do mapeamento errado de campo —
+apagada depois de corrigido. 2ª rodada funcionou e revelou dois problemas
+reais:
+1. **`Prefer: resolution=merge-duplicates` sobrescrevia `nome_canonico`
+   sem condição** — um alias corrigido à mão (ex: "Rafael Wisch") virava
+   o valor cru da Crisp de novo (`"rafael wisch"`) a cada rodada do cron.
+2. **Operador novo real, mas nome errado**: apareceu um `operator_crisp_id`
+   nunca visto antes (`69f58226-...`) com `email = eduardo.nicolau@greenn.
+   com.br` mas `nome_canonico = "Eduardo Pereira"` — confirmado com o
+   usuário que é uma segunda conta Crisp dele mesmo (Eduardo Nicolau),
+   só com nome errado cadastrado na Crisp. Corrigido manualmente
+   (`update ... set nome_canonico = 'Eduardo Nicolau'`).
+
+Item 2 só foi possível notar por causa da coluna `email` nova — sem ela,
+"Eduardo Pereira" pareceria só mais um nome cru qualquer, não um alerta
+de possível duplicata de identidade.
+
+Fix estrutural pro item 1: criada `public.upsert_operator_alias(
+operator_crisp_id text, nome_canonico text, email text default null)`
+— mesmo nome dos parâmetros que as chaves do JSON body que o n8n já
+mandava, de propósito, pra trocar só a URL no node HTTP Request de POST
+sem precisar mexer no body. Faz `insert ... on conflict (operator_crisp_id)
+do update set nome_canonico = coalesce(atual, novo), email = coalesce(
+atual, novo)` — só preenche campo vazio, nunca sobrescreve alias já
+corrigido à mão. Validado com chamadas isoladas (id fake, apagado depois):
+confirmado que um 2º upsert com nome/e-mail diferentes NÃO altera uma
+linha que já tinha valor, e QUE preenche quando o campo estava null.
+Node de POST do n8n precisa trocar a URL de `/rest/v1/operator_id_aliases`
+pra `/rest/v1/rpc/upsert_operator_alias` (body continua igual).
+
+**Achado em 2026-08-26 (mesmo dia) — cards "Por tipo de cliente" com
+"chamados" maior que as amostras do card de Velocidade, não é bug:**
+usuário estranhou "Final: 33 chamados" só que TTR "—" e o card geral de
+Velocidade mostrando só "13 amostras" no mesmo período. Confirmado com
+RPC real: `metricas_por_tipo_cliente()` conta **todo** chamado com aquela
+tag (`count(*)` em `chamados`), tenha ou não TFR/TTR calculado; `tfr_ttr_
+percentis()` só conta quem já tem o valor de verdade (`count(tfr_seg)`).
+No período testado: 48 chamados no total, 38 com `tipo_cliente` (33
+Final + 5 Produtor), só 13 já com resposta humana — cedo no dia, fila
+grande. Números batem exatos, só faltava explicação na UI. Adicionado
+`title` (tooltip) em "{N} chamados" e em "TTR médio" de cada card, mais
+uma frase na nota de rodapé da seção — mesmo padrão já usado no resto da
+página pra esse tipo de "número que parece não bater".
+
+**Feature nova em 2026-08-26 (mesmo dia) — cards "Por tipo de cliente"
+ganharam bucket "Sem tipo"; "Motivo de contato" ganhou Top 3 clicável +
+tabela ordenável:**
+
+1. `metricas_por_tipo_cliente()` reescrita: antes excluía de propósito
+   todo chamado com `tipo_cliente is null` (`base` filtrava isso fora) —
+   agora esses chamados viram um card **"Sem tipo"** (sempre por último,
+   `order by (tipo = 'Sem tipo'), chamados desc`) em vez de simplesmente
+   sumir sem explicação. Cuidado na reescrita: trocar o `unnest` normal
+   (que descarta a linha inteira quando `tipo_cliente` é null/vazio, já
+   que `unnest(null)`/`unnest('{}')` não produz nenhuma linha) por
+   `left join lateral ... on true`, e usar `not exists` pra só cair em
+   "Sem tipo" quando o chamado não tem NENHUMA tag de verdade — evita
+   contar um chamado como "Sem tipo" só por causa de uma vírgula sobrando
+   no fim de `tipo_cliente` (ex: `"Final,"` já produz um elemento vazio
+   no meio das tags reais via `string_to_array`).
+2. `HorizontalBarChart` (`src/components/ui/BarChart.tsx`) ganhou
+   `onBarClick`/`isSelected` opcionais — clique na linha, destaque visual
+   (`ring-forest-300`), sem quebrar nenhum uso existente do componente
+   (props opcionais). Primeiro uso: "Motivo de contato" — Top 8 virou
+   **Top 3**, clicável (clica de novo pra limpar, ou botão "Limpar"),
+   filtra a tabela de tópicos abaixo pra só aquele tópico. Tabela ganhou
+   `SortableHeader` nas 3 colunas numéricas (Chamados/TFR médio/TTR médio),
+   client-side (`motivosOrdenados`, mesmo padrão de `rankingOrdenado`) —
+   já vem tudo carregado de uma vez, sem paginação, então não precisa de
+   parâmetro novo em `motivo_contato_resumo()`.
+
+**Ajuste em 2026-08-26 (mesmo dia) — cap padrão das listas "Ver mais" do
+Dashboard reduzido de 10 pra 4:** usuário achou as listas de casos
+(Transferências, FCR/Recontato, Motivo de contato) grandes demais por
+padrão. Trocado `slice(0, 10)`/`length > 10`/`Ver mais (N - 10)` por
+`slice(0, 4)`/`length > 4`/`Ver mais (N - 4)` nas 3 (Reabertura já tinha
+sido reduzida antes, no mesmo pedido de filtro atendente/reaberto — ver
+acima). Ranking de atendentes ficou de fora de propósito (pedido
+explícito do usuário, "menos na de atendentes") — continua sem paginação,
+mostra todo mundo sempre.
+
+**Correção em 2026-08-27 — filtro de Atendente do Dashboard passou a
+valer pra TUDO, não só pros cards já cobertos:** usuário testou
+selecionando "Ana Clara" (sem atividade no período) e viu "Total de
+chamados"/"Total de mensagens" continuarem com o número do time inteiro
+— pedido explícito: "com o filtro aplicado ele deve refletir na página
+toda... tudo!". Estendido `p_atendente_nomes text[]` (mesmo padrão
+`= any(...)`, `DROP FUNCTION` de sempre) em mais 5 funções:
+- `contagem_periodo` ("Total de chamados"/"Total de mensagens").
+- `motivo_contato_resumo` ("Motivo de contato").
+- `relogio_espera_cliente` ("Relógio de espera do cliente").
+- `csat_distribuicao_notas` — caso especial: CSAT é reconciliado por
+  **e-mail** (`csat_results.email_atendente`), não por
+  `operator_crisp_id` (decisão arquitetural já documentada, seção 21) —
+  filtrar por nome canônico exigiu traduzir nome → e-mail via
+  `operator_id_aliases.email` (populada pelo cron novo desta mesma
+  sessão) antes de comparar com `normalizar_email_atendente(email_
+  atendente)`. Só funciona pra quem já tem e-mail cadastrado no alias;
+  sem isso, filtrar por essa pessoa dá 0 CSAT (correto/honesto — não tem
+  como saber o e-mail dela — em vez de mostrar o time inteiro sem avisar).
+- `minutos_uteis_entre_time` ("Relógio de trabalho ativo") — o mais
+  delicado: essa função lê de `cobertura_semanal`, uma tabela-cache
+  pré-computada pro time INTEIRO (criada em 2026-08-24 especificamente
+  pra evitar recalcular o cross-join de horários a cada chamada). Filtrar
+  por pessoa não pode usar essa cache (ela já vem agregada, sem separar
+  por indivíduo) — a função ganhou um segundo caminho que recalcula a
+  união na hora só pras pessoas selecionadas (poucas linhas, não compensa
+  cache por combinação de pessoas possível; sem filtro continua no
+  caminho rápido de sempre, validado que `minutos_entre()` — que chama
+  essa função internamente sem passar o novo parâmetro — continua batendo
+  exato com a chamada direta). O plantão fixo de sábado (08h-12h, não
+  rastreável por pessoa — depende de `escala_sabado`, tabela separada)
+  só entra na versão sem filtro; filtrado, mostra só a jornada de
+  segunda-sexta de quem foi selecionado. Validado: Vittor Fernandes
+  (07h-16h, almoço 10:30-11:30 = 8h/dia úteis) deu exatamente 960min em 2
+  dias (8h × 2 × 60), batendo com o horário cadastrado dele.
+
+Todas as 5 validadas com Ana Clara (sem atividade): todas foram a
+zero/vazio, confirmado também que atendente com atividade real
+(Vittor) continua retornando números não-zero — não é um filtro que
+zera tudo incondicionalmente.
+
+**Bug real encontrado e corrigido no mesmo lote — `conversas_evolucao()`
+(gráfico "Evolução diária de conversas" da Home) agrupava por dia em UTC,
+não em horário de Brasília, gerando um total diferente do resto do app
+pro "mesmo" período:** usuário comparou a soma dos 7 valores diários da
+Home (21 a 27/08) com "Total de chamados" do Overview pro mesmo intervalo
+— 1843 contra 1770, 73 de diferença. Causa: `date_trunc(granularidade,
+started_at)` sem `at time zone 'America/Sao_Paulo'` — único lugar do
+banco inteiro que faz isso, todo o resto (TFR/TTR, `minutos_uteis_entre_
+time`, etc.) sempre converte pra BRT antes de truncar. O efeito: cada dia
+UTC "vaza" as últimas 3h de um dia BRT pro rótulo do dia seguinte (BRT
+21h-23h59 cai no dia UTC seguinte) — confirmado com dado real, cada
+bucket UTC realmente se decompõe em duas fatias de dias BRT diferentes
+(ex: UTC "21/08" = 73 chamados do fim do BRT 20/08 + 302 do BRT 21/08
+de verdade). Também trocado `started_at` por `current_started_at` (não
+era a causa da diferença nesse teste específico — os dois bateram igual
+pra essa janela — mas `current_started_at` é o campo usado em toda outra
+função do app, manter os dois é inconsistência sem motivo). Corrigido;
+revalidado via RPC real: soma dos 7 dias voltou a bater exato com
+Overview (1770 = 1770).
+
+**Feature nova em 2026-08-27 — Administração → Metas, edita as metas de
+SLA/CSAT direto no Hub:** `sla_config` já existia (regra única global,
+`meta_primeira_resposta_min`/`meta_resolucao_min`) e já era lida por
+`tfr_ttr_percentis()` pro "SLA cumprido %" de Velocidade — mas não tinha
+UI nenhuma pra editar, só dava pra mudar via SQL direto. `api.ts` já
+tinha `fetchSlaConfigPadrao`/`upsertSlaConfigPadrao` prontos, sem
+nenhuma tela consumindo (mesma categoria de código morto-esperando-UI já
+vista antes nesta sessão). Criada `AdminMetas.tsx`
+(`/admin/metas`, aba nova em `AdminLayout.tsx`), formulário simples
+(React Hook Form + Zod, padrão de sempre) com os 2 campos que já
+existiam. Nesse mesmo lote, `sla_config` ganhou coluna `meta_csat
+numeric` (pedido do usuário — "metas como... média CSAT") — populada
+com `4.5` de default (mesmo corte já usado em "avaliações boas" no resto
+do app). RLS já cobria a tabela inteira (`sla_config_write_admin`,
+`is_admin()`), não precisou de policy nova. Validado no navegador:
+formulário carrega os valores reais do banco, salvar grava de verdade
+(testado com `meta_csat`, confirmado no banco, revertido pro default
+depois). **`meta_csat` só está armazenada por enquanto** — nenhuma tela
+ainda usa esse valor pra calcular um "SLA de CSAT cumprido" (diferente
+de `meta_primeira_resposta_min`/`meta_resolucao_min`, que já alimentam
+`tfr_ttr_percentis()`); aplicar esse valor em algum indicador de CSAT é
+trabalho futuro, não pedido ainda.
+
+**Feature nova em 2026-08-27 (mesmo dia, mais tarde) — botão "Baixar PDF"
+na Reunião de Resultados, com o relatório completo do período filtrado:**
+o usuário tinha recebido um relatório em PDF ("Resultados SAC" — Chamados,
+Por tipo de cliente, Ranking, CSAT, Reabertura, Transferências, FCR/
+Recontato) gerado como página HTML avulsa (Artifact) com dado real
+congelado num instante específico, fora do Hub. Pedido: esse PDF devia
+"vir" ao clicar em "Baixar PDF" dentro da própria aba de RR, respeitando
+o filtro de período (granularidade/período) já selecionado na página, não
+um snapshot fixo. Implementado `exportResultadosSacToPdf()` em
+`src/lib/exportPdf.ts` (jsPDF, mesma biblioteca já usada por
+`exportRRHistoricoToPdf`/`exportRRUnicaToPdf` nesse arquivo) — layout
+próprio (helpers `linhaMetricas`/`tabela`/`tituloSecao`, sem retângulos
+coloridos, seguindo o estilo grayscale-com-delta-verde/vermelho já
+estabelecido pelos exports existentes desse arquivo, em vez de replicar o
+visual mais editorial do Artifact original). `ReuniaoResultados.tsx`
+ganhou um botão "Baixar PDF" novo (`Download`, ao lado do seletor de
+período, **admin-only** — mesma barreira já usada no card "Detalhamento
+por atendente" dessa página, porque o conteúdo é sempre agregado do time
+inteiro) e 7 pares de `useQuery` (atual + anterior, mesma janela
+granularidade/período da página) reaproveitando funções que **já
+existiam** em `api.ts` desde as leves anteriores desta sessão
+(`fetchContagemPeriodo`, `fetchTfrTtrPercentis`, `fetchMetricasPorTipoCliente`,
+`fetchCsatDistribuicao`, `fetchReaberturaResumo`, `fetchTransferenciasResumo`,
+`fetchFcrRecontatoResumo`) — nenhuma função SQL nova precisou ser criada.
+Ranking (top 3 humano por volume) e a tabela de CSAT por atendente (todos,
+bot incluso) não precisaram de query nova: derivados de `perfAtual`
+(`fetchAtendentePerformance`), já buscado por essa página pro card
+"Detalhamento por atendente" — exclusão do bot no Ranking usa
+`operator_nome !== "IA Greenn"`, mesmo nome canônico usado em
+`Performance.tsx`. Label do período anterior usa uma função nova,
+`labelDoPeriodo()`, generalizando a lógica já existente em
+`ultimosPeriodos()` pra qualquer par início/fim (o período anterior pode
+cair fora da janela de 6 opções do dropdown, então não dava pra só buscar
+na lista `periodos`). Validado: `tsc -b --noEmit` limpo, clique em
+"Baixar PDF" no navegador sem erro de console, com a tabela
+"Detalhamento por atendente" da mesma página já mostrando dado real no
+momento do teste (confirma que as mesmas queries admin-only resolvem
+corretamente). Os exports de histórico qualitativo existentes
+(`exportRRHistoricoToPdf`/`exportRRUnicaToPdf`, texto de aprendizados/
+dificuldades/plano de ação salvos em `rr_history`) foram mantidos sem
+alteração — resolvem um problema diferente (nota qualitativa já salva)
+do relatório quantitativo novo (métricas ao vivo do período filtrado).
+
+**Refeito em 2026-08-27 (mesmo dia, logo em seguida) — "Baixar PDF" da
+Reunião de Resultados trocou de jsPDF pra HTML real + impressão do
+navegador, porque o jsPDF ficou feio:** usuário comparou com o relatório
+"Resultados SAC" que tinha recebido antes como página HTML avulsa
+(gerada fora do Hub, convertida pra PDF via Chrome headless — ver
+histórico desta sessão) e pediu pra fazer "do mesmo jeito", deixando
+claro que **não precisa ser PDF necessariamente**. Causa raiz do "feio":
+jsPDF desenha texto/linhas em coordenadas manuais — não tem como aplicar
+o design system real do Hub (cores, cards arredondados, sombra) sem
+reimplementar tudo à mão feio, diferente da página HTML original que só
+usava CSS de verdade. Solução: **removida por completo** a função
+`exportResultadosSacToPdf()` (jsPDF) de `exportPdf.ts` — voltou a ter só
+os 3 exports originais (histórico qualitativo de RR). No lugar, criado
+`src/components/RelatorioResultadosSac.tsx`: o relatório inteiro
+renderizado como JSX de verdade, com os componentes/tokens reais do Hub
+(`Card`-style, `Badge` pra as tags "Crisp"/"Novo", paleta `forest`/`sand`/
+`rust`/`sky` do `tailwind.config.ts`) — mesmas seções de antes (Chamados,
+Por tipo de cliente, Ranking, CSAT, Reabertura, Transferências, FCR/
+Recontato, Preencher manualmente). Tipos/dados extraídos pra
+`src/lib/resultadosSac.ts` (`ResultadosSacData`, `deltaPercentual`/
+`deltaPontos`/`fmtNum`/`fmtPct1`) — módulo puro, sem depender de jsPDF
+nem de JSX, só a forma dos dados + a matemática de comparação com o
+período anterior.
+
+O componente abre como overlay em tela cheia (`fixed inset-0 z-50`)
+dentro da própria `ReuniaoResultados.tsx` (estado `mostrarRelatorio`,
+sem rota nova), com botão "Fechar" e um "Baixar PDF" que chama
+`window.print()` — deixa o **navegador** renderizar o PDF (motor de
+impressão real, preserva cor/fonte/layout perfeitamente, mesma técnica
+que já tinha funcionado no relatório avulso anterior), em vez de
+reimplementar isso manualmente. Pra isso não vazar a sidebar/header do
+Hub no PDF impresso, `AppLayout.tsx` ganhou classes `print:hidden` na
+sidebar e no header, e `print:block`/`print:overflow-visible`/
+`print:h-auto`/`print:max-w-none` nos containers (sem isso, `overflow-y-
+auto` + `h-screen` cortariam a impressão numa página só, do tamanho da
+viewport). O overlay em si usa `print:static` (contrapondo o `fixed` de
+tela) pra fluir como conteúdo normal multi-página na impressão; cada
+card/linha/tabela tem `break-inside-avoid` pra não ser cortado ao meio
+entre páginas.
+
+Validado no navegador com dado real (admin, Agosto de 2026 vs Julho —
+Julho sem dado real desde o reset de 2026-08-18, então os deltas
+aparecem corretamente como "sem comparação" em vez de inventar
+variação): todas as 7 seções renderizaram com número real, incluindo o
+bucket "Sem tipo" em Por tipo de cliente e o bot "IA Greenn" aparecendo
+na tabela de CSAT mas ficando de fora do Ranking (mesma exclusão do
+Overview) — sem erro de console. **Achado de ferramenta, não de
+código**: o clique via `computer`/coordenada nesta sessão de automação
+não disparava o `onClick` do botão (o estado React nunca mudava, sem
+erro nenhum — parecia um clique "fantasma"), mas um `.click()` via
+`javascript_tool` direto no elemento funcionou normalmente — o app está
+correto, foi só a forma de testar que precisou mudar. Não foi possível
+tirar screenshot nesta sessão (Browser pane não estava aberto do lado do
+usuário), então a fidelidade visual pixel-a-pixel do PDF impresso não
+foi confirmada por captura de tela — a validação foi por conteúdo/
+estrutura (texto renderizado) + reuso comprovado dos tokens reais do
+Hub, não por imagem.
+
+**Bug real corrigido em 2026-08-27 (mesmo dia, logo em seguida) — o PDF
+impresso vinha com a página crua (KPIs, tabela, formulário em branco)
+ANTES do relatório de verdade:** usuário mandou o PDF gerado pelo botão
+novo ("Baixar PDF" → `window.print()`) e mostrou 2 das 6 páginas sendo a
+tela normal da Reunião de Resultados, só a partir da página 3 começando
+o relatório (`RelatorioResultadosSac`). Causa: `print:hidden` tinha sido
+aplicado só na sidebar/header (`AppLayout.tsx`), mas nunca no resto do
+conteúdo da PRÓPRIA página (`ReuniaoResultados.tsx`) — na tela, o overlay
+`fixed inset-0` cobre tudo visualmente, mas a impressão converte
+`fixed` pra `static` (via `print:static`, de propósito, pra fluir
+multi-página), então sem esconder o resto explicitamente ele só virava
+"mais um bloco depois dos outros" em vez de substituir a página. Corrigido
+envolvendo todo o conteúdo normal (header/KPIs/meta/detalhamento/
+formulário/histórico + os dois dialogs de visualizar/editar RR) num
+`<div className="space-y-8 print:hidden">`, com o `RelatorioResultadosSac`
+ficando de fora desse wrapper (irmão dele, dentro de um Fragment) —
+único conteúdo que sobra na impressão a partir de agora. Validado via
+JS no navegador: `overlayInsideWrap: false` (o relatório não é mais
+descendente do wrapper escondido).
+
+**Segundo problema relatado no mesmo lote — "botão de excluir não
+funciona":** investigado do zero (RLS `rr_history_delete_admin` = só
+`is_admin()`, função `is_admin()` correta, usuário com `role_nome =
+'Administrador'` e `auth_id` vinculado — nada errado no banco) e
+reproduzido no navegador: o clique chega em `excluirRR`/`confirm()`
+normalmente. **Achado real, independente da causa original:**
+`excluirRR` sempre gravava erro em `erroEdicao`, mas esse estado só é
+renderizado dentro do formulário do dialog "Corrigir RR" — se o delete
+falhar (por qualquer motivo: rede, sessão expirada, RLS) a partir do
+ícone de lixeira da lista OU do botão "Excluir" dentro do dialog de
+visualização, o erro nunca aparecia em lugar nenhum — parecia
+"não fazer nada", exatamente o sintoma relatado. Corrigido com um estado
+próprio `erroExclusao` (não reaproveita `erroEdicao`), renderizado em
+dois lugares: acima da lista de Histórico (cobre o ícone de lixeira) e
+dentro do dialog de visualização (cobre o botão "Excluir" de lá) — limpo
+ao abrir um novo item (`setErroExclusao(null)` junto de
+`setVisualizando(rr)`). Não foi possível reproduzir uma falha de delete
+de verdade nesta sessão (RLS/dados confirmados corretos, e forçar uma
+falha exigiria simular erro de rede ou mexer em permissão de propósito),
+então o sintoma original mais provável é o mesmo `ReferenceError` de
+estado stale do HMR já visto durante as edições rápidas desta sessão
+(corrigido com hard reload) — mas o silêncio do erro em si era um bug
+real e independente, que ficaria escondendo qualquer falha futura de
+exclusão, corrigido por precaução.
+
+**Feature nova em 2026-08-27 (mesmo dia, mais tarde) — filtro de "Tipo de
+cliente" do Dashboard passou a valer pra página inteira, mesmo tratamento
+já dado ao filtro de Atendente:** usuário filtrou por "Produtor" e
+comparou o card de Velocidade (TFR médio 2h22min34s, time inteiro) com o
+card "Por tipo de cliente → Produtor" (TFR médio 25min25s) — números
+diferentes pro que parecia o mesmo filtro. Causa: `tipoClienteFiltro`
+nunca foi passado pra nenhuma função SQL — `distinct_tipos_cliente()`/
+`metricas_por_tipo_cliente()` nem aceitam esse parâmetro; o `<select>`
+só filtrava a própria seção "Por tipo de cliente" no cliente
+(`.filter((m) => !tipoClienteFiltro || m.tipo_cliente === tipoClienteFiltro)`),
+igual ao filtro de Atendente antes de ser estendido (ver mais acima nesta
+seção). Confirmado com o usuário: estender do mesmo jeito.
+
+Criada `public.chamado_tem_tipo_cliente(coluna text, filtro text)`
+— helper reusado por todas as funções abaixo, porque `tipo_cliente` é
+lista separada por vírgula (mesmo tratamento de sempre): `filtro is null`
+(sem filtro) **ou** `filtro = 'Sem tipo'` e a coluna não tem nenhuma tag
+real (mesmo bucket sintético de `metricas_por_tipo_cliente`, alcançável
+só clicando o card, não pelo `<select>`) **ou** a lista contém `filtro`.
+Testado isoladamente (6 casos, todos corretos) antes de aplicar.
+
+`p_tipo_cliente text default null` adicionado (mesmo padrão de sempre:
+`DROP FUNCTION` explícito + `CREATE OR REPLACE`, checado 1 versão de cada
+no fim) em 13 funções: `tfr_ttr_percentis` (Velocidade),
+`atendente_performance` (Ranking — filtro novo de verdade, diferente do
+de Atendente que é só client-side; **`csat_medio`/`total_avaliacoes`
+continuam vindo de `csat_results` sem filtro**, ver próximo parágrafo),
+`relogio_posse_periodo` (Posse — não tinha nem filtro de atendente
+ainda, ganhou os dois tratamentos juntos), `contagem_periodo`,
+`motivo_contato_resumo`, `relogio_espera_cliente`, `reabertura_resumo` +
+`reabertura_casos`, `transferencias_resumo` + `transferencias_casos`,
+`fcr_recontato_resumo` + `recontato_casos`, `backlog_por_idade` +
+`backlog_casos` (essas duas nem tinham sido citadas no pedido original,
+adicionadas por consistência — mesmo risco de "resumo≠casos" já corrigido
+uma vez pra Transferências, ver seção 10 acima).
+
+**Descoberta ao investigar `csat_distribuicao_notas`: CSAT não pode ser
+filtrado por tipo de cliente, e isso não é um bug pra corrigir depois —
+é estrutural.** `csat_results` (fonte do card de CSAT) não tem coluna
+`tipo_cliente` nenhuma — tem `categoria_cliente`
+(`Consumidor`/`Produtor`/`Não identificado`), populada por um node
+diferente do n8n, com vocabulário diferente do `tipo_cliente` de
+`crisp_conversations` (`Final`/`Produtor`/`Bluee`/`SDR`) — as duas tabelas
+já são reconciliadas por sistemas de identidade separados (e-mail vs.
+`operator_crisp_id`, decisão arquitetural documentada na seção 21), e a
+categorização de cliente é mais um caso da mesma separação. Usar
+`categoria_cliente` como aproximação seria enganoso (ex: filtrar por
+"Bluee" ou "SDR" nunca bateria nada em `categoria_cliente`, que não tem
+esses valores). Deixado de fora **de propósito**, com nota visível no
+card explicando o motivo (hover) — mesmo padrão de transparência já usado
+pra outras exclusões nesta sessão. `minutos_uteis_entre_time` (Relógio de
+trabalho ativo) também ficou de fora — é sobre agenda/cobertura do time,
+não sobre chamados, filtrar por tipo de cliente não faz sentido
+semanticamente (mesma nota adicionada no card). `tempo_resposta_bot`
+também não foi tocado (mesma exclusão já valia pro filtro de Atendente).
+
+Frontend: `src/services/api.ts` ganhou `tipoCliente?: string` nas 13
+funções (+ `fetchBacklogCasos`) correspondentes; `Performance.tsx` ganhou
+`tipoClienteRpc = tipoClienteFiltro || undefined` (ao lado de
+`atendenteNomesFiltro`) passado nas queries + incluído nas `queryKey`s
+(sem isso o TanStack Query serviria cache velho ao trocar o filtro). O
+rótulo do `<select>` no popover "Filtros" (antes "Tipo de cliente (seção
+'Por tipo de cliente')") foi atualizado pra refletir o novo escopo, com
+uma nota explicando a exceção de CSAT/trabalho ativo — mesmo padrão da
+nota já existente pro filtro de Atendente logo acima dele no popover.
+
+Validado com dado real do navegador (sessão autenticada, RLS real — MCP
+não serve pra isso, `is_admin()` sempre falso por ali, ver lição já
+registrada nesta seção): filtrando por "Produtor" na semana 21-27/08,
+Velocidade e "Por tipo de cliente → Produtor" passaram a bater
+exatamente (TFR médio 11min49s, TTR médio 10h2min54s, 316 chamados nos
+dois lugares) — exatamente o sintoma relatado, confirmado corrigido.
+Ranking também validado mudando de composição/ordem com o filtro
+(Vittor continua 1º mas com 122 em vez de 389 atendimentos; Ana Paula
+Maximiano de Souza entra em 2º, ausente do ranking geral top 3).
+
+**Bug real corrigido em 2026-08-31 — `csat_results.classificacao_csat`
+tem vocabulário inconsistente, e o módulo CSAT inteiro confiava nesse
+texto cru pra classificar Promotor/Neutro/Detrator:** usuário mostrou
+print do widget real de pesquisa da Crisp (5 níveis: Muito satisfeito/
+Satisfeito/Neutro/Insatisfeito/Muito insatisfeito) e apontou que o Hub
+só reconhece 3 (Promotor/Neutro/Detrator). Investigando o banco:
+`classificacao_csat` **não é coluna gerada** (apesar de descrito assim
+em versão anterior desta doc) — é texto solto gravado pelo n8n, e o
+vocabulário mudou sem aviso: pra `nota=5`, 154 linhas têm `"Promotor"`
+e 35 têm `"Muito satisfeito"`; pra `nota=4`, 13 `"Promotor"` e 3
+`"Satisfeito"`; `nota=1` tem 12 `"Detrator"` e 1 `"Muito insatisfeito"`.
+Toda comparação exata contra esse campo (`=== "Promotor"` etc.) **perdia
+silenciosamente** qualquer linha gravada com o vocabulário novo — nos
+KPIs "Promotores/Neutros/Detratores" do Dashboard de CSAT, no badge de
+cada linha da Planilha, no filtro de Classificação (`.eq("classificacao_
+csat", ...)` no Supabase), no popup de detalhe, em Meu Painel e no CSV
+exportado. Confirmado com o usuário: manter Promotor/Neutro/Detrator
+como estão hoje (badge + métrica), só corrigir a classificação por
+baixo — não expor os 5 níveis brutos em lugar nenhum da UI.
+
+Corrigido na raiz: `classificacaoPorNota(nota)` nova em `src/lib/
+utils.ts` (`nota>=4` Promotor, `=3` Neutro, `<=2` Detrator — mesmo corte
+já usado em `csat_distribuicao_notas()` no banco) — `nota` é sempre
+confiável (inteiro 1-5, nunca teve esse problema de vocabulário), então
+vira a única fonte de verdade; `classificacao_csat` nunca mais é
+comparado por igualdade em lugar nenhum do código. Aplicado em
+`Csat.tsx` (KPIs, badge da Planilha, contagem por colaborador),
+`CsatDetalheDialog.tsx`, `MeuPainel.tsx` (badge + ordenação da coluna
+Classificação) e `exportCsv.ts`. O filtro server-side em `api.ts`
+(`fetchCsatFiltered`/`fetchCsatForDashboard`) trocou de `.eq("classificacao_
+csat", x)` pra faixa de nota (`Promotor` → `nota>=4`, `Neutro` →
+`nota=3`, `Detrator` → `nota<=2`). Tipo em `database.ts` afrouxado de
+`"Promotor"|"Neutro"|"Detrator"|null` pra `string | null` com comentário
+explicando pra nunca confiar nesse campo. Validado no navegador (período
+"Este ano", dado real): Promotores+Neutros+Detratores agora soma
+**exatamente** 228 = Total de avaliações (205+5+18) — antes da correção
+essa soma ficava abaixo do total sempre que existisse linha com o
+vocabulário novo no período, silenciosamente.
+
+**Feature nova em 2026-08-31 (mesmo dia, mais tarde) — cards de "CSAT por
+colaborador" viraram clicáveis (popup com as avaliações) e a lista passou
+a ordenar por ordem alfabética:** pedido direto do usuário. Antes,
+`porColaborador` (o `Array.from(map.entries())` que alimenta tanto os
+cards quanto o `HorizontalBarChart` acima deles) não tinha nenhum sort —
+a ordem era só a ordem de inserção no `Map`, essencialmente arbitrária
+(a primeira vez que cada atendente aparecia em `dashboardRows`). Corrigido
+com `.sort((a, b) => a.atendente.localeCompare(b.atendente, "pt-BR"))` no
+fim do `useMemo`. O `HorizontalBarChart` continua ordenado por `percentual`
+decrescente (faz um `[...porColaborador].sort(...)` próprio, independente
+— não foi afetado, continua fazendo sentido pro gráfico mostrar do
+melhor pro pior).
+
+Cada `Card` ganhou `onClick`/`cursor-pointer`/hover (mesmo padrão visual
+já usado nos cards de distribuição de nota da própria página) abrindo um
+novo `Dialog` (estado `atendenteDetalhe: { chave, nome }`) com a lista de
+avaliações daquele atendente no período filtrado — filtro client-side de
+`dashboardRows` por `normalizarChave(...).chave` (mesma função já usada
+pra agrupar `porColaborador`, então o popup nunca diverge do que o card
+mostra). Cada linha da lista abre o `CsatDetalheDialog` já existente
+(reaproveita o mesmo estado `detalhe` da Planilha — os dois dialogs
+empilham, `Dialog` usa `z-50` fixo pros dois, e como o popup de
+avaliações é renderizado antes do `CsatDetalheDialog` no JSX, o de
+detalhe sempre pinta por cima quando os dois estão abertos). Validado no
+navegador: clicar em "Ana Franca" abriu popup com as 2 avaliações reais
+do período, nota/classificação batendo com o resumo do card.
+
+**Ajuste no mesmo dia, logo em seguida — gráfico compacto "CSAT por
+colaborador" (barras horizontais no topo da seção) também virou
+clicável:** usuário reportou "não tá abrindo o popup no card do
+operador". Reproduzindo com clique real (bubbling, não `.click()` direto
+no container) nos cards grandes de baixo, o popup abria normalmente —
+não achei bug ali. Suspeita mais provável: o relatório visual tem DOIS
+elementos por atendente na mesma seção — o gráfico compacto
+`HorizontalBarChart` (rótulos curtos tipo "Ana F. (24)") em cima, e os
+cards grandes com avatar embaixo — só os cards grandes tinham `onClick`;
+o gráfico de cima, apesar de já suportar `onBarClick`/`isSelected` (usado
+em "Motivo de contato", Overview), nunca tinha recebido isso aqui.
+Corrigido: `colaboradorPorPercentual` (o mesmo array ordenado que já
+alimentava o gráfico) foi hoisted pra fora do JSX num `useMemo` — só
+assim dava pra reaproveitar o índice que `onBarClick(label, index)`
+devolve pra achar o registro certo — e o `HorizontalBarChart` ganhou
+`onBarClick` abrindo o mesmo `atendenteDetalhe` dos cards. Agora os dois
+pontos de clique (gráfico compacto e card grande) abrem o mesmo popup.
+
+**Bug real corrigido em 2026-08-31 (mesmo dia, mais tarde) —
+Transferências contava a 1ª atribuição de cada chamado como se fosse uma
+transferência de verdade:** usuário estranhou "Origem (quem passou a
+bola)" mostrando `"—": 13` igual ao total de "Chamados transferidos: 13"
+— ou seja, TODAS as transferências do período eram "—", e perguntou se
+era a IA. Investigado no banco: `operator_routing_history.previous_
+operator_crisp_id` tem uma string vazia (`''`, não `null`) em ~810 linhas
+só nos últimos 60 dias — confirmado com `row_number() over (partition by
+session_id order by event_at)` que **100%** dessas linhas são o **1º**
+evento de roteamento do chamado (nunca a 2ª em diante). Não é a IA nem
+um operador sem alias — é o pipeline do n8n gravando "de ninguém pro
+primeiro atendente" com string vazia em vez de `null`/sem gravar nada.
+`transferencias_resumo()`/`transferencias_casos()` só filtravam
+`previous_operator_crisp_id is not null` — `''` passa nesse teste, então
+toda primeira atribuição de todo chamado do período estava sendo somada
+como se fosse handoff entre dois humanos, inflando taxa/contagem/tempo
+médio e poluindo a lista de Origem com um "—" enorme. Corrigido
+adicionando `and previous_operator_crisp_id <> ''` ao lado do `is not
+null` já existente, nas duas funções (`DROP FUNCTION` + `CREATE OR
+REPLACE` de sempre, 1 versão confirmada de cada no fim). Validado via
+`supabase.rpc(...)` no navegador (sessão real): pra "Este ano" (Jan-Ago),
+de até 1000 casos retornados só 4 ficaram com origem nula — os poucos
+casos legítimos de operador sem alias ainda cadastrado, não mais a massa
+de primeiras-atribuições. Nenhuma outra função lê `previous_operator_
+crisp_id` (`relogio_posse_periodo`/`atendimento_timeline` só leem
+`operator_crisp_id`), então o bug ficou isolado a Transferências.
+
+**Bug crítico de performance corrigido em 2026-08-31 (mesmo dia, mais
+tarde) — filtro "Este ano" deixava Ranking/Posse/Espera do cliente sem
+dado nenhum, por timeout silencioso:** usuário reportou não conseguir
+clicar num atendente pra ver detalhes com "Este ano" selecionado; quase
+em seguida, reportou também "Relógio de espera do cliente" e "Posse por
+atendente humano" mostrando "Sem amostras"/"Sem chamados resolvidos" —
+mensagens de UI genéricas de "sem dado", mas a causa real era outra.
+Reproduzido via `supabase.rpc(...)` no console do navegador (sessão real
+— MCP não serve, `is_admin()` sempre falso por ali):
+`relogio_posse_periodo()` levava **25+ segundos e estourava o
+`statement_timeout`** pra "Este ano" (Jan-Ago, ~3900 chamados) — o erro
+do Postgres nunca chegava a aparecer pro usuário porque o frontend só
+sabe renderizar "sem dado" quando a query falha (mesmo padrão de UX em
+todo o Dashboard), escondendo que era timeout, não ausência real de
+dado.
+
+Causa raiz: o parâmetro `p_tipo_cliente` novo (adicionado mais cedo
+nesta mesma sessão) fez o Postgres **estimar mal a cardinalidade** da
+CTE `conversas_periodo` — com o filtro, o planner estimava 1303 linhas
+quando o real são 3925 (confirmado via `EXPLAIN ANALYZE` isolado: sem o
+filtro, `rows=3908` estimado vs. `3925` real; com o filtro cru,
+`rows=1303` estimado) — porque `chamado_tem_tipo_cliente()` é uma
+função opaca pro planner, sem estatística de seletividade nenhuma. Essa
+estimativa errada, sozinha, não explica os 25s (a CTE em si roda em
+~50ms mesmo errada) — o problema é que ela **se propaga** pelas ~15 CTEs
+encadeadas de `relogio_posse_periodo` (window functions, joins,
+múltiplos tiers), e cada join subsequente planeja em cima de um número
+errado, degradando o plano inteiro. Tentativa 1 (envolver a chamada com
+`p_tipo_cliente is null or chamado_tem_tipo_cliente(...)` direto no
+`WHERE`) corrigiu o plano em teste isolado com **literal** SQL (Postgres
+consegue eliminar a chamada de função inteira via constant-folding
+quando o valor é literal, não parâmetro) mas **não resolveu a chamada
+real via RPC** — a suspeita é que `p_tipo_cliente` como parâmetro
+genuíno de uma função `LANGUAGE SQL` complexa (15+ CTEs) não recebe o
+mesmo constant-folding que um literal recebe, mas isso não foi provado
+com 100% de certeza (não dava pra reproduzir com `is_admin()=true` de
+verdade via MCP sem arriscar segurança).
+
+Fix definitivo, robusto independente do mecanismo exato: as 4 funções
+mais afetadas (`relogio_posse_periodo`, `relogio_espera_cliente`,
+`transferencias_resumo`, `transferencias_casos`) foram convertidas de
+`LANGUAGE sql` pra `LANGUAGE plpgsql` com **branch explícito**
+(`if p_tipo_cliente is null then ... else ... end if`) — o caminho
+`is null` é **literalmente** a query original de antes desta sessão,
+sem nenhum traço de `chamado_tem_tipo_cliente` no texto SQL executado,
+então não há nada pro planner estimar errado nesse caminho (o preço é
+duplicar o corpo da função nos dois branches — verboso, mas a única
+garantia real). Achado no caminho: `RETURN QUERY` do plpgsql é mais
+estrito que `LANGUAGE sql` sobre tipos de retorno — `sum(bigint)`
+retorna `numeric`, e o `LANGUAGE sql` original tolerava isso via cast
+implícito no contrato de retorno, mas plpgsql não; precisou de
+`sum(...)::bigint` explícito em `relogio_posse_periodo`.
+
+Validado via RPC real (sessão autenticada, "Este ano"): `relogio_posse_
+periodo` **25.335ms (timeout) → 663ms**, 15 atendentes incluindo Vittor
+Fernandes; `relogio_espera_cliente` (já não tinha nem sido testado
+antes, mas tinha o mesmo padrão) **funcionando, 524ms, 74 amostras**;
+`transferencias_resumo`/`transferencias_casos`, que não chegavam a dar
+timeout mas estavam visivelmente degradadas (4,3s/3,9s), melhoraram pra
+~2,6-2,8s — não perfeito, mas dentro do aceitável e sem erro. Confirmado
+na UI real: com "Este ano", "Sem amostras" e "Sem chamados resolvidos no
+período" sumiram, e clicar em "Vittor Fernandes" no Ranking abriu
+"Chamados de Vittor Fernandes" normalmente.
+
+**Pendência consciente**: as outras 9 funções que ganharam `p_tipo_
+cliente` na leva anterior (`tfr_ttr_percentis`, `atendente_performance`,
+`contagem_periodo`, `motivo_contato_resumo`, `reabertura_resumo`,
+`reabertura_casos`, `fcr_recontato_resumo`, `recontato_casos`,
+`backlog_por_idade`, `backlog_casos`) **não foram convertidas** — são
+estruturalmente mais simples (sem a cadeia funda de CTEs/window
+functions dos 4 acima), e o mesmo teste isolado nesta sessão mostrou só
+uma degradação modesta (~13x, de 4ms pra 56ms num teste de
+`conversas_periodo` sozinho) que não chega a estourar timeout mesmo pra
+"Este ano" — mas é o mesmo bug de fundo, só sem o efeito cascata. Se
+algum desses ficar lento/travado no futuro, o fix é o mesmo (branch
+plpgsql).
+
+**Feature nova em 2026-08-31 (mesmo dia, mais tarde) — "Exportar CSV" na
+aba Atendimentos do Overview, respeitando os filtros ativos:** pedido
+direto do usuário. A tabela de Atendimentos é paginada (`fetchAtendimentosComMetricas`,
+`p_limit`/`p_offset` na função SQL), então exportar precisa buscar
+**todas** as páginas, não só a visível — criada
+`fetchTodosAtendimentosComMetricas()` em `api.ts`, que pagina em blocos
+de 500 (bem abaixo do limite de linhas por resposta do PostgREST, 1000 —
+mesmo limite já documentado nesta sessão pra `transferencias_casos`) até
+`rows.length < 500` ou atingir o `total_count` devolvido na primeira
+chamada. `exportAtendimentosToCsv()` novo em `exportCsv.ts` (mesmo
+padrão de `exportCsatToCsv`/`exportEmRiscoToCsv` já existentes: Cliente,
+e-mail, atendente, canal, tipo de cliente, status, timestamps, os 3
+tempos calculados em segundos brutos — não formatados — e link do
+chamado). Botão fica ao lado da busca por nome/e-mail, com estado
+"Exportando..." desabilitado durante o fetch.
+
+Validado no navegador com "Este ano" (~3932 chamados, o cenário mais
+pesado possível hoje): completou em ~35-40s sem erro — lento, mas
+correto, porque `atendimentos_com_metricas()` calcula `tempo_ativo_seg`
+chamando `atendimento_timeline()` **por linha**, então exportar
+milhares de linhas soma milhares de sub-chamadas. Pra períodos típicos
+de uso real (semana/mês, dezenas a poucas centenas de linhas) fica na
+casa de segundos. Não otimizado agora — funciona corretamente, só listado
+aqui como candidato a melhoria futura caso "Este ano"/períodos muito
+largos virem uso comum desse botão especificamente (diferente do
+Dashboard, que já tinha sido otimizado pra esses períodos largos nesta
+mesma sessão).
+
+**Auditoria + feature nova em 2026-08-31 (mesmo dia, mais tarde) —
+usuário conferiu um chamado real (Daniel Da Silva Alves, Vittor
+Fernandes, `session_f2270b03-...`) que reabriu 2 vezes e continua aberto
+até hoje, perguntando se a métrica de "Tempo até resolução" fica
+incorreta nesse caso:** não é bug — é decisão de projeto já documentada
+(seção "TTR: 1ª resolução vs. resolução final", 2026-08-19 nesta mesma
+seção): `tempo_resolucao_seg`/TTR sempre usa a resolução **mais recente**
+(`resolved_at`), então se/quando esse chamado resolver de vez, o TTR vai
+incluir os ~13 dias corridos inteiros (incluindo os 2 trechos "resolvido,
+aguardando reabertura" da reabertura) — proposital, porque do ponto de
+vista do cliente o problema só ficou resolvido de verdade na última vez.
+Quem quiser a velocidade só da 1ª tentativa (sem o ruído de reabertura)
+já tem `ttr_primeira_resolucao_media`, card separado em Velocidade.
+Confirmado no banco: `resolved_at is null`, `reopened_count = 2`,
+batendo exatamente com as 2 linhas tracejadas "Sem atendente (resolvido,
+aguardando reabertura)" no popup de detalhe — o timeline está correto.
+
+Motivou um pedido em seguida: já que "Tempo até resolução" mostrava só
+"—" pra esse chamado (ainda sem `resolved_at`), dava pra mostrar um
+valor "ao vivo" (quanto tempo já decorreu, contando) em vez de vazio?
+`atendimentos_com_metricas()` ganhou coluna nova `tempo_aberto_seg` —
+preenchida **só** quando `resolved_at is null`, mesmo cálculo que
+`tempo_resolucao_seg` passaria a usar se resolvesse agora
+(`minutos_entre(current_started_at, now(), p_modo_tempo) * 60` — mesmo
+toggle horas úteis/corridas de sempre). Deliberadamente uma **coluna
+separada**, não reaproveitando `tempo_resolucao_seg`: esse último
+continua null pra chamado aberto, então nenhum agregado (`tfr_ttr_
+percentis()`, que nem lê esse campo) corre risco de misturar um valor
+"ainda contando" com um TTR final de verdade. Renderizado em âmbar +
+`title` explicando + sufixo "(em aberto, ainda contando)"/`*` nos 3
+lugares que mostram esse tempo: `AtendimentoDetalheDialog.tsx`, a tabela
+principal da aba Atendimentos e o popup "Chamados de {atendente}" — e
+como coluna própria (não misturada) no CSV exportado. Validado no
+navegador com o chamado real da auditoria: tabela e popup de detalhe
+batem exato ("5d 4h 44min", horas úteis, crescendo a cada consulta como
+esperado).
+
+**Feature nova em 2026-08-31 (mesmo dia, mais tarde) — badge visual "🔄
+Reaberto Nx" pra chamado que já reabriu:** mesmo chamado real da
+auditoria acima (Daniel Da Silva Alves/Vittor Fernandes) motivou o
+pedido — usuário viu "Tempo até resolução" ao vivo (`tempo_aberto_seg`,
+feature anterior nesta mesma seção) e perguntou se dava pra pelo menos
+sinalizar visualmente que o chamado já tinha sido fechado e reaberto
+antes, já que isso não aparecia em lugar nenhum fora do popup de detalhe
+(que já mostra os trechos "resolvido, aguardando reabertura" desde
+2026-08-25). `atendimentos_com_metricas()` ganhou coluna nova
+`reopened_count integer` — simples passthrough de
+`crisp_conversations.reopened_count` (coluna já existente, populada pelo
+pipeline de evento real desde 2026-08-18, ver seção 10 acima), via
+`DROP FUNCTION` + `CREATE OR REPLACE` de sempre (confirmado 1 versão só
+no fim). Frontend: `AtendimentoDetalheDialog.tsx` ganhou um `Badge
+tone="warning"` ("🔄 Reaberto Nx") na fileira de badges do topo, com
+`title` explicando que o tempo parado entre a resolução e a reabertura
+entra na conta de "Tempo até resolução" quando (se) o chamado fechar de
+vez de novo (mesma decisão de projeto já documentada — TTR sempre usa a
+resolução mais recente). Um indicador `🔄` compacto (mesmo `title`) foi
+adicionado ao lado do nome do cliente tanto na tabela principal da aba
+Atendimentos quanto no popup "Chamados de {atendente}" — os 3 lugares
+que já mostravam `tempo_aberto_seg` ganharam o mesmo tratamento, mesmo
+padrão de "nunca deixar um popup e uma tabela divergirem" já seguido
+várias vezes nesta sessão. Validado no navegador com o chamado real:
+`dan97silv@gmail.com` aparece na tabela como "Daniel Da Silva Alves🔄",
+e o popup de detalhe mostra "🔄 Reaberto 2x" — batendo exatamente com as
+2 linhas "Sem atendente (resolvido, aguardando reabertura)" já visíveis
+na timeline desse chamado.
+
+Também confirmado nesse teste (pergunta direta do usuário: "o tempo é
+somado ne? a cada reabertura") que **"Tempo ativo (atendente atual)" soma
+corretamente os 3 trechos do mesmo atendente através das 2 reaberturas**,
+não só o trecho mais recente: Vittor Fernandes aparece 3 vezes na
+timeline desse chamado (23h7min53s + 22h10min52s + 5d18min, ainda
+contando) e o total exibido bate exato (6d21h37min) — comportamento
+correto desde o fix de gap-and-island de 2026-08-24 (ver acima nesta
+seção), só nunca tinha sido reconferido especificamente pra esse caso de
+2 reaberturas com o mesmo atendente dos dois lados.
+
+**Bug real corrigido em 2026-08-31 (mesmo dia, mais tarde) — Ranking de
+operadores do Analytics sempre mostrava "—" em 1ª resposta/Encerramento
+pra TODO mundo, não só pra quem não tem conta no Hub:** usuário comparou
+lado a lado com o Ranking do Overview (que mostra TFR/TTR reais pras
+mesmas pessoas no mesmo período) e notou que só o CSAT batia — os tempos
+do Analytics estavam vazios até pra Brenda/Ana Franca/Vittor/Eduardo, não
+só pro "Não identificado" (esse sim deveria ficar vazio mesmo, sem
+e-mail não tem como linkar). Causa: `operador_ranking()` calculava TFR/
+TTR agrupando `crisp_conversations` por `cc.operator_email` e depois
+fazia join com o CSAT (`t.operator_email = csat.email_atendente`) — mas
+`operator_email` **nunca é preenchido pelo n8n**, confirmado 0 de 4021
+linhas com esse campo populado (mesmo achado já documentado em
+2026-08-18 pra outros lugares, mas essa função específica nunca tinha
+sido corrigida — escapou daquela varredura porque foi criada/nunca
+revisitada depois). Um `left join` contra uma coluna sempre `NULL` nunca
+casa nenhuma linha, então `tfr_seg`/`resolucao_seg` saíam sempre `NULL`
+pra qualquer operador, mascarado atrás do mesmo "—" que um operador
+sem dado real mostraria.
+
+Corrigido trocando a chave de agrupamento/join: em vez de
+`operator_email`, `tempos` agora agrupa por
+`nome_canonico_por_operator_id(cc.operator_crisp_id, cc.operator_nome)`
+— mesma reconciliação por ID já usada em `atendente_performance()`
+(Overview) — e o join final passou a ser por **nome canônico**
+(`t.atendente_canonico = csat.atendente`), não por e-mail. CSAT continua
+com sua própria identidade por e-mail (`normalizar_nome_atendente`/
+`atendente_aliases`, decisão arquitetural já documentada — seção 21) —
+a ponte entre os dois sistemas pra esse ranking específico é o nome
+canônico resultante de cada um, único ponto em comum entre as duas
+fontes. Validado no navegador (sessão real, "01/01/2026 - 31/08/2026"):
+todos os 7 operadores nomeados passaram a mostrar TFR/Encerramento reais
+(ex: Brenda 17min52s/13h9min20s, Vittor 6h48min25s/1d17h39min) —
+só "Não identificado" (50 avaliações sem e-mail, achado à parte nesta
+mesma sessão) continua "—", corretamente, por realmente não ter como
+linkar. Números do Analytics não batem exatos com os do Overview pra
+mesma pessoa/período (ex: Vittor 6h48min no Analytics vs. 29min no
+Overview) — não é bug, é esperado: `operador_ranking()` nunca teve o
+toggle Horas úteis/Horas corridas do Overview, sempre foi tempo de
+relógio cru, e essa função não recebeu esse conceito nesta correção
+(fora de escopo — o bug era o join quebrado, não a ausência do toggle).
+
+**Página removida em 2026-08-31 (mesmo dia, mais tarde) — módulo "Em
+Risco" (`/em-risco`) excluído por pedido direto do usuário:** removido
+`src/pages/EmRisco.tsx` inteiro, a rota em `App.tsx`
+(estava dentro do mesmo `<AdminOnlyRoute />` de `/performance`), o item
+de sidebar e a entrada em `GlobalSearch.tsx` (`AlertOctagon` removido dos
+imports dos dois arquivos, já que não sobrou nenhum outro uso do ícone
+neles), e `exportEmRiscoToCsv()` de `exportCsv.ts` (só era usada por essa
+página). A linha correspondente em `public.modules` (slug `em_risco`,
+reservada desde a Fase 1) também foi apagada — confirmado antes 0 linhas
+em `user_permissions` referenciando esse `module_id`, então não existia
+nenhuma concessão real presa a ela. `fetchAtendimentosComMetricas`/
+`fetchDistinctCanais`/`fetchDistinctAtendentesConversas` **não** foram
+tocadas (compartilhadas com a aba Atendimentos do Overview). O parâmetro
+`somenteRisco`/`p_somente_risco` em `atendimentos_com_metricas()` ficou
+como está — só era usado pelos dois call-sites desta página — em vez de
+mexer de novo na assinatura dessa função compartilhada só pra tirar um
+parâmetro agora inofensivo; mesma categoria de código morto já tolerada
+várias vezes nesta sessão (`horario_por_nome`, overloads de
+`duracao_dentro_expediente`), candidato a limpeza futura se algum dia
+alguém for mexer nessa função por outro motivo. Validado: `tsc -b
+--noEmit` limpo, e no navegador — sidebar sem o item, `/em-risco`
+carrega em branco (sem crash; mesmo comportamento que qualquer URL
+inexistente já teria nesta app, que não tem rota catch-all/404 — não
+introduzido por esta remoção), e o resto do Overview (Dashboard/
+Atendimentos) continuou funcionando normalmente.
+
+**Ajuste no Ranking de operadores do Analytics em 2026-08-31 (mesmo dia,
+mais tarde) — 3 pedidos do usuário:** (1) removido o card "Operador
+destaque" (troféu + CSAT médio) acima da tabela — usuário achou
+dispensável; (2) `#1` deixou de ser quem tem o melhor CSAT e passou a
+ser quem tem **mais chamados** — trocado o `row_number() over (order by
+csat.csat_medio desc nulls last)` de `operador_ranking()` por `order by
+csat.total_chamados desc` (mesma função corrigida mais cedo nesta seção
+pro bug do join quebrado); como a ordem padrão da tabela (antes de
+clicar em qualquer cabeçalho) também vem desse `posicao`, o efeito é os
+dois de uma vez — número do badge e ordem inicial das linhas; (3)
+adicionada coluna **"Avaliações"** (`total_avaliacoes`) — o dado já
+vinha da função desde sempre, só não era renderizado na tabela; ganhou
+`SortableHeader` como as outras colunas numéricas (`RankingCampo`
+estendido com `"total_avaliacoes"`). `Trophy` removido dos imports
+(ficou sem nenhum outro uso depois do card sair). Validado no navegador:
+"#1 Vittor Fernandes" com 69 chamados (era o card do troféu que mostrava
+"Brenda Coutinho" antes, por ter o melhor CSAT com poucos chamados),
+coluna "Avaliações" com os mesmos números de "Chamados" (nesta base cada
+avaliação de CSAT é um chamado, então as duas colunas coincidem hoje —
+mas são conceitos diferentes, por isso continuam separadas).
+
+**Bugs corrigidos em 2026-08-31 (mesmo dia, mais tarde) — popup "Registro
+do dia" do Calendário, achados numa auditoria pedida pelo usuário
+("essa aba de cadastro em calendario, ta bem merda"):**
+
+1. **4 modais reimplementados manualmente, nunca migrados pro componente
+   `Dialog` compartilhado**: `dialogFolga`/`dialogSobreaviso` (inline) e
+   `FeriasDialog`/`LancamentoDialog` (funções à parte) — todos com o
+   markup manual `fixed inset-0 z-[60] flex items-center justify-center
+   bg-ink/40 p-4` + `<Card>`, o exato padrão que o componente `Dialog`
+   foi criado pra substituir em toda a plataforma (seção 11/13, adotado
+   "em todos os modais da aplicação" em sessão anterior) — só esses 4
+   nunca tinham sido migrados. Consequência prática, não só estética:
+   nenhum dos 4 fechava com **Escape** (`Dialog` tem um `keydown`
+   listener próprio; o markup manual não tinha nenhum), e nenhum expunha
+   `role="dialog"`/`aria-modal`. Migrados os 4 pra `<Dialog onClose=
+   {...}>`, removendo o wrapper manual e o `<Card>` interno (o `Dialog`
+   já aplica o mesmo estilo de card). O drawer lateral que mostra o
+   detalhe do dia (`fixed inset-0 z-50 flex justify-end`, desliza da
+   direita) foi **deixado como está de propósito** — é um padrão
+   diferente (painel lateral, não modal centralizado), `Dialog` não se
+   aplica a ele. Validado no navegador: "Solicitar Folga" agora tem
+   `role="dialog"`/`aria-modal="true"` e fecha com Escape (confirmado
+   despachando o evento diretamente, já que o clique via ferramenta de
+   automação mostrou de novo o mesmo artefato de corrida com o estado do
+   React já documentado nesta sessão — checar em duas chamadas
+   sequenciais, não uma só, resolveu).
+2. **Colaborador inativo aparecia nos seletores de escala**: `usuarios`
+   vem de `fetchUsers()` (compartilhada, sem filtro de `ativo` de
+   propósito — Administração → Usuários precisa listar todo mundo) — mas
+   o Calendário usava essa lista crua direto nos 4 seletores de "quem
+   fica responsável" (semana, sábado, sobreaviso, férias), então
+   **Brenda Coutinho** (`ativo = false` desde 2026-08-24, ver acima
+   nesta seção) continuava aparecendo como opção pra virar responsável
+   da semana meses depois de ter saído do time. Corrigido com
+   `usuariosAtivos = useMemo(() => (usuarios ?? []).filter(u => u.ativo),
+   [usuarios])`, usado nos 4 lugares em vez da lista crua. Validado no
+   navegador: dropdown "Definir responsável da semana" foi de 6 pra 5
+   nomes, Brenda não aparece mais.
+
+Escopo do que ficou de fora, por não ter direção específica ainda: a
+fileira de 5 botões (Solicitar Folga/Sobreaviso/Férias/Lançamento/Limpar)
+continua igual — o usuário também apontou "visual poluído" de forma
+geral, mas uma reorganização desses botões (agrupar, virar menu, etc.)
+é uma decisão de design que ainda não foi alinhada; os dois problemas
+concretos e verificáveis (modal sem Dialog, inativo no seletor) foram os
+corrigidos nesta leva.
+
+**Feature nova em 2026-08-31 (mesmo dia, mais tarde) — modo escuro
+completo, com botão no Header:** pedido explícito do usuário, escolhendo
+de propósito a opção "tema completo" (não só o botão) numa pergunta de
+escopo — o Tailwind já tinha `darkMode: "class"` configurado, mas zero
+`dark:` em uso em qualquer lugar da base até este ponto.
+
+Arquitetura escolhida: em vez de adicionar `dark:` em toda classe de cor
+de todo componente (inviável para uma base deste tamanho), `ink` e
+`sand` — os dois tokens neutros usados em praticamente 100% do texto/
+fundo/borda da plataforma — viraram variáveis CSS (`--color-ink-*`/
+`--color-sand-*`, formato "R G B" pra suportar os modificadores de
+opacidade do Tailwind tipo `text-ink/50`, que não funcionam com `var()`
+puro) definidas em `src/index.css` (`:root` = claro, `.dark` = escuro) e
+referenciadas em `tailwind.config.ts` como `rgb(var(--x) / <alpha-value>)`.
+Resultado: qualquer componente que já usava `bg-sand-surface`/`text-ink`/
+`border-sand-line` (a esmagadora maioria da UI — `Card`, `Dialog`,
+tabelas, inputs) passou a funcionar em dark mode **sem nenhuma edição**,
+só por herdar o valor novo da variável quando `.dark` está presente em
+`<html>`.
+
+Paleta escura escolhida (não é inversão automática, foram valores
+desenhados à mão): fundo quase-preto neutro-frio (`sand-bg` #14161A),
+superfície de card um tom acima (`sand-surface` #1C1F24), texto principal
+quase-branco (`ink` #EEF0F2), texto secundário cinza médio (`ink-soft`
+#9CA3AF, mesma família do slate do Tailwind). As cores de marca/acento
+(`forest`/`amber`/`rust`/`sky`/`violet`, tons 400-900) foram **mantidas
+como estão** nos dois temas — só os tons "50" (fundo bem claro + texto
+"700", usado como preenchimento de badge/chip/ícone-circular em ~15
+lugares) precisavam de tratamento especial, porque um fundo quase-branco
+sólido destoa muito de um card escuro: esses viraram
+`dark:bg-{cor}-500/15 dark:text-{cor}-400` (preenchimento translúcido da
+própria cor de acento sobre o fundo escuro, com texto mais claro pra
+manter contraste) — corrigido centralizadamente em `Badge.tsx` e
+`Avatar.tsx` (os 2 componentes mais reutilizados que tinham esse padrão)
+e depois em cada uso solto encontrado por auditoria (`grep -E
+"bg-(forest|amber|rust|sky|violet)-50([^0-9]|$)"`, com cuidado extra pra
+não confundir com `bg-forest-500` — mesmo bug de substring que já
+aconteceu antes nesta sessão): `Kpi`, `EmptyState`, `DateRangePopover`,
+`GlobalSearch`, `BarChart`, e cerca de 15 usos soltos em páginas
+(ícone-circular de destaque em Home/Documentação/OutrosLinks/
+AdminOverview/AdminOutrosLinks/Atualizacoes, avatar-like em Csat/Perfil,
+badge de moedas em MeuPainel, chip de filtro ativo em Csat/Performance,
+cor de dia especial no grid do Calendário). `sky-400` e `forest-200`
+foram adicionados à paleta (não existiam — precisos pro texto/borda dos
+novos estados; `forest-200` corrigiu de graça um `border-forest-200`
+que já estava transparente por shade inexistente, mesma categoria do fix
+de `rust-400`/`rust-100` de 2026-08-24). **Deliberadamente fora**: o
+componente `RelatorioResultadosSac.tsx` (relatório pra impressão/PDF) —
+mantido sempre claro de propósito, ninguém quer PDF em fundo preto.
+`Sidebar.tsx` também ficou intocado — já é `bg-forest-900` fixo
+independente de tema, nunca usou os tokens `sand`/`ink`.
+
+Também convertido `bg-white` → `bg-sand-surface` em ~23 arquivos (sed
+em massa, seguro porque `sand.surface` já era literalmente `#FFFFFF` no
+claro — zero mudança visual antes do dark mode existir) — sem isso, todo
+input/select/popover que usava `bg-white` cru (não o token) continuaria
+branco sólido mesmo com o tema escuro ativo. Excluídos do sed:
+`Sidebar.tsx` (2 usos de `bg-white/5` como hover sobre o verde escuro
+fixo, sem relação com o tema) e `RelatorioResultadosSac.tsx` (mesma
+razão do parágrafo acima).
+
+Mecanismo do toggle: `src/hooks/useTheme.ts` (novo) — `useState`
+inicializado lendo a classe já presente em `<html>`, `useEffect` que
+adiciona/remove `.dark` e persiste em `localStorage`
+(`hub-sac:tema`). Um script inline em `index.html` (antes de
+`main.tsx` montar) já aplica a classe no primeiro paint — lê
+`localStorage`, cai pro `prefers-color-scheme` do SO só na primeira
+visita (nunca mais depois que o usuário toca no botão uma vez) — evita o
+flash de tema claro→escuro que aconteceria se só o React aplicasse a
+classe depois de montar. Botão novo em `Header.tsx`, à direita do sino
+de notificações (posição pedida explicitamente): ícone `Moon`/`Sun`
+(lucide-react) que alterna conforme o tema atual.
+
+Validado no navegador: toggle liga/desliga corretamente (confirmado via
+`localStorage`/classe/cores computadas, não só visual), sobrevive a
+reload (script inline funcionando), e uma varredura em 4 páginas
+diferentes (Home, CSAT, Overview, Calendário) confirmando **zero
+elementos com `background-color: rgb(255, 255, 255)`** no modo escuro —
+nenhum branco sólido escapou. Não testado exaustivamente em todo `/admin/*`
+nem em Reclame Aqui/NPS/Missões/Helpdesks/Outros Links/Cursos/
+Documentação linha a linha — esses reaproveitam os mesmos tokens/
+componentes já corrigidos, risco residual baixo, mas vale um olhar se
+algo destoar ao usar essas telas de verdade.
+
+**Feature grande em 2026-08-31 (mesmo dia, mais tarde) — autocadastro com
+aprovação de admin, redefinir senha e login com Google, somando ao
+convite manual que já existia:** usuário trouxe a spec de um login de
+outro projeto seu ("da centralização") pedindo algo parecido. Planejado
+em modo de planejamento formal antes de mexer em qualquer código, dado o
+histórico sensível dessa área (seção 5: vínculo `auth_id` quebrado já
+derrubou o Hub duas vezes em produção).
+
+- **Schema**: `public.users` ganhou `aprovado boolean not null default
+  true` — todo usuário existente (todos criados por convite/admin até
+  hoje) já nasce aprovado automaticamente, sem precisar de backfill à
+  parte. Só os dois caminhos novos (autocadastro, primeiro login via
+  Google) inserem `aprovado: false` explicitamente.
+- **Achado de segurança durante o planejamento, corrigido junto**: a
+  policy `users_update_own_or_admin` deixava qualquer usuário atualizar
+  a própria linha sem restringir quais colunas — inofensivo antes, mas
+  assim que `aprovado` passou a controlar acesso de verdade, um usuário
+  pendente poderia chamar a API do Supabase direto e se auto-aprovar
+  (`update users set aprovado = true where auth_id = auth.uid()`).
+  Corrigido com `prevent_self_privilege_escalation()`, trigger `before
+  update on public.users` que reseta `NEW.aprovado`/`NEW.role_id`/
+  `NEW.auth_id` de volta pro valor antigo sempre que quem edita não é
+  admin (`is_admin()`) — silencioso, não quebra o resto do update.
+  **Validado com um usuário pendente real**: a chamada retorna sucesso
+  (a policy de RLS libera, é a própria linha do usuário), mas a linha
+  devolvida continua com `aprovado: false` — o trigger neutralizou a
+  tentativa sem gerar erro nenhum pro cliente.
+- **Duas Edge Functions novas**, mesmo padrão de segurança da
+  `invite-user` já existente (service role key nunca exposta ao
+  cliente; se o insert em `public.users` falhar, desfaz o usuário criado
+  no Auth — nunca deixa `auth_id` órfão):
+  - `self-signup` (pública): valida `@greenn.com.br` **no servidor**
+    (a validação client-side no formulário é só UX), cria o usuário via
+    `admin.createUser()`, insere em `public.users` com `aprovado: false`
+    e os mesmos defaults de horário que `invite-user` já usa.
+  - `complete-oauth-signup` (exige sessão): chamada automaticamente pelo
+    `AuthContext` quando uma sessão nova não tem `public.users`
+    vinculado **e** veio do provider Google
+    (`session.user.app_metadata.provider === "google"`, sinal do
+    próprio Supabase Auth, não forjável pelo cliente — outros casos de
+    perfil ausente continuam caindo no erro explícito de sempre, sem
+    tentar se auto-curar, pra não mascarar um vínculo quebrado de
+    verdade como os 2 incidentes já documentados). Extrai o e-mail do
+    **JWT do próprio chamador** (nunca de um campo enviado no corpo, o
+    que abriria brecha pra spoofing), e se o domínio não bater, apaga o
+    usuário do Auth recém-criado pelo OAuth em vez de deixá-lo órfão.
+- **Achado real durante os testes — mensagem de erro genérica escondia o
+  motivo real**: `functions.invoke()` do supabase-js, quando a função
+  responde com status não-2xx, joga tudo em `error` (um
+  `FunctionsHttpError` genérico — "Edge Function returned a non-2xx
+  status code") e `data` vem `null` — a mensagem específica que a Edge
+  Function tentou mandar (`json({error: "..."}, 400)`) só existe dentro
+  de `error.context` (a `Response` crua), nunca em `data.error`. Esse
+  bug já existia silenciosamente em `inviteUser()` desde que essa função
+  foi criada (mesmo padrão `if (error) throw error; if (data?.error)
+  throw ...`) — só nunca tinha sido notado porque convite por admin
+  raramente falha. Corrigido criando `invokeFunction()` (helper
+  compartilhado em `api.ts`) que tenta ler `error.context.json()` antes
+  de desistir pra mensagem genérica, usado agora pelas 3 funções
+  (`inviteUser`, `signUpUser`, `completeOAuthSignup`).
+- **Achado real durante os testes — trigger pré-existente bloqueava
+  qualquer insert em `public.users` vindo de uma Edge Function**: ao
+  testar o autocadastro de ponta a ponta, o insert falhava com "DELETE
+  requires a WHERE clause" — nada a ver com o autocadastro em si.
+  Causa: `trg_users_cobertura_semanal` (criado em 2026-08-24, ver seção
+  10 acima) dispara `refresh_cobertura_semanal()` a cada insert/update
+  de `ativo`/horário em `public.users`, e essa função começava com
+  `delete from public.cobertura_semanal;` sem `WHERE` — funcionava pra
+  chamadas via SQL direto (inclusive a mesma linha inserida direto por
+  SQL, testado), mas algo na camada de Data API/PostgREST usada pelo
+  `adminClient.from("users").insert(...)` da Edge Function rejeita
+  DELETE sem WHERE nesse caminho especificamente (mecanismo exato não
+  totalmente identificado, mas isolado com certeza: SQL direto via MCP
+  funcionava, o mesmo insert via Edge Function não). Corrigido trocando
+  pra `delete from public.cobertura_semanal where dow between 0 and 6;`
+  — mesmo efeito (limpa as 6 linhas), só com `WHERE` sintático — sem
+  mudar nenhum comportamento da função. Como esse trigger dispara pra
+  **qualquer** insert/update de usuário com horário preenchido (não só
+  autocadastro), esse bug provavelmente já afetaria `inviteUser()`
+  também se fosse chamado pela Edge Function em vez de direto — não
+  confirmado porque não foi reproduzido nesse caminho, só documentado
+  aqui como risco caso apareça de novo.
+- **Frontend**: `src/components/ui/PasswordInput.tsx` (novo,
+  reutilizável — olho pra mostrar/ocultar senha) usado em `Login.tsx`
+  (entrar + criar conta) e `DefinirSenha.tsx` (que passou a ser
+  reaproveitada tanto pro fluxo de convite quanto pro de redefinir
+  senha — mesmo mecanismo técnico dos dois, sessão já estabelecida a
+  partir do token na URL + `auth.updateUser({password})`, não fazia
+  sentido duplicar rota); `senha mínima` subiu de 6 pra 8 caracteres ali
+  também, pra ficar consistente com a regra nova do autocadastro.
+  `Login.tsx` inteiro redesenhado: fundo com gradiente + 6 blobs
+  desfocados animados (`@keyframes blob-float` em `index.css`,
+  `prefers-reduced-motion` desativa), `SegmentedControl` já existente
+  fazendo o papel das abas Entrar/Criar conta (sem componente de Tabs
+  novo), fluxo de "Esqueci minha senha" inline (`resetPasswordForEmail`),
+  botão "Entrar com Google" (`signInWithOAuth`). Nova página
+  `AguardandoAprovacao.tsx`, renderizada por `RequireAuth.tsx` no lugar
+  do `<Outlet />` quando `user.aprovado === false` (sem rota própria).
+  `Administração → Usuários` ganhou badge "Pendente aprovação"
+  (sobrepõe o badge de ativo/inativo) + botão de aprovar (ícone check,
+  `upsertUser({id, aprovado: true})`, mesmo padrão exato de
+  editar/excluir já existentes ali).
+- **Fora do meu alcance — configuração externa que o usuário precisa
+  fazer**: login com Google só funciona de ponta a ponta depois de (1)
+  criar uma credencial OAuth 2.0 no Google Cloud Console e (2) colar o
+  Client ID/Secret em Supabase Dashboard → Authentication → Providers →
+  Google. Validado que o botão dispara `signInWithOAuth` corretamente e
+  o Supabase responde `"Unsupported provider: provider is not enabled"`
+  — erro esperado, confirma que só falta a configuração externa.
+- **Validado de ponta a ponta no navegador** (sessão real, não MCP):
+  cadastro com e-mail fora do domínio rejeitado no cliente; cadastro
+  com `@greenn.com.br` válido criou o usuário real (`aprovado: false`
+  confirmado no banco); login com essa conta caiu em "Sua conta ainda
+  não foi aprovada" (não no Hub); tentativa de auto-aprovação via API
+  direta bloqueada pelo trigger (testado, ver acima); "Esqueci minha
+  senha" enviou o link sem erro. **Não validado**: o clique em "Aprovar"
+  como admin de verdade — a sessão de admin ativa foi encerrada durante
+  os testes (logout deliberado pra conseguir ver a tela de login) e não
+  havia credencial disponível pra logar de volta programaticamente;
+  fica uma conta de teste real pendente
+  (`teste.qa.signup@greenn.com.br`) no banco, pronta pra ser aprovada
+  manualmente como último passo de verificação.
+
+**Bug real corrigido em 2026-08-31 (mesmo dia, mais tarde) — popup
+"Chamados de {atendente}" (Overview) não paginava, mostrava só os 50
+primeiros chamados sem nenhum aviso:** achado pelo usuário perguntando
+diretamente se o popup mostrava todos os chamados do Vittor (468 no
+período "Este ano") — não mostrava. A query desse popup sempre chamou
+`fetchAtendimentosComMetricas` com `page: 0, pageSize: 50` fixo, sem
+nenhum controle de paginação nem exibição do total — diferente da aba
+Atendimentos e do popup de Backlog, que já paginam de verdade. Corrigido
+replicando exatamente o mesmo padrão dessas duas (estado `posseDetalhePage`,
+`pageSize: PAGE_SIZE` como o resto da página, rodapé "N chamados /
+Anterior / Página X de Y / Próxima"); os dois pontos que abrem esse popup
+(clique numa linha do Ranking, clique no card do bot) resetam a página
+pra 0. Não validado ao vivo no navegador — a sessão de admin foi encerrada
+durante os testes do login (ver acima nesta seção) e não havia como logar
+de volta sem a senha real; a correção é uma cópia estrutural do padrão já
+comprovado nesta mesma tela, risco baixo, mas fica marcado como pendente
+de conferir visualmente na próxima vez que alguém abrir o Overview.
+
 Todos em `src/components/ui/`:
 
 - **`Button`** — variantes `primary`/`secondary`/`ghost`/`danger`, tamanhos
@@ -1891,6 +3458,16 @@ ver seção 6 para a lógica de seções por permissão),
   `rust` (erro/perigo), `sky` (informação), `violet` (ausência/férias/
   folga). Definidas em `tailwind.config.ts`, nunca usar cores hex soltas
   no JSX — sempre pelas classes do tema.
+- **Modo escuro** (desde 2026-08-31, ver seção 10 para o histórico
+  completo): `ink`/`sand` são variáveis CSS (`.dark` em `<html>` troca o
+  valor), então `bg-sand-surface`/`text-ink`/`border-sand-line` já
+  funcionam nos dois temas de graça — nunca use `bg-white` cru (vira
+  branco sólido preso, mesmo no escuro). Cores de acento (`forest-500`
+  etc.) não trocam de valor entre temas, mas os tons **"50"** (fundo
+  bem claro + texto "700", usado em badge/chip/ícone-circular) precisam
+  de um par manual `dark:bg-{cor}-500/15 dark:text-{cor}-400` toda vez
+  que forem usados — não existe atalho automático pra esse padrão
+  específico (ver `Badge.tsx`/`Avatar.tsx` como referência).
 - **Tipografia**: Inter (`font-display`/`font-body`), IBM Plex Mono
   (`font-mono`, não usado hoje em nenhuma tela identificada). Tamanhos
   semânticos custom: `text-display`, `text-card-title`, `text-legenda`,
@@ -2026,8 +3603,7 @@ ver seção 6 para a lógica de seções por permissão),
 | Reclame Aqui | `/reclame-aqui` | Permissão granular `reclame_aqui` ou admin |
 | NPS | `/nps` | Permissão granular `nps` ou admin |
 | Overview (ex-Performance) | `/performance` | Admin-only estrito — página principal pro admin bater o olho no time inteiro; aba "Dashboard" (ex-"Ranking") concentra CSAT boas/neutras/ruins, ranking de atendentes, Velocidade (TFR/TTR com percentis), Backlog, Relógios (posse/espera) e Motivo de contato; aba "Atendimentos" é só a lista crua de chamados (era uma página própria `/atendimentos` até ser incorporada aqui) |
-| Em Risco | `/em-risco` | Admin-only estrito — chamados abertos ordenáveis por tempo em aberto/TFR, com filtros de atendente/status/canal e exportação CSV |
-| Administração (Usuários, Perfis, Permissões, Escalas, Cursos, Documentação, Atualizações, Outros Links) | `/admin/*` | Admin-only estrito |
+| Administração (Usuários, Perfis, Permissões, Escalas, Metas, Cursos, Documentação, Atualizações, Outros Links) | `/admin/*` | Admin-only estrito |
 
 \* README menciona uma permissão granular "Analytics" para liberar
 ranking/destaque; não confirmado se o slug `analytics` está de fato

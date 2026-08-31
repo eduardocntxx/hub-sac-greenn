@@ -147,7 +147,7 @@ export default function AdminEscalas() {
             )}
           </Card>
           <div className="mt-3 flex gap-2">
-            <select value={novoUsuario} onChange={(e) => setNovoUsuario(e.target.value)} className="h-10 flex-1 rounded-lg border border-sand-line bg-white px-3 text-sm">
+            <select value={novoUsuario} onChange={(e) => setNovoUsuario(e.target.value)} className="h-10 flex-1 rounded-lg border border-sand-line bg-sand-surface px-3 text-sm">
               <option value="">Selecione um colaborador...</option>
               {(usuarios ?? []).map((u) => (
                 <option key={u.id} value={u.id}>{u.nome}</option>

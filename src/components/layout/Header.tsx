@@ -1,14 +1,16 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import { Bell } from "lucide-react";
+import { Bell, Moon, Sun } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
 import { useNotifications } from "@/contexts/NotificationsContext";
+import { useTheme } from "@/hooks/useTheme";
 import { GlobalSearch } from "@/components/GlobalSearch";
 
 export function Header() {
   const { user } = useAuth();
   const { unreadCount, marcarComoLidas } = useNotifications();
+  const { tema, alternar } = useTheme();
   const navigate = useNavigate();
 
   if (!user) return null;
@@ -33,6 +35,14 @@ export function Header() {
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           )}
+        </button>
+        <button
+          onClick={alternar}
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-ink/60 hover:bg-sand-bg"
+          aria-label={tema === "dark" ? "Mudar para modo claro" : "Mudar para modo escuro"}
+          title={tema === "dark" ? "Modo claro" : "Modo escuro"}
+        >
+          {tema === "dark" ? <Sun size={18} /> : <Moon size={18} />}
         </button>
         <NavLink
           to="/perfil"

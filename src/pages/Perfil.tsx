@@ -146,7 +146,7 @@ export default function Perfil() {
             </form>
           ) : (
             <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-forest-50 text-xl font-display font-semibold text-forest-700">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-forest-50 text-xl font-display font-semibold text-forest-700 dark:bg-forest-500/15 dark:text-forest-300">
                 {user.nome
                   .split(" ")
                   .slice(0, 2)

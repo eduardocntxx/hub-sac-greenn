@@ -40,7 +40,7 @@ export default function AdminOverview() {
           <Card key={label} className="p-5">
             <div className="flex items-center justify-between">
               <span className="text-sm text-ink/60">{label}</span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-forest-50 text-forest-600">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-forest-50 text-forest-600 dark:bg-forest-500/15 dark:text-forest-300">
                 <Icon size={16} />
               </div>
             </div>

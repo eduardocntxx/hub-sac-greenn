@@ -67,7 +67,7 @@ function StatusPopover({
   onFechar: () => void;
 }) {
   return (
-    <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-xl border border-sand-line bg-white p-1.5 shadow-float">
+    <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-xl border border-sand-line bg-sand-surface p-1.5 shadow-float">
       {(Object.entries(statusConfig) as [CollaboratorStatus, (typeof statusConfig)[CollaboratorStatus]][]).map(
         ([valor, cfg]) => (
           <button

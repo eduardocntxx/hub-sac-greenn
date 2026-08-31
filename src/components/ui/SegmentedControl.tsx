@@ -33,7 +33,7 @@ export function SegmentedControl<T extends string>({
             "h-full whitespace-nowrap rounded-md px-3 text-[13px] font-medium transition-colors",
             value === opt
               ? "bg-forest-500 text-white"
-              : "text-ink/55 hover:bg-white/60 hover:text-ink/80"
+              : "text-ink/55 hover:bg-sand-surface/60 hover:text-ink/80"
           )}
         >
           {label}

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Search, Home, LayoutDashboard, Target, BarChart3, ClipboardList,
   GraduationCap, BookOpen, Megaphone, Wrench, CalendarDays, Link2,
-  Star, MessageSquareWarning, Gauge, Settings, AlertOctagon, TrendingUp, User,
+  Star, MessageSquareWarning, Gauge, Settings, TrendingUp, User,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -32,7 +32,6 @@ const ITEMS: Item[] = [
   { label: "Reclame Aqui", to: "/reclame-aqui", icon: MessageSquareWarning, perm: "reclame_aqui" },
   { label: "NPS", to: "/nps", icon: Gauge, perm: "nps" },
   { label: "Overview", to: "/performance", icon: TrendingUp, adminOnly: true },
-  { label: "Em Risco", to: "/em-risco", icon: AlertOctagon, adminOnly: true },
   { label: "Administração", to: "/admin", icon: Settings, adminOnly: true },
   { label: "Perfil", to: "/perfil", icon: User },
 ];
@@ -99,7 +98,7 @@ export function GlobalSearch() {
       >
         <Search size={14} />
         <span className="hidden sm:inline">Buscar...</span>
-        <kbd className="ml-1 hidden rounded border border-sand-line-strong bg-white px-1.5 py-0.5 text-[10px] font-medium text-ink/40 sm:inline">
+        <kbd className="ml-1 hidden rounded border border-sand-line-strong bg-sand-surface px-1.5 py-0.5 text-[10px] font-medium text-ink/40 sm:inline">
           ⌘K
         </kbd>
       </button>
@@ -110,7 +109,7 @@ export function GlobalSearch() {
           onClick={() => setOpen(false)}
         >
           <div
-            className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-float"
+            className="w-full max-w-lg overflow-hidden rounded-2xl bg-sand-surface shadow-float"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2 border-b border-sand-line px-4 py-3">
@@ -143,7 +142,7 @@ export function GlobalSearch() {
                       onMouseEnter={() => setSelecionado(i)}
                       className={
                         "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors " +
-                        (i === selecionado ? "bg-forest-50 text-forest-700" : "text-ink/70 hover:bg-sand-bg")
+                        (i === selecionado ? "bg-forest-50 text-forest-700 dark:bg-forest-500/15 dark:text-forest-300" : "text-ink/70 hover:bg-sand-bg")
                       }
                     >
                       <Icon size={16} />

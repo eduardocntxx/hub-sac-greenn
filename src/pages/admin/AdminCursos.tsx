@@ -68,7 +68,7 @@ export default function AdminCursos() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="relative max-w-xs flex-1">
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink/40" />
-          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar curso..." className="h-10 w-full rounded-xl border border-sand-line bg-white pl-9 pr-3 text-sm outline-none focus:border-forest-500" />
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar curso..." className="h-10 w-full rounded-xl border border-sand-line bg-sand-surface pl-9 pr-3 text-sm outline-none focus:border-forest-500" />
         </div>
         <Button onClick={abrirNovo}><Plus size={16} /> Novo curso</Button>
       </div>

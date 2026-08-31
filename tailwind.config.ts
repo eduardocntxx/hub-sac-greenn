@@ -6,14 +6,19 @@ export default {
   theme: {
     extend: {
       colors: {
+        // ink/sand são as únicas cores que trocam de valor no dark mode —
+        // por isso vêm de variável CSS (definida em index.css, :root/.dark),
+        // no formato "R G B" pra suportar os modificadores de opacidade do
+        // Tailwind (text-ink/50 etc.), que não funcionam com var() direto.
         ink: {
-          DEFAULT: "#222222",
-          soft: "#7D7D7D",
-          tertiary: "#9A9A9A",
+          DEFAULT: "rgb(var(--color-ink) / <alpha-value>)",
+          soft: "rgb(var(--color-ink-soft) / <alpha-value>)",
+          tertiary: "rgb(var(--color-ink-tertiary) / <alpha-value>)",
         },
         forest: {
           50: "#EAFBF6",
           100: "#C9F0E4",
+          200: "#96E0C8",
           300: "#5FCFB0",
           500: "#19BC9C",
           600: "#149A80",
@@ -21,11 +26,11 @@ export default {
           900: "#0A3D33",
         },
         sand: {
-          bg: "#F7F8F6",
-          surface: "#FFFFFF",
-          subtle: "#F1F2EF",
-          line: "#E8E8E8",
-          "line-strong": "#D8D8D8",
+          bg: "rgb(var(--color-sand-bg) / <alpha-value>)",
+          surface: "rgb(var(--color-sand-surface) / <alpha-value>)",
+          subtle: "rgb(var(--color-sand-subtle) / <alpha-value>)",
+          line: "rgb(var(--color-sand-line) / <alpha-value>)",
+          "line-strong": "rgb(var(--color-sand-line-strong) / <alpha-value>)",
         },
         amber: {
           50: "#FDF3E1",
@@ -44,6 +49,7 @@ export default {
         },
         sky: {
           50: "#EAF2FA",
+          400: "#6BA3D6",
           500: "#3B82C4",
           600: "#2E6CA3",
           700: "#22537E",

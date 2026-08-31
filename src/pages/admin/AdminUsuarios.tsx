@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, Search, Users as UsersIcon } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Users as UsersIcon, Check } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -109,6 +109,15 @@ export default function AdminUsuarios() {
     }
   }
 
+  async function aprovar(id: string) {
+    try {
+      await upsertUser({ id, aprovado: true });
+      await queryClient.invalidateQueries({ queryKey: ["users"] });
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : "Não foi possível aprovar.");
+    }
+  }
+
   const filtrados = useMemo(
     () =>
       (usuarios ?? []).filter(
@@ -131,7 +140,7 @@ export default function AdminUsuarios() {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por nome ou email..."
-            className="h-10 w-full rounded-xl border border-sand-line bg-white pl-9 pr-3 text-sm outline-none focus:border-forest-500"
+            className="h-10 w-full rounded-xl border border-sand-line bg-sand-surface pl-9 pr-3 text-sm outline-none focus:border-forest-500"
           />
         </div>
         <Button onClick={abrirNovo}>
@@ -180,12 +189,25 @@ export default function AdminUsuarios() {
                     </Badge>
                   </td>
                   <td className="px-4 py-3">
-                    <Badge tone={u.ativo ? "success" : "neutral"}>
-                      {u.ativo ? "ativo" : "inativo"}
-                    </Badge>
+                    {!u.aprovado ? (
+                      <Badge tone="warning">Pendente aprovação</Badge>
+                    ) : (
+                      <Badge tone={u.ativo ? "success" : "neutral"}>
+                        {u.ativo ? "ativo" : "inativo"}
+                      </Badge>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-1">
+                      {!u.aprovado && (
+                        <button
+                          onClick={() => aprovar(u.id)}
+                          title="Aprovar acesso"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-forest-500/10 hover:text-forest-600"
+                        >
+                          <Check size={15} />
+                        </button>
+                      )}
                       <button
                         onClick={() => abrirEdicao(u)}
                         className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-bg hover:text-ink"

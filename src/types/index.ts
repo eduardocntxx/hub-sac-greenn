@@ -11,4 +11,5 @@ export interface AppUser {
   avatarUrl?: string;
   status: UserStatus;
   perfil: UserRole;
+  aprovado: boolean;
 }

@@ -191,9 +191,9 @@ export default function Nps() {
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
           placeholder="Buscar comentário/respondente..."
-          className="h-9 rounded-lg border border-sand-line bg-white px-3 text-sm outline-none focus:border-forest-500"
+          className="h-9 rounded-lg border border-sand-line bg-sand-surface px-3 text-sm outline-none focus:border-forest-500"
         />
-        <select value={classificacao} onChange={(e) => setClassificacao(e.target.value as typeof classificacao)} className="h-9 rounded-lg border border-sand-line bg-white px-2 text-sm">
+        <select value={classificacao} onChange={(e) => setClassificacao(e.target.value as typeof classificacao)} className="h-9 rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
           <option value="">Todas as classificações</option>
           <option value="Promotor">Promotor</option>
           <option value="Neutro">Neutro</option>

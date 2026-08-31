@@ -372,7 +372,7 @@ export default function Missoes() {
                                   e.stopPropagation();
                                   remover(m.id);
                                 }}
-                                className="flex h-6 w-6 items-center justify-center rounded text-ink/40 hover:bg-rust-50 hover:text-rust-600"
+                                className="flex h-6 w-6 items-center justify-center rounded text-ink/40 hover:bg-rust-50 hover:text-rust-600 dark:hover:bg-rust-500/15 dark:hover:text-rust-400"
                               >
                                 <Trash2 size={12} />
                               </button>

@@ -4,6 +4,7 @@ import { Leaf } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 
 export default function DefinirSenha() {
   const navigate = useNavigate();
@@ -30,8 +31,8 @@ export default function DefinirSenha() {
     e.preventDefault();
     setErro(null);
 
-    if (senha.length < 6) {
-      setErro("A senha precisa ter pelo menos 6 caracteres.");
+    if (senha.length < 8) {
+      setErro("A senha precisa ter pelo menos 8 caracteres.");
       return;
     }
     if (senha !== confirmacao) {
@@ -84,25 +85,21 @@ export default function DefinirSenha() {
             </p>
             <div>
               <label className="mb-1 block text-sm font-medium text-ink">Nova senha</label>
-              <input
-                type="password"
+              <PasswordInput
                 required
-                minLength={6}
+                minLength={8}
                 value={senha}
                 onChange={(e) => setSenha(e.target.value)}
-                className="w-full rounded-xl border border-sand-line bg-white px-3 py-2 text-sm outline-none focus:border-forest-500"
                 placeholder="••••••••"
               />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-ink">Confirmar senha</label>
-              <input
-                type="password"
+              <PasswordInput
                 required
-                minLength={6}
+                minLength={8}
                 value={confirmacao}
                 onChange={(e) => setConfirmacao(e.target.value)}
-                className="w-full rounded-xl border border-sand-line bg-white px-3 py-2 text-sm outline-none focus:border-forest-500"
                 placeholder="••••••••"
               />
             </div>

@@ -13,7 +13,6 @@ import Csat from "@/pages/Csat";
 import ReclameAqui from "@/pages/ReclameAqui";
 import Nps from "@/pages/Nps";
 import Performance from "@/pages/Performance";
-import EmRisco from "@/pages/EmRisco";
 import Helpdesks from "@/pages/Helpdesks";
 import Calendario from "@/pages/Calendario";
 import MeuPainel from "@/pages/MeuPainel";
@@ -36,6 +35,7 @@ import AdminAtualizacoes from "@/pages/admin/AdminAtualizacoes";
 import AdminPerfis from "@/pages/admin/AdminPerfis";
 import AdminPermissoes from "@/pages/admin/AdminPermissoes";
 import AdminEscalas from "@/pages/admin/AdminEscalas";
+import AdminMetas from "@/pages/admin/AdminMetas";
 
 const queryClient = new QueryClient();
 
@@ -63,7 +63,6 @@ export default function App() {
 
                 <Route element={<AdminOnlyRoute />}>
                   <Route path="performance" element={<Performance />} />
-                  <Route path="em-risco" element={<EmRisco />} />
                 </Route>
                 <Route path="helpdesks" element={<Helpdesks />} />
                 <Route path="calendario" element={<Calendario />} />
@@ -87,6 +86,7 @@ export default function App() {
                     <Route path="perfis" element={<AdminPerfis />} />
                     <Route path="permissoes" element={<AdminPermissoes />} />
                     <Route path="escalas" element={<AdminEscalas />} />
+                    <Route path="metas" element={<AdminMetas />} />
                     <Route path="cursos" element={<AdminCursos />} />
                     <Route path="documentacao" element={<AdminDocumentacao />} />
                     <Route path="atualizacoes" element={<AdminAtualizacoes />} />

@@ -10,6 +10,7 @@ import {
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { Dialog } from "@/components/ui/Dialog";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRealtimeCalendario } from "@/hooks/useRealtimeCalendario";
@@ -110,6 +111,11 @@ export default function Calendario() {
     queryFn: () => fetchDayEntries(inicioGrid, fimGrid),
   });
   const { data: usuarios } = useQuery({ queryKey: ["users"], queryFn: fetchUsers, enabled: isAdmin });
+  // Responsável de semana/sábado/sobreaviso/férias só faz sentido pra quem
+  // ainda está no time — fetchUsers() é compartilhada e traz todo mundo
+  // (inclusive inativos, ex: Brenda) porque a Administração precisa listar
+  // todos; aqui filtramos antes de oferecer nos seletores de escala.
+  const usuariosAtivos = useMemo(() => (usuarios ?? []).filter((u) => u.ativo), [usuarios]);
 
   const semanaAtualInicio = toISODate(mondayOf(hoje));
   const responsavelSemanaAtual = weekResp?.find((w) => w.semana_inicio === semanaAtualInicio);
@@ -302,7 +308,7 @@ export default function Calendario() {
           </h2>
           <div className="space-y-2">
             {pendentes.map((p) => (
-              <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white p-3 text-sm">
+              <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sand-surface p-3 text-sm">
                 <div>
                   <span className="font-medium text-ink">{p.usuario?.nome}</span>
                   <span className="text-ink/50"> · {new Date(p.data + "T00:00:00").toLocaleDateString("pt-BR")} · {p.tipo} · {p.motivo}</span>
@@ -333,11 +339,11 @@ export default function Calendario() {
                 const foraDoMes = dia.getMonth() !== mesRef.getMonth();
                 const isHoje = toISODate(dia) === toISODate(hoje);
                 const corEspecial = info.holiday
-                  ? "bg-amber-50 hover:bg-amber-100/70"
+                  ? "bg-amber-50 hover:bg-amber-100/70 dark:bg-amber-500/10 dark:hover:bg-amber-500/15"
                   : info.isDomingo
-                    ? "bg-rust-50 hover:bg-rust-100/60"
+                    ? "bg-rust-50 hover:bg-rust-100/60 dark:bg-rust-500/10 dark:hover:bg-rust-500/15"
                     : info.isSabado
-                      ? "bg-sky-50 hover:bg-sky-100/60"
+                      ? "bg-sky-50 hover:bg-sky-100/60 dark:bg-sky-500/10 dark:hover:bg-sky-500/15"
                       : "hover:bg-sand-bg/60";
                 return (
                   <button
@@ -406,7 +412,7 @@ export default function Calendario() {
                       className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm"
                     >
                       <option value="">Selecionar colaborador...</option>
-                      {(usuarios ?? []).map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                      {usuariosAtivos.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
                     </select>
                   </div>
                 )}
@@ -488,78 +494,74 @@ export default function Calendario() {
       )}
 
       {dialogFolga && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-ink/40 p-4">
-          <Card className="w-full max-w-md p-5 shadow-float">
-            <h2 className="font-display text-base font-semibold text-ink">Solicitar Folga</h2>
-            <p className="mt-1 text-xs text-ink/50">{diaSelecionado && formatDiaCompleto(diaSelecionado)}</p>
-            <form onSubmit={handleSubmitFolga(solicitarFolga)} className="mt-4 space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-ink/70">Tipo</label>
-                <select {...registerFolga("tipo")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm">
-                  <option value="folga">Folga</option>
-                  <option value="banco_horas">Banco de horas</option>
-                  <option value="compensacao">Compensação</option>
-                  <option value="outro">Outro</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-ink/70">Motivo</label>
-                <input {...registerFolga("motivo")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
-                {errorsFolga.motivo && <p className="mt-1 text-xs text-rust-500">{errorsFolga.motivo.message}</p>}
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-ink/70">Observação</label>
-                <textarea {...registerFolga("observacao")} rows={2} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <Button type="button" variant="secondary" onClick={() => setDialogFolga(false)}>Cancelar</Button>
-                <Button type="submit">Enviar solicitação</Button>
-              </div>
-            </form>
-          </Card>
-        </div>
+        <Dialog onClose={() => setDialogFolga(false)}>
+          <h2 className="font-display text-base font-semibold text-ink">Solicitar Folga</h2>
+          <p className="mt-1 text-xs text-ink/50">{diaSelecionado && formatDiaCompleto(diaSelecionado)}</p>
+          <form onSubmit={handleSubmitFolga(solicitarFolga)} className="mt-4 space-y-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-ink/70">Tipo</label>
+              <select {...registerFolga("tipo")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm">
+                <option value="folga">Folga</option>
+                <option value="banco_horas">Banco de horas</option>
+                <option value="compensacao">Compensação</option>
+                <option value="outro">Outro</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-ink/70">Motivo</label>
+              <input {...registerFolga("motivo")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
+              {errorsFolga.motivo && <p className="mt-1 text-xs text-rust-500">{errorsFolga.motivo.message}</p>}
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-ink/70">Observação</label>
+              <textarea {...registerFolga("observacao")} rows={2} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setDialogFolga(false)}>Cancelar</Button>
+              <Button type="submit">Enviar solicitação</Button>
+            </div>
+          </form>
+        </Dialog>
       )}
 
       {dialogSobreaviso && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-ink/40 p-4">
-          <Card className="w-full max-w-md p-5 shadow-float">
-            <h2 className="font-display text-base font-semibold text-ink">Adicionar Sobreaviso</h2>
-            <form onSubmit={handleSubmitOncall(salvarSobreaviso)} className="mt-4 space-y-3">
+        <Dialog onClose={() => setDialogSobreaviso(false)}>
+          <h2 className="font-display text-base font-semibold text-ink">Adicionar Sobreaviso</h2>
+          <form onSubmit={handleSubmitOncall(salvarSobreaviso)} className="mt-4 space-y-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-ink/70">Responsável</label>
+              <select {...registerOncall("user_id")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm">
+                <option value="">Selecionar...</option>
+                {usuariosAtivos.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+              </select>
+              {errorsOncall.user_id && <p className="mt-1 text-xs text-rust-500">{errorsOncall.user_id.message}</p>}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-ink/70">Responsável</label>
-                <select {...registerOncall("user_id")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm">
-                  <option value="">Selecionar...</option>
-                  {(usuarios ?? []).map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
-                </select>
-                {errorsOncall.user_id && <p className="mt-1 text-xs text-rust-500">{errorsOncall.user_id.message}</p>}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-ink/70">Horário inicial</label>
-                  <input type="time" {...registerOncall("horario_inicio")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-ink/70">Horário final</label>
-                  <input type="time" {...registerOncall("horario_fim")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
-                </div>
+                <label className="mb-1 block text-xs font-medium text-ink/70">Horário inicial</label>
+                <input type="time" {...registerOncall("horario_inicio")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-ink/70">Observação</label>
-                <textarea {...registerOncall("observacao")} rows={2} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
+                <label className="mb-1 block text-xs font-medium text-ink/70">Horário final</label>
+                <input type="time" {...registerOncall("horario_fim")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
               </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <Button type="button" variant="secondary" onClick={() => setDialogSobreaviso(false)}>Cancelar</Button>
-                <Button type="submit">Salvar</Button>
-              </div>
-            </form>
-          </Card>
-        </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-ink/70">Observação</label>
+              <textarea {...registerOncall("observacao")} rows={2} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setDialogSobreaviso(false)}>Cancelar</Button>
+              <Button type="submit">Salvar</Button>
+            </div>
+          </form>
+        </Dialog>
       )}
 
       {dialogFerias && diaSelecionado && (
         <FeriasDialog
           dataInicial={toISODate(diaSelecionado)}
-          usuarios={usuarios ?? []}
+          usuarios={usuariosAtivos}
           onClose={() => setDialogFerias(false)}
           onSaved={() => queryClient.invalidateQueries({ queryKey: ["calendario"] })}
           criadoPor={user?.id ?? ""}
@@ -604,39 +606,37 @@ function FeriasDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-ink/40 p-4">
-      <Card className="w-full max-w-md p-5 shadow-float">
-        <h2 className="font-display text-base font-semibold text-ink">Cadastrar Férias</h2>
-        <div className="mt-4 space-y-3">
+    <Dialog onClose={onClose}>
+      <h2 className="font-display text-base font-semibold text-ink">Cadastrar Férias</h2>
+      <div className="mt-4 space-y-3">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-ink/70">Colaborador</label>
+          <select value={userId} onChange={(e) => setUserId(e.target.value)} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm">
+            <option value="">Selecionar...</option>
+            {usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+          </select>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-ink/70">Colaborador</label>
-            <select value={userId} onChange={(e) => setUserId(e.target.value)} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm">
-              <option value="">Selecionar...</option>
-              {usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-ink/70">Data inicial</label>
-              <input type="date" value={dataInicial} disabled className="w-full rounded-lg border border-sand-line bg-sand-bg px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-ink/70">Data final</label>
-              <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
-            </div>
+            <label className="mb-1 block text-xs font-medium text-ink/70">Data inicial</label>
+            <input type="date" value={dataInicial} disabled className="w-full rounded-lg border border-sand-line bg-sand-bg px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-ink/70">Observação</label>
-            <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
-          </div>
-          {erro && <p className="text-sm text-rust-500">{erro}</p>}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-            <Button onClick={salvar}>Salvar</Button>
+            <label className="mb-1 block text-xs font-medium text-ink/70">Data final</label>
+            <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
           </div>
         </div>
-      </Card>
-    </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-ink/70">Observação</label>
+          <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
+        </div>
+        {erro && <p className="text-sm text-rust-500">{erro}</p>}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+          <Button onClick={salvar}>Salvar</Button>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 
@@ -665,29 +665,27 @@ function LancamentoDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-ink/40 p-4">
-      <Card className="w-full max-w-md p-5 shadow-float">
-        <h2 className="font-display text-base font-semibold text-ink">Lançamento extra</h2>
-        <div className="mt-4 space-y-3">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-ink/70">Título</label>
-            <input value={titulo} onChange={(e) => setTitulo(e.target.value)} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-ink/70">Horas</label>
-            <input type="number" step="0.5" value={horas} onChange={(e) => setHoras(Number(e.target.value))} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-ink/70">Observação</label>
-            <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
-          </div>
-          {erro && <p className="text-sm text-rust-500">{erro}</p>}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-            <Button onClick={salvar}>Salvar</Button>
-          </div>
+    <Dialog onClose={onClose}>
+      <h2 className="font-display text-base font-semibold text-ink">Lançamento extra</h2>
+      <div className="mt-4 space-y-3">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-ink/70">Título</label>
+          <input value={titulo} onChange={(e) => setTitulo(e.target.value)} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
         </div>
-      </Card>
-    </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-ink/70">Horas</label>
+          <input type="number" step="0.5" value={horas} onChange={(e) => setHoras(Number(e.target.value))} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-ink/70">Observação</label>
+          <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
+        </div>
+        {erro && <p className="text-sm text-rust-500">{erro}</p>}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+          <Button onClick={salvar}>Salvar</Button>
+        </div>
+      </div>
+    </Dialog>
   );
 }

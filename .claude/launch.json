@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hub-sac-greenn",
+      "runtimeExecutable": "/home/eduardo.nicolau/.nvm/versions/node/v20.20.2/bin/node",
+      "runtimeArgs": ["/home/eduardo.nicolau/Downloads/hub-sac-greenn/node_modules/vite/bin/vite.js"],
+      "port": 5173
+    }
+  ]
+}

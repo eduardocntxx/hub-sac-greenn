@@ -226,11 +226,11 @@ export default function ReclameAqui() {
       {aba === "reclamacoes" && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <select value={statusFiltro} onChange={(e) => setStatusFiltro(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-white px-2 text-sm">
+            <select value={statusFiltro} onChange={(e) => setStatusFiltro(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
               <option value="">Todos os status</option>
               {Object.entries(statusLabel).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
-            <select value={responsavelFiltro} onChange={(e) => setResponsavelFiltro(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-white px-2 text-sm">
+            <select value={responsavelFiltro} onChange={(e) => setResponsavelFiltro(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
               <option value="">Todos os responsáveis</option>
               {(usuarios ?? []).map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
             </select>

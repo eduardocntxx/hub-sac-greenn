@@ -8,7 +8,7 @@ import {
 } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchCurrentProfile, ensureOnlineStatus } from "@/services/api";
+import { fetchCurrentProfile, ensureOnlineStatus, completeOAuthSignup } from "@/services/api";
 import type { AppUser, UserRole } from "@/types";
 import type { DbUser } from "@/types/database";
 
@@ -24,6 +24,7 @@ function mapDbUserToAppUser(db: DbUser): AppUser {
     avatarUrl: db.avatar ?? undefined,
     status: db.ativo ? "ativo" : "inativo",
     perfil,
+    aprovado: db.aprovado,
   };
 }
 
@@ -50,7 +51,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const profile = await fetchCurrentProfile(session.user.id);
+      let profile = await fetchCurrentProfile(session.user.id);
+      // Só tenta provisionar automaticamente quando a sessão veio de fato
+      // do provider Google (sinal do próprio Supabase Auth, não algo que o
+      // cliente possa forjar) — primeiro login via OAuth ainda não tem
+      // public.users vinculado. Qualquer outro caso de perfil ausente
+      // (ex: vínculo quebrado por engano, como já aconteceu antes) continua
+      // caindo no erro explícito abaixo, sem tentar se auto-curar.
+      if (!profile && session.user.app_metadata?.provider === "google") {
+        try {
+          profile = await completeOAuthSignup();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Não foi possível concluir o login com Google.");
+          setUser(null);
+          await supabase!.auth.signOut();
+          return;
+        }
+      }
       if (!profile) {
         setError(
           "Login autenticado, mas nenhum registro em public.users está vinculado a este auth_id."

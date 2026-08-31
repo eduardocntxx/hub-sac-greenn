@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Star, MessagesSquare, Timer, CheckCircle2, Trophy, Lock, PhoneCall,
+  Star, MessagesSquare, Timer, CheckCircle2, Lock, PhoneCall,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Kpi } from "@/components/ui/Kpi";
@@ -30,7 +30,7 @@ import { DateRangePopover } from "@/components/ui/DateRangePopover";
 // Valores reais de crisp_conversations.status são "pending"/"resolved".
 const statusLabel: Record<string, string> = { resolved: "Resolvido", pending: "Pendente" };
 
-type RankingCampo = "total_chamados" | "tempo_1resposta_medio" | "tempo_encerramento_medio" | "csat_medio";
+type RankingCampo = "total_chamados" | "tempo_1resposta_medio" | "tempo_encerramento_medio" | "csat_medio" | "total_avaliacoes";
 
 function corChamados() {
   return "bg-sky-500";
@@ -137,7 +137,6 @@ export default function Analytics() {
     [ranking]
   );
   const rankingFiltrado = operadorEmail ? (ranking ?? []).filter((r) => r.email_atendente === operadorEmail) : ranking ?? [];
-  const destaque = ranking?.[0];
 
   const rankingOrdenado = useMemo(() => {
     if (!rankingOrdenarPor) return rankingFiltrado;
@@ -181,17 +180,17 @@ export default function Analytics() {
       </div>
 
       <Card className="flex flex-wrap items-center gap-2 p-3">
-        <select value={operadorEmail} onChange={(e) => setOperadorEmail(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-white px-2 text-sm">
+        <select value={operadorEmail} onChange={(e) => setOperadorEmail(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
           <option value="">Todos os operadores</option>
           {operadoresDisponiveis.map((o) => (
             <option key={o.email ?? o.nome} value={o.email ?? ""}>{o.nome}</option>
           ))}
         </select>
-        <select value={canal} onChange={(e) => setCanal(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-white px-2 text-sm">
+        <select value={canal} onChange={(e) => setCanal(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
           <option value="">Todos os canais</option>
           {(canaisDisponiveis ?? []).map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
-        <select value={estado} onChange={(e) => setEstado(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-white px-2 text-sm">
+        <select value={estado} onChange={(e) => setEstado(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
           <option value="">Todos os status</option>
           {statusOptions.map((s) => <option key={s} value={s}>{statusLabel[s] ?? s}</option>)}
         </select>
@@ -269,15 +268,6 @@ export default function Analytics() {
           <p className="text-sm text-ink/50">Sem avaliações suficientes neste período/filtro.</p>
         ) : (
           <>
-            {destaque && (
-              <Card className="mb-4 flex items-center gap-3 border-amber-400/40 bg-amber-500/5 p-4">
-                <Trophy size={20} className="text-amber-500" />
-                <div>
-                  <p className="text-sm font-medium text-ink">Operador destaque: {destaque.atendente}</p>
-                  <p className="text-xs text-ink/50">CSAT médio {destaque.csat_medio?.toFixed(1) ?? "—"} · {destaque.total_chamados} chamados</p>
-                </div>
-              </Card>
-            )}
             <Card className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-sand-bg text-left text-xs uppercase tracking-wide text-ink/50">
@@ -288,6 +278,7 @@ export default function Analytics() {
                     <SortableHeader field="tempo_1resposta_medio" label="1ª resposta" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
                     <SortableHeader field="tempo_encerramento_medio" label="Encerramento" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
                     <SortableHeader field="csat_medio" label="CSAT (0–5)" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
+                    <SortableHeader field="total_avaliacoes" label="Avaliações" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
                   </tr>
                 </thead>
                 <tbody>
@@ -299,6 +290,7 @@ export default function Analytics() {
                       <td className="px-4 py-3 text-ink/70">{formatDuration(r.tempo_1resposta_medio)}</td>
                       <td className="px-4 py-3 text-ink/70">{formatDuration(r.tempo_encerramento_medio)}</td>
                       <td className="px-4 py-3">{r.csat_medio?.toFixed(1) ?? "—"}</td>
+                      <td className="px-4 py-3 text-ink/70">{r.total_avaliacoes}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -34,7 +34,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className="flex items-start gap-2 rounded-xl border border-rust-500/20 bg-white px-4 py-3 text-sm text-ink shadow-float"
+            className="flex items-start gap-2 rounded-xl border border-rust-500/20 bg-sand-surface px-4 py-3 text-sm text-ink shadow-float"
           >
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-rust-600" />
             <span className="flex-1">{t.mensagem}</span>

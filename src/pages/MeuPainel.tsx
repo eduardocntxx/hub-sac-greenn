@@ -12,6 +12,7 @@ import {
   ArrowUpDown,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { classificacaoPorNota } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Kpi } from "@/components/ui/Kpi";
 import { Badge } from "@/components/ui/Badge";
@@ -111,25 +112,25 @@ export default function MeuPainel() {
   // que não faz sentido mostrar aqui).
   const { data: slaPessoal, isLoading: loadingSla } = useQuery({
     queryKey: ["tfr-ttr-percentis", user?.nome, inicio.toISOString(), fim.toISOString()],
-    queryFn: () => fetchTfrTtrPercentis(inicio, fim, undefined, user!.nome),
+    queryFn: () => fetchTfrTtrPercentis(inicio, fim, undefined, [user!.nome]),
     enabled: Boolean(user?.nome),
   });
 
   const { data: fcrPessoal, isLoading: loadingFcr } = useQuery({
     queryKey: ["fcr-recontato-resumo", user?.nome, inicio.toISOString(), fim.toISOString()],
-    queryFn: () => fetchFcrRecontatoResumo(inicio, fim, undefined, user!.nome),
+    queryFn: () => fetchFcrRecontatoResumo(inicio, fim, undefined, [user!.nome]),
     enabled: Boolean(user?.nome),
   });
 
   const { data: reaberturaPessoal, isLoading: loadingReaberturaPessoal } = useQuery({
     queryKey: ["reabertura-resumo", user?.nome, inicio.toISOString(), fim.toISOString()],
-    queryFn: () => fetchReaberturaResumo(inicio, fim, undefined, user!.nome),
+    queryFn: () => fetchReaberturaResumo(inicio, fim, undefined, [user!.nome]),
     enabled: Boolean(user?.nome),
   });
 
   const { data: transferenciasPessoal, isLoading: loadingTransferenciasPessoal } = useQuery({
     queryKey: ["transferencias-resumo", user?.nome, inicio.toISOString(), fim.toISOString()],
-    queryFn: () => fetchTransferenciasResumo(inicio, fim, undefined, user!.nome),
+    queryFn: () => fetchTransferenciasResumo(inicio, fim, undefined, [user!.nome]),
     enabled: Boolean(user?.nome),
   });
 
@@ -140,7 +141,7 @@ export default function MeuPainel() {
 
   const { data: metricasTipoCliente, isLoading: loadingTipoCliente } = useQuery({
     queryKey: ["metricas-tipo-cliente", user?.nome, inicio.toISOString(), fim.toISOString()],
-    queryFn: () => fetchMetricasPorTipoCliente(inicio, fim, undefined, "uteis", user!.nome),
+    queryFn: () => fetchMetricasPorTipoCliente(inicio, fim, undefined, "uteis", [user!.nome]),
     enabled: Boolean(user?.nome),
   });
 
@@ -232,8 +233,8 @@ export default function MeuPainel() {
         va = a.nota ?? -1;
         vb = b.nota ?? -1;
       } else {
-        va = a.classificacao_csat ?? "";
-        vb = b.classificacao_csat ?? "";
+        va = classificacaoPorNota(a.nota) ?? "";
+        vb = classificacaoPorNota(b.nota) ?? "";
       }
       if (va < vb) return sortAsc ? -1 : 1;
       if (va > vb) return sortAsc ? 1 : -1;
@@ -258,7 +259,7 @@ export default function MeuPainel() {
               {user.cargo} · {user.equipe}
             </p>
           </div>
-          <div className="flex h-8 items-center gap-1.5 rounded-full bg-amber-50 px-2.5 text-[13px] font-medium text-amber-700">
+          <div className="flex h-8 items-center gap-1.5 rounded-full bg-amber-50 px-2.5 text-[13px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
             <Coins size={14} /> Minhas moedas: {totalMoedas}
           </div>
           <DateRangePopover
@@ -509,7 +510,7 @@ export default function MeuPainel() {
                   <tr
                     key={c.id}
                     onClick={() => setDetalhe(c)}
-                    className="cursor-pointer border-t border-sand-line/70 transition-all hover:relative hover:z-10 hover:scale-[1.01] hover:bg-white hover:shadow-card-hover"
+                    className="cursor-pointer border-t border-sand-line/70 transition-all hover:relative hover:z-10 hover:scale-[1.01] hover:bg-sand-surface hover:shadow-card-hover"
                   >
                     <td className="px-5 py-3 text-ink/60">
                       {new Date(c.data_hora).toLocaleString("pt-BR")}
@@ -522,8 +523,16 @@ export default function MeuPainel() {
                     <td className="px-5 py-3 text-ink/60">{c.topico ?? "—"}</td>
                     <td className="px-5 py-3 font-medium text-ink">{c.nota ?? "—"}</td>
                     <td className="px-5 py-3">
-                      <Badge tone={(c.nota ?? 0) >= 4 ? "success" : "danger"}>
-                        {c.classificacao_csat ?? "—"}
+                      <Badge
+                        tone={
+                          classificacaoPorNota(c.nota) === "Promotor"
+                            ? "success"
+                            : classificacaoPorNota(c.nota) === "Detrator"
+                              ? "danger"
+                              : "warning"
+                        }
+                      >
+                        {classificacaoPorNota(c.nota) ?? "—"}
                       </Badge>
                     </td>
                     <td className="max-w-[220px] truncate px-5 py-3 text-ink/60" title={c.comentario ?? undefined}>
