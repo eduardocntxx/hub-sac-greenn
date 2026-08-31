@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Download, ArrowUpDown, Star, FileDown, ArrowUpRight, ArrowDownRight, SlidersHorizontal, Check } from "lucide-react";
-import { cn, formatDelta, nomesCurtosDisambiguados } from "@/lib/utils";
+import { Search, Download, ArrowUpDown, Star, FileDown, ArrowUpRight, ArrowDownRight, SlidersHorizontal, Check, X } from "lucide-react";
+import { cn, formatDelta, nomesCurtosDisambiguados, classificacaoPorNota } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -15,6 +15,7 @@ import { fetchDistinctOperadores, fetchCsatFiltered, fetchCsatForDashboard, fetc
 import type { CsatFilters } from "@/services/api";
 import type { DbCsatResult } from "@/types/database";
 import { CsatDetalheDialog } from "@/components/CsatDetalheDialog";
+import { Dialog } from "@/components/ui/Dialog";
 import { exportCsatToCsv } from "@/lib/exportCsv";
 import { exportCsatDashboardToPdf } from "@/lib/exportPdf";
 import {
@@ -74,7 +75,7 @@ function FiltrosPopover({
       {aberto && <div className="fixed inset-0 z-10" onClick={() => setAberto(false)} />}
       <button
         onClick={() => setAberto((a) => !a)}
-        className="flex h-9 items-center gap-1.5 rounded-lg border border-sand-line bg-white px-3 text-sm text-ink/70 transition-colors hover:border-sand-line-strong"
+        className="flex h-9 items-center gap-1.5 rounded-lg border border-sand-line bg-sand-surface px-3 text-sm text-ink/70 transition-colors hover:border-sand-line-strong"
       >
         <SlidersHorizontal size={14} className="text-ink/40" />
         Filtros
@@ -82,7 +83,7 @@ function FiltrosPopover({
       </button>
 
       {aberto && (
-        <div className="absolute right-0 top-full z-20 mt-1.5 w-64 space-y-3 rounded-xl border border-sand-line bg-white p-3 shadow-float">
+        <div className="absolute right-0 top-full z-20 mt-1.5 w-64 space-y-3 rounded-xl border border-sand-line bg-sand-surface p-3 shadow-float">
           <div>
             <label className="mb-1 block text-[11px] font-medium text-ink/50">Colaborador</label>
             <select
@@ -140,7 +141,7 @@ function FiltrosPopover({
                   onClick={() => onChange({ ...filtros, classificacaoCsat: valor })}
                   className={cn(
                     "flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-sand-subtle",
-                    filtros.classificacaoCsat === valor && "bg-forest-50 text-forest-700"
+                    filtros.classificacaoCsat === valor && "bg-forest-50 text-forest-700 dark:bg-forest-500/15 dark:text-forest-300"
                   )}
                 >
                   {label}
@@ -177,6 +178,7 @@ export default function Csat() {
   const [sortAsc, setSortAsc] = useState(false);
   const [page, setPage] = useState(0);
   const [detalhe, setDetalhe] = useState<DbCsatResult | null>(null);
+  const [atendenteDetalhe, setAtendenteDetalhe] = useState<{ chave: string; nome: string } | null>(null);
 
   const { inicio, fim } = useMemo(() => resolvePeriodo(preset, personalizado), [preset, personalizado]);
   const { inicio: inicioAnterior, fim: fimAnterior } = useMemo(
@@ -267,36 +269,54 @@ export default function Csat() {
       const entry =
         map.get(chave) ?? { atendente, notas: [], ultima: r.data_hora, promotores: 0, neutros: 0, detratores: 0 };
       if (r.nota !== null) entry.notas.push(r.nota);
-      if (r.classificacao_csat === "Promotor") entry.promotores++;
-      else if (r.classificacao_csat === "Neutro") entry.neutros++;
-      else if (r.classificacao_csat === "Detrator") entry.detratores++;
+      const classificacao = classificacaoPorNota(r.nota);
+      if (classificacao === "Promotor") entry.promotores++;
+      else if (classificacao === "Neutro") entry.neutros++;
+      else if (classificacao === "Detrator") entry.detratores++;
       if (new Date(r.data_hora) > new Date(entry.ultima)) entry.ultima = r.data_hora;
       map.set(chave, entry);
     });
-    return Array.from(map.entries()).map(([chave, v]) => {
-      const { positivoPct: percentual, media } = calcularCsat(v.notas);
+    return Array.from(map.entries())
+      .map(([chave, v]) => {
+        const { positivoPct: percentual, media } = calcularCsat(v.notas);
 
-      const notasAnteriores = (dashboardAnterior ?? [])
-        .filter((r) => normalizarChave(r.email_atendente, r.atendente).chave === chave && r.nota !== null)
-        .map((r) => r.nota as number);
-      const { positivoPct: percentualAnterior } = calcularCsat(notasAnteriores);
-      const evolucao =
-        percentual !== null && percentualAnterior ? ((percentual - percentualAnterior) / percentualAnterior) * 100 : undefined;
+        const notasAnteriores = (dashboardAnterior ?? [])
+          .filter((r) => normalizarChave(r.email_atendente, r.atendente).chave === chave && r.nota !== null)
+          .map((r) => r.nota as number);
+        const { positivoPct: percentualAnterior } = calcularCsat(notasAnteriores);
+        const evolucao =
+          percentual !== null && percentualAnterior ? ((percentual - percentualAnterior) / percentualAnterior) * 100 : undefined;
 
-      return {
-        uid: chave,
-        atendente: v.atendente,
-        media,
-        total: v.notas.length,
-        percentual,
-        ultima: v.ultima,
-        evolucao,
-        promotores: v.promotores,
-        neutros: v.neutros,
-        detratores: v.detratores,
-      };
-    });
+        return {
+          uid: chave,
+          atendente: v.atendente,
+          media,
+          total: v.notas.length,
+          percentual,
+          ultima: v.ultima,
+          evolucao,
+          promotores: v.promotores,
+          neutros: v.neutros,
+          detratores: v.detratores,
+        };
+      })
+      .sort((a, b) => a.atendente.localeCompare(b.atendente, "pt-BR"));
   }, [dashboardRows, dashboardAnterior, aliasMap]);
+
+  // Mesma ordem usada pelo HorizontalBarChart "CSAT por colaborador" —
+  // hoisted pra fora do JSX pra dar pra reaproveitar o índice do clique
+  // (onBarClick só devolve label/index, não o registro original).
+  const colaboradorPorPercentual = useMemo(
+    () => [...porColaborador].sort((a, b) => (b.percentual ?? 0) - (a.percentual ?? 0)),
+    [porColaborador]
+  );
+
+  const avaliacoesDoAtendenteDetalhe = useMemo(() => {
+    if (!atendenteDetalhe) return [];
+    return (dashboardRows ?? [])
+      .filter((r) => normalizarChave(r.email_atendente, r.atendente).chave === atendenteDetalhe.chave)
+      .sort((a, b) => new Date(b.data_hora).getTime() - new Date(a.data_hora).getTime());
+  }, [dashboardRows, atendenteDetalhe, aliasMap]);
 
   function rotuloCsat(pct: number | null) {
     if (pct === null) return "—";
@@ -316,9 +336,9 @@ export default function Csat() {
     const total = rows.length;
     const notas = rows.map((r) => r.nota).filter((n): n is number => n !== null);
     const { positivoPct: csatPercent, media: mediaNotas } = calcularCsat(notas);
-    const promotores = rows.filter((r) => r.classificacao_csat === "Promotor").length;
-    const neutros = rows.filter((r) => r.classificacao_csat === "Neutro").length;
-    const detratores = rows.filter((r) => r.classificacao_csat === "Detrator").length;
+    const promotores = rows.filter((r) => classificacaoPorNota(r.nota) === "Promotor").length;
+    const neutros = rows.filter((r) => classificacaoPorNota(r.nota) === "Neutro").length;
+    const detratores = rows.filter((r) => classificacaoPorNota(r.nota) === "Detrator").length;
     return { total, csatPercent, mediaNotas, promotores, neutros, detratores };
   }, [dashboardRows]);
 
@@ -327,9 +347,9 @@ export default function Csat() {
     const total = rows.length;
     const notas = rows.map((r) => r.nota).filter((n): n is number => n !== null);
     const { positivoPct: csatPercent } = calcularCsat(notas);
-    const promotores = rows.filter((r) => r.classificacao_csat === "Promotor").length;
-    const neutros = rows.filter((r) => r.classificacao_csat === "Neutro").length;
-    const detratores = rows.filter((r) => r.classificacao_csat === "Detrator").length;
+    const promotores = rows.filter((r) => classificacaoPorNota(r.nota) === "Promotor").length;
+    const neutros = rows.filter((r) => classificacaoPorNota(r.nota) === "Neutro").length;
+    const detratores = rows.filter((r) => classificacaoPorNota(r.nota) === "Detrator").length;
     return { total, csatPercent, promotores, neutros, detratores };
   }, [dashboardAnterior]);
 
@@ -415,7 +435,7 @@ export default function Csat() {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar comentário/atendente..."
-            className="h-9 rounded-lg border border-sand-line bg-white pl-8 pr-2 text-sm outline-none focus:border-forest-500"
+            className="h-9 rounded-lg border border-sand-line bg-sand-surface pl-8 pr-2 text-sm outline-none focus:border-forest-500"
           />
         </div>
         <FiltrosPopover
@@ -473,7 +493,7 @@ export default function Csat() {
                       <tr
                         key={r.id}
                         onClick={() => setDetalhe(r)}
-                        className="cursor-pointer border-t border-sand-line transition-all hover:relative hover:z-10 hover:scale-[1.01] hover:bg-white hover:shadow-card-hover"
+                        className="cursor-pointer border-t border-sand-line transition-all hover:relative hover:z-10 hover:scale-[1.01] hover:bg-sand-surface hover:shadow-card-hover"
                       >
                         <td className="px-4 py-3 text-ink/70">{new Date(r.data_hora).toLocaleString("pt-BR")}</td>
                         <td className="px-4 py-3 text-ink">{r.atendente}</td>
@@ -486,14 +506,14 @@ export default function Csat() {
                         <td className="px-4 py-3">
                           <Badge
                             tone={
-                              r.classificacao_csat === "Promotor"
+                              classificacaoPorNota(r.nota) === "Promotor"
                                 ? "success"
-                                : r.classificacao_csat === "Detrator"
+                                : classificacaoPorNota(r.nota) === "Detrator"
                                   ? "danger"
                                   : "warning"
                             }
                           >
-                            {r.classificacao_csat ?? "—"}
+                            {classificacaoPorNota(r.nota) ?? "—"}
                           </Badge>
                         </td>
                         <td className="max-w-[220px] truncate px-4 py-3 text-ink/70" title={r.comentario ?? undefined}>
@@ -551,9 +571,8 @@ export default function Csat() {
             <h2 className="mb-3 font-display text-sm font-semibold text-ink">CSAT por colaborador</h2>
             <HorizontalBarChart
               data={(() => {
-                const ordenado = [...porColaborador].sort((a, b) => (b.percentual ?? 0) - (a.percentual ?? 0));
-                const rotulos = nomesCurtosDisambiguados(ordenado.map((c) => c.atendente ?? "—"));
-                return ordenado.map((c, i) => ({
+                const rotulos = nomesCurtosDisambiguados(colaboradorPorPercentual.map((c) => c.atendente ?? "—"));
+                return colaboradorPorPercentual.map((c, i) => ({
                   label: `${rotulos[i]} (${c.total})`,
                   value: c.percentual ?? 0,
                   displayValue: c.percentual !== null
@@ -563,13 +582,21 @@ export default function Csat() {
               })()}
               getColorClass={corPorFaixa}
               labelWidth={128}
+              onBarClick={(_, i) => {
+                const c = colaboradorPorPercentual[i];
+                if (c) setAtendenteDetalhe({ chave: c.uid, nome: c.atendente });
+              }}
             />
           </Card>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {porColaborador.map((c) => (
-            <Card key={c.uid} className="p-5">
+            <Card
+              key={c.uid}
+              className="cursor-pointer p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
+              onClick={() => setAtendenteDetalhe({ chave: c.uid, nome: c.atendente })}
+            >
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-forest-50 text-sm font-display font-semibold text-forest-700">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-forest-50 text-sm font-display font-semibold text-forest-700 dark:bg-forest-500/15 dark:text-forest-300">
                   {c.atendente?.split(" ").slice(0, 2).map((n) => n[0]).join("")}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -629,6 +656,76 @@ export default function Csat() {
           ))}
           </div>
         </>
+      )}
+
+      {atendenteDetalhe && (
+        <Dialog onClose={() => setAtendenteDetalhe(null)} className="max-w-2xl">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-display text-base font-semibold text-ink">{atendenteDetalhe.nome}</h3>
+              <p className="text-xs text-ink/50">
+                {avaliacoesDoAtendenteDetalhe.length} avaliações no período selecionado — clique numa linha pra ver o
+                chamado completo.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAtendenteDetalhe(null)}
+              className="text-ink/40 hover:text-ink"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          {avaliacoesDoAtendenteDetalhe.length === 0 ? (
+            <p className="mt-4 text-sm text-ink/50">Nenhuma avaliação encontrada.</p>
+          ) : (
+            <div className="mt-4 max-h-[60vh] overflow-y-auto rounded-xl border border-sand-line">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-sand-bg text-left text-xs uppercase tracking-wide text-ink/50">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Data</th>
+                    <th className="px-3 py-2 font-medium">Cliente</th>
+                    <th className="px-3 py-2 font-medium">Nota</th>
+                    <th className="px-3 py-2 font-medium">Classificação</th>
+                    <th className="px-3 py-2 font-medium">Comentário</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {avaliacoesDoAtendenteDetalhe.map((r) => (
+                    <tr
+                      key={r.id}
+                      onClick={() => setDetalhe(r)}
+                      className="cursor-pointer border-t border-sand-line transition-colors hover:bg-sand-bg/60"
+                    >
+                      <td className="whitespace-nowrap px-3 py-2 text-ink/70">
+                        {new Date(r.data_hora).toLocaleDateString("pt-BR")}
+                      </td>
+                      <td className="px-3 py-2 text-ink">{r.cliente ?? "—"}</td>
+                      <td className="px-3 py-2">{r.nota ?? "—"}</td>
+                      <td className="px-3 py-2">
+                        <Badge
+                          tone={
+                            classificacaoPorNota(r.nota) === "Promotor"
+                              ? "success"
+                              : classificacaoPorNota(r.nota) === "Detrator"
+                                ? "danger"
+                                : "warning"
+                          }
+                        >
+                          {classificacaoPorNota(r.nota) ?? "—"}
+                        </Badge>
+                      </td>
+                      <td className="max-w-[240px] truncate px-3 py-2 text-ink/70" title={r.comentario ?? undefined}>
+                        {r.comentario ?? "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Dialog>
       )}
 
       {detalhe && <CsatDetalheDialog registro={detalhe} onClose={() => setDetalhe(null)} />}

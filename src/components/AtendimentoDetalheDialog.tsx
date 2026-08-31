@@ -66,6 +66,14 @@ export function AtendimentoDetalheDialog({ atendimento: c, onClose }: Atendiment
         </Badge>
         {c.canal && <Badge tone="neutral">{c.canal}</Badge>}
         {c.tipo_cliente && <Badge tone="neutral">{c.tipo_cliente}</Badge>}
+        {c.reopened_count > 0 && (
+          <Badge
+            tone="warning"
+            title="Cliente reabriu esse chamado depois de já ter sido marcado como resolvido — o tempo parado entre uma resolução e a reabertura entra na conta de 'Tempo até resolução' quando (se) fechar de vez."
+          >
+            🔄 Reaberto {c.reopened_count}x
+          </Badge>
+        )}
         {invalido && (
           <span title="Dado inconsistente: resposta antes do início ou tempo negativo" className="inline-flex items-center gap-1 text-xs text-rust-500">
             <AlertTriangle size={12} /> dado inválido
@@ -102,7 +110,17 @@ export function AtendimentoDetalheDialog({ atendimento: c, onClose }: Atendiment
         </div>
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Tempo até resolução</p>
-          <p className="text-ink">{formatDuration(c.tempo_resolucao_seg)}</p>
+          {c.resolved_at ? (
+            <p className="text-ink">{formatDuration(c.tempo_resolucao_seg)}</p>
+          ) : (
+            <p
+              className="text-amber-600"
+              title="Chamado ainda aberto — este é o tempo decorrido até agora (mesma conta que 'Tempo até resolução' passaria a mostrar se resolvesse neste instante), não um valor final. Muda a cada vez que você abrir este popup."
+            >
+              {formatDuration(c.tempo_aberto_seg)}{" "}
+              <span className="text-[11px] font-normal text-ink/40">(em aberto, ainda contando)</span>
+            </p>
+          )}
         </div>
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-ink/40">1ª resposta geral (com bot)</p>

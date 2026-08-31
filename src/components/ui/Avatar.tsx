@@ -1,12 +1,14 @@
 import { cn } from "@/lib/utils";
 
-// Paleta restrita e neutra o suficiente para não competir com o verde da marca
+// Paleta restrita e neutra o suficiente para não competir com o verde da marca.
+// dark: usa preenchimento translúcido em vez do tom "50" quase-branco, que
+// destoaria de qualquer card escuro.
 const PALETA = [
-  { bg: "bg-sky-50", text: "text-sky-700" },
-  { bg: "bg-violet-50", text: "text-violet-700" },
-  { bg: "bg-amber-50", text: "text-amber-700" },
-  { bg: "bg-forest-50", text: "text-forest-700" },
-  { bg: "bg-rust-50", text: "text-rust-700" },
+  { bg: "bg-sky-50 dark:bg-sky-500/15", text: "text-sky-700 dark:text-sky-400" },
+  { bg: "bg-violet-50 dark:bg-violet-500/15", text: "text-violet-700 dark:text-violet-400" },
+  { bg: "bg-amber-50 dark:bg-amber-500/15", text: "text-amber-700 dark:text-amber-400" },
+  { bg: "bg-forest-50 dark:bg-forest-500/15", text: "text-forest-700 dark:text-forest-300" },
+  { bg: "bg-rust-50 dark:bg-rust-500/15", text: "text-rust-700 dark:text-rust-400" },
 ];
 
 function corPorNome(nome: string) {

@@ -13,7 +13,6 @@ import Csat from "@/pages/Csat";
 import ReclameAqui from "@/pages/ReclameAqui";
 import Nps from "@/pages/Nps";
 import Performance from "@/pages/Performance";
-import EmRisco from "@/pages/EmRisco";
 import Helpdesks from "@/pages/Helpdesks";
 import Calendario from "@/pages/Calendario";
 import MeuPainel from "@/pages/MeuPainel";
@@ -64,7 +63,6 @@ export default function App() {
 
                 <Route element={<AdminOnlyRoute />}>
                   <Route path="performance" element={<Performance />} />
-                  <Route path="em-risco" element={<EmRisco />} />
                 </Route>
                 <Route path="helpdesks" element={<Helpdesks />} />
                 <Route path="calendario" element={<Calendario />} />

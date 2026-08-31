@@ -259,7 +259,7 @@ export default function Home() {
           {quickAccess.map(({ to, label, desc, icon: Icon }) => (
             <NavLink key={label} to={to}>
               <Card className="group h-full p-5 transition-all hover:border-forest-300">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-forest-50 text-forest-600 transition-colors group-hover:bg-forest-500 group-hover:text-white">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-forest-50 text-forest-600 dark:bg-forest-500/15 dark:text-forest-300 transition-colors group-hover:bg-forest-500 group-hover:text-white">
                   <Icon size={18} />
                 </div>
                 <p className="mt-3 font-display text-sm font-semibold text-ink">

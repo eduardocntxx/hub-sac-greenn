@@ -1,5 +1,6 @@
 import type { DbCsatResult } from "@/types/database";
 import type { AtendimentoComMetricas } from "@/services/api";
+import { classificacaoPorNota } from "@/lib/utils";
 
 export function exportCsatToCsv(rows: DbCsatResult[], filename = "csat.csv") {
   const header = [
@@ -22,7 +23,7 @@ export function exportCsatToCsv(rows: DbCsatResult[], filename = "csat.csv") {
     r.topico ?? "",
     r.categoria_cliente ?? "",
     r.nota ?? "",
-    r.classificacao_csat ?? "",
+    classificacaoPorNota(r.nota) ?? "",
     r.tempo_primeira_resposta_seg ?? "",
     r.tempo_encerramento_seg ?? "",
     (r.comentario ?? "").replace(/"/g, '""'),
@@ -41,15 +42,21 @@ export function exportCsatToCsv(rows: DbCsatResult[], filename = "csat.csv") {
   URL.revokeObjectURL(url);
 }
 
-export function exportEmRiscoToCsv(rows: AtendimentoComMetricas[], filename = "em-risco.csv") {
+export function exportAtendimentosToCsv(rows: AtendimentoComMetricas[], filename = "atendimentos.csv") {
   const header = [
     "Cliente",
-    "E-mail",
+    "E-mail do cliente",
     "Atendente",
     "Canal",
-    "Aberto desde",
-    "Tempo at\u00E9 1\u00AA resposta (s)",
+    "Tipo de cliente",
     "Status",
+    "Início",
+    "1ª resposta humana",
+    "Resolução",
+    "Tempo até 1ª resposta (s)",
+    "Tempo até resolução (s)",
+    "Tempo em aberto até agora (s) — só quando ainda não resolvido, não é valor final",
+    "Tempo ativo do atendente atual (s)",
     "Link do chamado",
   ];
 
@@ -58,9 +65,17 @@ export function exportEmRiscoToCsv(rows: AtendimentoComMetricas[], filename = "e
     r.cliente_email ?? "",
     r.operator_nome ?? "",
     r.canal ?? "",
+    r.tipo_cliente ?? "",
+    r.status === "resolved" ? "Resolvido" : r.status === "pending" ? "Pendente" : (r.status ?? ""),
     new Date(r.current_started_at).toLocaleString("pt-BR"),
-    r.invalido_sem_resposta_humana ? "" : (r.tempo_primeira_resposta_seg ?? ""),
-    r.status === "resolved" ? "Resolvido" : "Pendente",
+    r.primeira_resposta_humana_at ? new Date(r.primeira_resposta_humana_at).toLocaleString("pt-BR") : "",
+    r.resolved_at ? new Date(r.resolved_at).toLocaleString("pt-BR") : "",
+    r.invalido_sem_resposta_humana || r.invalido_resposta_antes_inicio || r.invalido_tempo_negativo
+      ? ""
+      : (r.tempo_primeira_resposta_seg ?? ""),
+    r.tempo_resolucao_seg ?? "",
+    r.tempo_aberto_seg ?? "",
+    r.tempo_ativo_seg ?? "",
     r.link_chamado ?? "",
   ]);
 
@@ -68,7 +83,7 @@ export function exportEmRiscoToCsv(rows: AtendimentoComMetricas[], filename = "e
     .map((linha) => linha.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
     .join("\n");
 
-  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -76,3 +91,4 @@ export function exportEmRiscoToCsv(rows: AtendimentoComMetricas[], filename = "e
   a.click();
   URL.revokeObjectURL(url);
 }
+

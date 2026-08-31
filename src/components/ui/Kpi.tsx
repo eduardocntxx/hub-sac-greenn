@@ -22,7 +22,7 @@ export function Kpi({ label, value, delta, meta, icon: Icon, invertDeltaColor, v
       <div className="flex items-center justify-between gap-2">
         <span className="text-[13px] font-medium text-ink/50">{label}</span>
         {Icon && (
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-forest-50 text-forest-600">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-forest-50 text-forest-600 dark:bg-forest-500/15 dark:text-forest-300">
             <Icon size={13} />
           </div>
         )}

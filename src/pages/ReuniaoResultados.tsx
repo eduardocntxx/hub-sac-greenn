@@ -564,7 +564,7 @@ export default function ReuniaoResultados() {
               setPeriodo(e.target.value);
               setSalvo(false);
             }}
-            className="h-10 rounded-xl border border-sand-line bg-white px-3 text-sm"
+            className="h-10 rounded-xl border border-sand-line bg-sand-surface px-3 text-sm"
           >
             {periodos.map((p) => (
               <option key={p.id} value={p.id}>
@@ -689,7 +689,7 @@ export default function ReuniaoResultados() {
                 <textarea
                   {...register(field)}
                   rows={3}
-                  className="w-full rounded-xl border border-sand-line bg-white p-3 text-sm outline-none focus:border-forest-500"
+                  className="w-full rounded-xl border border-sand-line bg-sand-surface p-3 text-sm outline-none focus:border-forest-500"
                   placeholder={`Descreva ${label.toLowerCase()}...`}
                 />
                 {errors[field] && (

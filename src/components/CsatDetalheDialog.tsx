@@ -3,6 +3,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { formatDuration } from "@/lib/formatDuration";
+import { classificacaoPorNota } from "@/lib/utils";
 import type { DbCsatResult } from "@/types/database";
 
 interface CsatDetalheDialogProps {
@@ -28,8 +29,8 @@ export function CsatDetalheDialog({ registro: r, onClose }: CsatDetalheDialogPro
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <Badge tone={r.classificacao_csat === "Promotor" ? "success" : r.classificacao_csat === "Detrator" ? "danger" : "warning"}>
-          {r.classificacao_csat ?? "—"}
+        <Badge tone={classificacaoPorNota(r.nota) === "Promotor" ? "success" : classificacaoPorNota(r.nota) === "Detrator" ? "danger" : "warning"}>
+          {classificacaoPorNota(r.nota) ?? "—"}
         </Badge>
         <Badge tone="neutral">Nota {r.nota ?? "—"}</Badge>
         {r.categoria_cliente && <Badge tone="neutral">{r.categoria_cliente}</Badge>}

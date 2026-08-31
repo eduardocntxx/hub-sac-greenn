@@ -30,6 +30,33 @@ function client() {
   return supabase;
 }
 
+// Chama uma Edge Function e propaga a mensagem de erro real do corpo da
+// resposta. Quando a função responde com status não-2xx, o client do
+// Supabase joga tudo em `error` (um FunctionsHttpError genérico,
+// "Edge Function returned a non-2xx status code") e `data` vem `null` —
+// a mensagem específica que a função quis mandar só existe dentro de
+// `error.context` (a Response crua), nunca em `data.error`. Sem isso, todo
+// erro de validação de uma Edge Function (inclusive os já existentes,
+// como invite-user) aparece genérico pro usuário em vez do motivo real.
+async function invokeFunction<T>(nome: string, body: object): Promise<T> {
+  const { data, error } = await client().functions.invoke(nome, { body });
+  if (error) {
+    let mensagem = error.message;
+    const context = (error as { context?: Response }).context;
+    if (context) {
+      try {
+        const corpo = await context.clone().json();
+        if (corpo?.error) mensagem = corpo.error;
+      } catch {
+        // corpo não era JSON — mantém a mensagem genérica
+      }
+    }
+    throw new Error(mensagem);
+  }
+  if (data?.error) throw new Error(data.error);
+  return data as T;
+}
+
 // ---------- Perfil / Usuários ----------
 
 export async function fetchCurrentProfile(authId: string): Promise<DbUser | null> {
@@ -84,12 +111,33 @@ export interface InviteUserInput {
 // convite pra pessoa definir a própria senha) e já vincula o auth_id em
 // public.users — tudo numa Edge Function, nunca expondo a service role key.
 export async function inviteUser(input: InviteUserInput): Promise<DbUser> {
-  const { data, error } = await client().functions.invoke("invite-user", {
-    body: { ...input, redirect_origin: window.location.origin },
+  const { user } = await invokeFunction<{ user: DbUser }>("invite-user", {
+    ...input,
+    redirect_origin: window.location.origin,
   });
-  if (error) throw error;
-  if (data?.error) throw new Error(data.error);
-  return data.user as DbUser;
+  return user;
+}
+
+export interface SignUpInput {
+  nome: string;
+  email: string;
+  senha: string;
+}
+
+// Autocadastro público (domínio @greenn.com.br, validado no servidor pela
+// própria Edge Function) — conta nasce com aprovado=false, sem acesso ao
+// Hub até um admin aprovar em Administração → Usuários.
+export async function signUpUser(input: SignUpInput): Promise<DbUser> {
+  const { user } = await invokeFunction<{ user: DbUser }>("self-signup", input);
+  return user;
+}
+
+// Chamada logo após um login via Google que ainda não tem public.users
+// vinculado (primeiro acesso) — cria o vínculo (aprovado=false) se o
+// e-mail for @greenn.com.br, ou desfaz o usuário do Auth caso contrário.
+export async function completeOAuthSignup(): Promise<DbUser> {
+  const { user } = await invokeFunction<{ user: DbUser }>("complete-oauth-signup", {});
+  return user;
 }
 
 export async function fetchRoles() {
@@ -476,7 +524,12 @@ export async function fetchCsatFiltered(
   if (topico) query = query.eq("topico", topico);
   if (categoriaCliente) query = query.eq("categoria_cliente", categoriaCliente);
   if (nota) query = query.eq("nota", nota);
-  if (classificacaoCsat) query = query.eq("classificacao_csat", classificacaoCsat);
+  // classificacao_csat é texto cru do n8n com vocabulário inconsistente
+  // (ver comentário em types/database.ts) — filtra por nota, nunca por
+  // igualdade de texto contra essa coluna.
+  if (classificacaoCsat === "Promotor") query = query.gte("nota", 4);
+  else if (classificacaoCsat === "Neutro") query = query.eq("nota", 3);
+  else if (classificacaoCsat === "Detrator") query = query.lte("nota", 2);
   if (inicio) query = query.gte("data_hora", inicio.toISOString());
   if (fim) query = query.lte("data_hora", fim.toISOString());
 
@@ -503,7 +556,9 @@ export async function fetchCsatForDashboard(
   if (topico) query = query.eq("topico", topico);
   if (categoriaCliente) query = query.eq("categoria_cliente", categoriaCliente);
   if (nota) query = query.eq("nota", nota);
-  if (classificacaoCsat) query = query.eq("classificacao_csat", classificacaoCsat);
+  if (classificacaoCsat === "Promotor") query = query.gte("nota", 4);
+  else if (classificacaoCsat === "Neutro") query = query.eq("nota", 3);
+  else if (classificacaoCsat === "Detrator") query = query.lte("nota", 2);
   if (inicio) query = query.gte("data_hora", inicio.toISOString());
   if (fim) query = query.lte("data_hora", fim.toISOString());
 
@@ -1727,6 +1782,12 @@ export interface AtendimentoComMetricas {
   resolved_at: string | null;
   tempo_primeira_resposta_seg: number | null;
   tempo_resolucao_seg: number | null;
+  // Só preenchido quando resolved_at é null (chamado ainda aberto) — tempo
+  // decorrido até agora (mesmo cálculo que tempo_resolucao_seg usaria se
+  // resolvesse neste instante). É um valor "ao vivo": muda a cada consulta,
+  // nunca usar em agregado/média — tfr_ttr_percentis() nem lê esse campo,
+  // continua exigindo resolved_at real.
+  tempo_aberto_seg: number | null;
   tempo_primeira_resposta_geral_seg: number | null;
   invalido_resposta_antes_inicio: boolean;
   invalido_sem_resposta_humana: boolean;
@@ -1738,6 +1799,9 @@ export interface AtendimentoComMetricas {
   // chamado sem nunca respondê-lo primeiro (handoff), ou responder rápido e
   // não ficar mais com ele depois.
   tempo_ativo_seg: number | null;
+  // Quantas vezes esse chamado reabriu (0 = nunca) — mesmo campo de
+  // crisp_conversations.reopened_count, só passthrough.
+  reopened_count: number;
   total_count: number;
 }
 
@@ -1800,6 +1864,25 @@ export async function fetchAtendimentosComMetricas(
   if (error) throw error;
   const rows = (data ?? []) as AtendimentoComMetricas[];
   return { rows, count: rows[0]?.total_count ?? 0 };
+}
+
+// Busca todas as páginas (ignora f.page/f.pageSize) — usada só pra
+// exportação em CSV, onde "com base nos filtros" precisa ser a lista
+// inteira, não só a página visível na tabela. Pagina em blocos de 500 pra
+// nunca esbarrar no limite de linhas por resposta do PostgREST (1000).
+export async function fetchTodosAtendimentosComMetricas(
+  f: Omit<AtendimentosMetricasFilters, "page" | "pageSize">
+): Promise<AtendimentoComMetricas[]> {
+  const BLOCO = 500;
+  const todas: AtendimentoComMetricas[] = [];
+  let page = 0;
+  while (true) {
+    const { rows, count } = await fetchAtendimentosComMetricas({ ...f, page, pageSize: BLOCO });
+    todas.push(...rows);
+    if (rows.length < BLOCO || todas.length >= count) break;
+    page++;
+  }
+  return todas;
 }
 
 export interface MinhaConversaMetrica {

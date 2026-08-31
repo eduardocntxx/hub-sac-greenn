@@ -74,12 +74,12 @@ export default function Atualizacoes() {
                 <div
                   className={
                     "z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full " +
-                    (isMissao ? "bg-forest-50 text-forest-600" : "bg-sand-subtle text-ink/50")
+                    (isMissao ? "bg-forest-50 text-forest-600 dark:bg-forest-500/15 dark:text-forest-300" : "bg-sand-subtle text-ink/50")
                   }
                 >
                   {isMissao ? <Target size={16} /> : <Megaphone size={16} />}
                 </div>
-                <Card className={"flex-1 p-5" + (isMissao ? " border-forest-200 bg-forest-50/30" : "")}>
+                <Card className={"flex-1 p-5" + (isMissao ? " border-forest-200 bg-forest-50/30 dark:border-forest-500/30 dark:bg-forest-500/5" : "")}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-ink">Hub SAC Greenn</span>

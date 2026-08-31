@@ -4,7 +4,6 @@ import type { LucideIcon } from "lucide-react";
 import {
   Home,
   LayoutDashboard,
-  AlertOctagon,
   TrendingUp,
   Target,
   BarChart3,
@@ -145,7 +144,6 @@ export function Sidebar() {
           <>
             <SectionLabel collapsed={collapsed}>Área de Administradores</SectionLabel>
             <NavItem to="/performance" label="Overview" icon={TrendingUp} collapsed={collapsed} />
-            <NavItem to="/em-risco" label="Em Risco" icon={AlertOctagon} collapsed={collapsed} />
             <NavItem to="/admin" label="Configurações da plataforma" icon={Settings} collapsed={collapsed} highlight />
           </>
         )}

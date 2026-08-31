@@ -19,6 +19,7 @@ export interface DbUser {
   equipe: string | null;
   avatar: string | null;
   ativo: boolean;
+  aprovado: boolean;
   horario_entrada: string | null;
   horario_saida_almoco: string | null;
   horario_retorno_almoco: string | null;
@@ -133,7 +134,11 @@ export interface DbCsatResult {
   primeira_resposta_humana: string | null;
   primeira_resposta_origem: string | null;
   teve_interacao_humana: boolean | null;
-  classificacao_csat: "Promotor" | "Neutro" | "Detrator" | null;
+  // Texto cru do n8n, vocabulário inconsistente (às vezes "Promotor"/
+  // "Neutro"/"Detrator", às vezes os rótulos reais da pesquisa da Crisp
+  // como "Muito satisfeito") — nunca comparar contra este campo, usar
+  // classificacaoPorNota(nota) de src/lib/utils.ts.
+  classificacao_csat: string | null;
   crisp_id: string | null;
   conversation_id: string | null;
   resolved_operator_crisp_id: string | null;

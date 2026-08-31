@@ -76,7 +76,7 @@ export function HorizontalBarChart({
             className={cn(
               "flex items-center gap-2 rounded-md",
               onBarClick && "cursor-pointer",
-              selecionado && "bg-forest-50 ring-1 ring-forest-300"
+              selecionado && "bg-forest-50 ring-1 ring-forest-300 dark:bg-forest-500/15 dark:ring-forest-500/40"
             )}
           >
             <span

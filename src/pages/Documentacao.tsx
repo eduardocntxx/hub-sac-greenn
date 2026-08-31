@@ -40,7 +40,7 @@ export default function Documentacao() {
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
           placeholder="Buscar documento..."
-          className="h-10 w-full rounded-xl border border-sand-line bg-white pl-9 pr-3 text-sm outline-none focus:border-forest-500"
+          className="h-10 w-full rounded-xl border border-sand-line bg-sand-surface pl-9 pr-3 text-sm outline-none focus:border-forest-500"
         />
       </div>
 
@@ -62,7 +62,7 @@ export default function Documentacao() {
             <a key={d.id} href={d.link ?? "#"} target="_blank" rel="noreferrer" className="block">
               <Card className="flex items-center justify-between p-4 transition-colors hover:border-forest-300">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-forest-50 text-forest-600">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-forest-50 text-forest-600 dark:bg-forest-500/15 dark:text-forest-300">
                     <FileText size={16} />
                   </div>
                   <div>

@@ -169,7 +169,7 @@ export default function AdminOutrosLinks() {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por nome ou categoria..."
-            className="h-10 w-full rounded-xl border border-sand-line bg-white pl-9 pr-3 text-sm outline-none focus:border-forest-500"
+            className="h-10 w-full rounded-xl border border-sand-line bg-sand-surface pl-9 pr-3 text-sm outline-none focus:border-forest-500"
           />
         </div>
         <Button onClick={abrirNovo}>
@@ -209,7 +209,7 @@ export default function AdminOutrosLinks() {
                 <tr key={t.id} className="border-t border-sand-line">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-forest-50 text-forest-600">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-forest-50 text-forest-600 dark:bg-forest-500/15 dark:text-forest-300">
                         {t.icone_url ? (
                           <img src={t.icone_url} alt="" className="h-full w-full object-cover" />
                         ) : (
@@ -312,14 +312,14 @@ export default function AdminOutrosLinks() {
                     <button
                       type="button"
                       onClick={() => setOrigemIcone("lucide")}
-                      className={"rounded-md px-2 py-0.5 text-xs font-medium " + (origemIcone === "lucide" ? "bg-white shadow-sm text-ink" : "text-ink/50")}
+                      className={"rounded-md px-2 py-0.5 text-xs font-medium " + (origemIcone === "lucide" ? "bg-sand-surface shadow-sm text-ink" : "text-ink/50")}
                     >
                       Biblioteca
                     </button>
                     <button
                       type="button"
                       onClick={() => setOrigemIcone("upload")}
-                      className={"rounded-md px-2 py-0.5 text-xs font-medium " + (origemIcone === "upload" ? "bg-white shadow-sm text-ink" : "text-ink/50")}
+                      className={"rounded-md px-2 py-0.5 text-xs font-medium " + (origemIcone === "upload" ? "bg-sand-surface shadow-sm text-ink" : "text-ink/50")}
                     >
                       Upload
                     </button>
@@ -356,7 +356,7 @@ export default function AdminOutrosLinks() {
                       type="file"
                       accept="image/*"
                       onChange={(e) => setArquivoIcone(e.target.files?.[0] ?? null)}
-                      className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm outline-none file:mr-2 file:rounded-md file:border-0 file:bg-forest-50 file:px-2 file:py-1 file:text-xs file:text-forest-700"
+                      className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm outline-none file:mr-2 file:rounded-md file:border-0 file:bg-forest-50 file:px-2 file:py-1 file:text-xs file:text-forest-700 dark:file:bg-forest-500/15 dark:file:text-forest-300"
                     />
                   </div>
                 )}
@@ -369,14 +369,14 @@ export default function AdminOutrosLinks() {
                     <button
                       type="button"
                       onClick={() => setOrigemImagem("url")}
-                      className={"rounded-md px-2 py-0.5 text-xs font-medium " + (origemImagem === "url" ? "bg-white shadow-sm text-ink" : "text-ink/50")}
+                      className={"rounded-md px-2 py-0.5 text-xs font-medium " + (origemImagem === "url" ? "bg-sand-surface shadow-sm text-ink" : "text-ink/50")}
                     >
                       URL
                     </button>
                     <button
                       type="button"
                       onClick={() => setOrigemImagem("upload")}
-                      className={"rounded-md px-2 py-0.5 text-xs font-medium " + (origemImagem === "upload" ? "bg-white shadow-sm text-ink" : "text-ink/50")}
+                      className={"rounded-md px-2 py-0.5 text-xs font-medium " + (origemImagem === "upload" ? "bg-sand-surface shadow-sm text-ink" : "text-ink/50")}
                     >
                       Upload
                     </button>
@@ -393,7 +393,7 @@ export default function AdminOutrosLinks() {
                     type="file"
                     accept="image/*"
                     onChange={(e) => setArquivoImagem(e.target.files?.[0] ?? null)}
-                    className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm outline-none file:mr-2 file:rounded-md file:border-0 file:bg-forest-50 file:px-2 file:py-1 file:text-xs file:text-forest-700"
+                    className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm outline-none file:mr-2 file:rounded-md file:border-0 file:bg-forest-50 file:px-2 file:py-1 file:text-xs file:text-forest-700 dark:file:bg-forest-500/15 dark:file:text-forest-300"
                   />
                 )}
               </div>

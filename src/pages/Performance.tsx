@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Lock, AlertTriangle, PhoneCall, Search, ExternalLink, Info, X, SlidersHorizontal } from "lucide-react";
+import { Lock, AlertTriangle, PhoneCall, Search, ExternalLink, Info, X, SlidersHorizontal, Download } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -18,6 +18,7 @@ import {
   fetchAtendentePerformance,
   fetchDistinctCanais,
   fetchAtendimentosComMetricas,
+  fetchTodosAtendimentosComMetricas,
   fetchDistinctTiposCliente,
   fetchDistinctAtendentesConversas,
   fetchTfrTtrPercentis,
@@ -45,6 +46,7 @@ import { formatDuration } from "@/lib/formatDuration";
 import { formatDurationFromMinutes as formatMin } from "@/lib/formatDuration";
 import { cn, nomesCurtosDisambiguados } from "@/lib/utils";
 import { DateRangePopover } from "@/components/ui/DateRangePopover";
+import { exportAtendimentosToCsv } from "@/lib/exportCsv";
 
 // Valores reais de crisp_conversations.status são "pending"/"resolved" (só
 // esses dois — conferido no banco); "unresolved" nunca existiu como valor
@@ -131,6 +133,7 @@ export default function Performance() {
   const [posseDetalhe, setPosseDetalhe] = useState<string | null>(null);
   const [posseDetalheOrdenarPor, setPosseDetalheOrdenarPor] = useState<OrdenarCampo | undefined>(undefined);
   const [posseDetalheDirecao, setPosseDetalheDirecao] = useState<"asc" | "desc">("desc");
+  const [posseDetalhePage, setPosseDetalhePage] = useState(0);
   const [backlogFaixaAberta, setBacklogFaixaAberta] = useState<string | null>(null);
   const [backlogPage, setBacklogPage] = useState(0);
   const [backlogDirecao, setBacklogDirecao] = useState<"asc" | "desc">("asc");
@@ -169,6 +172,7 @@ export default function Performance() {
       setPosseDetalheOrdenarPor(campo);
       setPosseDetalheDirecao(DIRECAO_PADRAO[campo]);
     }
+    setPosseDetalhePage(0);
   }
 
   const { inicio, fim } = useMemo(() => resolvePeriodo(preset, personalizado), [preset, personalizado]);
@@ -266,9 +270,9 @@ export default function Performance() {
   });
 
   const { data: posseDetalheAtendimentos, isLoading: loadingPosseDetalhe } = useQuery({
-    queryKey: ["atendimentos-por-atendente", inicio, fim, posseDetalhe, modoTempo, posseDetalheOrdenarPor, posseDetalheDirecao],
+    queryKey: ["atendimentos-por-atendente", inicio, fim, posseDetalhe, modoTempo, posseDetalheOrdenarPor, posseDetalheDirecao, posseDetalhePage],
     queryFn: () => fetchAtendimentosComMetricas({
-      inicio, fim, atendenteNomes: posseDetalhe ? [posseDetalhe] : undefined, page: 0, pageSize: 50, modoTempo,
+      inicio, fim, atendenteNomes: posseDetalhe ? [posseDetalhe] : undefined, page: posseDetalhePage, pageSize: PAGE_SIZE, modoTempo,
       ordenarPor: posseDetalheOrdenarPor, direcao: posseDetalheDirecao,
     }),
     enabled: !!posseDetalhe,
@@ -478,6 +482,18 @@ export default function Performance() {
     enabled: podeVer && aba === "atendimentos",
   });
 
+  const [exportandoAtendimentos, setExportandoAtendimentos] = useState(false);
+
+  async function exportarAtendimentosCsv() {
+    setExportandoAtendimentos(true);
+    try {
+      const todas = await fetchTodosAtendimentosComMetricas(filtrosAtendimentos);
+      exportAtendimentosToCsv(todas, `atendimentos-${new Date().toISOString().slice(0, 10)}.csv`);
+    } finally {
+      setExportandoAtendimentos(false);
+    }
+  }
+
   if (!podeVer) {
     return (
       <Card className="flex items-center gap-3 p-5">
@@ -514,15 +530,15 @@ export default function Performance() {
               className={cn(
                 "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[13px] transition-colors",
                 modoTempo === "corridas" || tipoClienteFiltro || atendenteNomes.length > 0 || (aba === "atendimentos" && (canal || tipoCliente || motivo))
-                  ? "border-forest-300 bg-forest-50 text-forest-700"
-                  : "border-sand-line bg-white text-ink/60 hover:border-sand-line-strong"
+                  ? "border-forest-300 bg-forest-50 text-forest-700 dark:border-forest-500/40 dark:bg-forest-500/15 dark:text-forest-300"
+                  : "border-sand-line bg-sand-surface text-ink/60 hover:border-sand-line-strong"
               )}
             >
               <SlidersHorizontal size={14} />
               Filtros
             </button>
             {filtroAberto && (
-              <div className="absolute right-0 top-full z-20 mt-1.5 w-72 space-y-3 overflow-hidden rounded-xl border border-sand-line bg-white p-3 shadow-float">
+              <div className="absolute right-0 top-full z-20 mt-1.5 w-72 space-y-3 overflow-hidden rounded-xl border border-sand-line bg-sand-surface p-3 shadow-float">
                 <div>
                   <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink/40">Tempo</p>
                   <SegmentedControl
@@ -585,7 +601,7 @@ export default function Performance() {
                     <select
                       value={tipoClienteFiltro}
                       onChange={(e) => setTipoClienteFiltro(e.target.value)}
-                      className="h-9 w-full rounded-lg border border-sand-line bg-white px-2 text-sm"
+                      className="h-9 w-full rounded-lg border border-sand-line bg-sand-surface px-2 text-sm"
                     >
                       <option value="">Todos</option>
                       {(tiposCliente ?? []).map((t) => <option key={t.tag} value={t.tag}>{t.label}</option>)}
@@ -597,11 +613,11 @@ export default function Performance() {
                   </div>
                 ) : (
                   <div className="space-y-2 border-t border-sand-line pt-3">
-                    <select value={canal} onChange={(e) => { setCanal(e.target.value); setPage(0); }} className="h-9 w-full rounded-lg border border-sand-line bg-white px-2 text-sm">
+                    <select value={canal} onChange={(e) => { setCanal(e.target.value); setPage(0); }} className="h-9 w-full rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
                       <option value="">Todos os canais</option>
                       {(canais ?? []).map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
-                    <select value={tipoCliente} onChange={(e) => { setTipoCliente(e.target.value); setPage(0); }} className="h-9 w-full rounded-lg border border-sand-line bg-white px-2 text-sm">
+                    <select value={tipoCliente} onChange={(e) => { setTipoCliente(e.target.value); setPage(0); }} className="h-9 w-full rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
                       <option value="">Todos os tipos de cliente</option>
                       {(tiposCliente ?? []).map((t) => <option key={t.tag} value={t.tag}>{t.label}</option>)}
                     </select>
@@ -611,7 +627,7 @@ export default function Performance() {
                         onChange={(e) => { setMotivo(e.target.value); setPage(0); }}
                         list="motivos-sugeridos"
                         placeholder="Filtrar por motivo/tópico..."
-                        className="h-9 w-full rounded-lg border border-sand-line bg-white px-2 text-sm outline-none focus:border-forest-500"
+                        className="h-9 w-full rounded-lg border border-sand-line bg-sand-surface px-2 text-sm outline-none focus:border-forest-500"
                       />
                       <datalist id="motivos-sugeridos">
                         {Array.from(new Set((motivos ?? []).map((m) => m.topico))).sort().map((t) => (
@@ -687,7 +703,7 @@ export default function Performance() {
             <div>
               <h2 className="mb-3 font-display text-sm font-semibold text-ink">Bot (IA Greenn)</h2>
               <Card
-                onClick={() => setPosseDetalhe("IA Greenn")}
+                onClick={() => { setPosseDetalhe("IA Greenn"); setPosseDetalhePage(0); }}
                 className="flex cursor-pointer flex-wrap items-center gap-6 border-sky-400/30 bg-sky-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
               >
                 <div>
@@ -774,10 +790,10 @@ export default function Performance() {
                     return (
                       <tr
                         key={r.operator_email ?? r.operator_nome}
-                        onClick={p ? () => setPosseDetalhe(r.operator_nome) : undefined}
+                        onClick={p ? () => { setPosseDetalhe(r.operator_nome); setPosseDetalhePage(0); } : undefined}
                         className={cn(
                           "border-t border-sand-line text-center transition-all",
-                          p && "relative cursor-pointer hover:relative hover:z-10 hover:scale-[1.01] hover:bg-white hover:shadow-card-hover"
+                          p && "relative cursor-pointer hover:relative hover:z-10 hover:scale-[1.01] hover:bg-sand-surface hover:shadow-card-hover"
                         )}
                       >
                         <td className="px-4 py-3 text-left font-medium text-ink">{r.operator_nome}</td>
@@ -1073,7 +1089,7 @@ export default function Performance() {
                       <select
                         value={reaberturaFiltroAtendente}
                         onChange={(e) => { setReaberturaFiltroAtendente(e.target.value); setMostrarTodasReaberturas(false); }}
-                        className="h-8 rounded-lg border border-sand-line bg-white px-2 text-xs"
+                        className="h-8 rounded-lg border border-sand-line bg-sand-surface px-2 text-xs"
                       >
                         <option value="">Todos os atendentes</option>
                         {reaberturaAtendentesDisponiveis.map((a) => <option key={a} value={a}>{a}</option>)}
@@ -1081,7 +1097,7 @@ export default function Performance() {
                       <select
                         value={reaberturaFiltroReaberto}
                         onChange={(e) => { setReaberturaFiltroReaberto(e.target.value); setMostrarTodasReaberturas(false); }}
-                        className="h-8 rounded-lg border border-sand-line bg-white px-2 text-xs"
+                        className="h-8 rounded-lg border border-sand-line bg-sand-surface px-2 text-xs"
                       >
                         <option value="">Qualquer nº de reaberturas</option>
                         {reaberturaReabertosDisponiveis.map((n) => <option key={n} value={n}>{n}x reaberto</option>)}
@@ -1433,10 +1449,20 @@ export default function Performance() {
                           <tr
                             key={c.id}
                             onClick={() => setDetalhe(c)}
-                            className="cursor-pointer border-t border-sand-line text-center align-top transition-all hover:relative hover:z-10 hover:scale-[1.01] hover:bg-white hover:shadow-card-hover"
+                            className="cursor-pointer border-t border-sand-line text-center align-top transition-all hover:relative hover:z-10 hover:scale-[1.01] hover:bg-sand-surface hover:shadow-card-hover"
                           >
                             <td className="px-3 py-2 text-left">
-                              <p className="font-medium text-ink">{c.cliente_nome ?? "—"}</p>
+                              <p className="font-medium text-ink">
+                                {c.cliente_nome ?? "—"}
+                                {c.reopened_count > 0 && (
+                                  <span
+                                    className="ml-1 text-amber-600"
+                                    title={`Reabriu ${c.reopened_count}x depois de já ter sido marcado resolvido`}
+                                  >
+                                    🔄
+                                  </span>
+                                )}
+                              </p>
                               <p className="text-xs text-ink/50">{c.cliente_email}</p>
                             </td>
                             <td className="px-3 py-2 text-xs text-ink/60">{new Date(c.current_started_at).toLocaleString("pt-BR")}</td>
@@ -1451,7 +1477,15 @@ export default function Performance() {
                                 "—"
                               )}
                             </td>
-                            <td className="px-3 py-2 text-ink/70">{formatDuration(c.tempo_resolucao_seg)}</td>
+                            <td className="px-3 py-2">
+                              {c.resolved_at ? (
+                                <span className="text-ink/70">{formatDuration(c.tempo_resolucao_seg)}</span>
+                              ) : (
+                                <span className="text-amber-600" title="Ainda aberto — tempo decorrido até agora, não é final.">
+                                  {formatDuration(c.tempo_aberto_seg)}*
+                                </span>
+                              )}
+                            </td>
                             <td className="px-3 py-2">
                               <Badge tone={c.status ? statusTone[c.status] ?? "neutral" : "neutral"}>
                                 {c.status ? statusLabel[c.status] ?? c.status : "—"}
@@ -1475,6 +1509,25 @@ export default function Performance() {
                   </div>
                 )}
               </div>
+              {posseDetalheAtendimentos && posseDetalheAtendimentos.count > 0 && (
+                <div className="mt-3 flex items-center justify-between text-sm text-ink/60">
+                  <span>{posseDetalheAtendimentos.count} chamados</span>
+                  <div className="flex gap-2">
+                    <Button variant="secondary" size="sm" disabled={posseDetalhePage === 0} onClick={() => setPosseDetalhePage((p) => p - 1)}>Anterior</Button>
+                    <span className="flex items-center px-2 text-xs">
+                      Página {posseDetalhePage + 1} de {Math.max(Math.ceil(posseDetalheAtendimentos.count / PAGE_SIZE), 1)}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={(posseDetalhePage + 1) * PAGE_SIZE >= posseDetalheAtendimentos.count}
+                      onClick={() => setPosseDetalhePage((p) => p + 1)}
+                    >
+                      Próxima
+                    </Button>
+                  </div>
+                </div>
+              )}
             </Dialog>
           )}
           {detalhe && <AtendimentoDetalheDialog atendimento={detalhe} onClose={() => setDetalhe(null)} />}
@@ -1572,7 +1625,7 @@ export default function Performance() {
                     onClick={() => setTipoClienteFiltro((atual) => (atual === m.tipo_cliente ? "" : m.tipo_cliente))}
                     className={cn(
                       "cursor-pointer p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover",
-                      tipoClienteFiltro === m.tipo_cliente && "border-forest-300 bg-forest-50/40 ring-1 ring-forest-300"
+                      tipoClienteFiltro === m.tipo_cliente && "border-forest-300 bg-forest-50/40 ring-1 ring-forest-300 dark:border-forest-500/40 dark:bg-forest-500/10 dark:ring-forest-500/40"
                     )}
                   >
                     <p className="text-sm font-semibold text-ink">{m.tipo_cliente}</p>
@@ -1619,9 +1672,12 @@ export default function Performance() {
                 value={busca}
                 onChange={(e) => { setBusca(e.target.value); setPage(0); }}
                 placeholder="Buscar por nome ou email do cliente..."
-                className="h-9 w-full rounded-lg border border-sand-line bg-white pl-8 pr-2 text-sm outline-none focus:border-forest-500"
+                className="h-9 w-full rounded-lg border border-sand-line bg-sand-surface pl-8 pr-2 text-sm outline-none focus:border-forest-500"
               />
             </div>
+            <Button variant="secondary" size="sm" onClick={exportarAtendimentosCsv} disabled={exportandoAtendimentos}>
+              <Download size={14} /> {exportandoAtendimentos ? "Exportando..." : "Exportar CSV"}
+            </Button>
           </Card>
 
           {loadingAtendimentos ? (
@@ -1653,12 +1709,22 @@ export default function Performance() {
                           key={c.id}
                           onClick={() => setDetalhe(c)}
                           className={cn(
-                            "cursor-pointer border-t border-sand-line text-center align-top transition-all hover:relative hover:z-10 hover:scale-[1.01] hover:bg-white hover:shadow-card-hover",
+                            "cursor-pointer border-t border-sand-line text-center align-top transition-all hover:relative hover:z-10 hover:scale-[1.01] hover:bg-sand-surface hover:shadow-card-hover",
                             invalido && "bg-rust-500/5"
                           )}
                         >
                           <td className="truncate px-4 py-3 text-left">
-                            <p className="truncate font-medium text-ink">{c.cliente_nome ?? "—"}</p>
+                            <p className="truncate font-medium text-ink">
+                              {c.cliente_nome ?? "—"}
+                              {c.reopened_count > 0 && (
+                                <span
+                                  className="ml-1 text-amber-600"
+                                  title={`Reabriu ${c.reopened_count}x depois de já ter sido marcado resolvido`}
+                                >
+                                  🔄
+                                </span>
+                              )}
+                            </p>
                             <p className="truncate text-xs text-ink/50">{c.cliente_email}</p>
                           </td>
                           <td className="truncate px-4 py-3 text-ink/70">{c.operator_nome ?? "—"}</td>
@@ -1677,7 +1743,15 @@ export default function Performance() {
                               formatDuration(c.tempo_primeira_resposta_seg)
                             )}
                           </td>
-                          <td className="hidden px-4 py-3 text-ink/70 lg:table-cell">{formatDuration(c.tempo_resolucao_seg)}</td>
+                          <td className="hidden px-4 py-3 lg:table-cell">
+                            {c.resolved_at ? (
+                              <span className="text-ink/70">{formatDuration(c.tempo_resolucao_seg)}</span>
+                            ) : (
+                              <span className="text-amber-600" title="Ainda aberto — tempo decorrido até agora, não é final.">
+                                {formatDuration(c.tempo_aberto_seg)}*
+                              </span>
+                            )}
+                          </td>
                           <td className="hidden px-4 py-3 text-ink/70 xl:table-cell">{formatDuration(c.tempo_ativo_seg)}</td>
                           <td className="px-4 py-3">
                             <Badge tone={c.status ? statusTone[c.status] ?? "neutral" : "neutral"}>
@@ -1702,6 +1776,10 @@ export default function Performance() {
                 </table>
               </Card>
               {detalhe && <AtendimentoDetalheDialog atendimento={detalhe} onClose={() => setDetalhe(null)} />}
+              <p className="text-xs text-ink/40">
+                <span className="text-amber-600">*</span> chamado ainda aberto — valor em{" "}
+                <span className="text-amber-600">âmbar</span> é tempo decorrido até agora, não final (muda a cada consulta).
+              </p>
               <div className="flex items-center justify-between text-sm text-ink/60">
                 <span>{atendimentos.count} atendimentos</span>
                 <div className="flex gap-2">

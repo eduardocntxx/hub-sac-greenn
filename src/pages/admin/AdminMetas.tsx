@@ -91,7 +91,7 @@ export default function AdminMetas() {
                   type="number"
                   step="1"
                   {...register("meta_primeira_resposta_min")}
-                  className="h-10 w-full rounded-xl border border-sand-line bg-white px-3 text-sm outline-none focus:border-forest-500"
+                  className="h-10 w-full rounded-xl border border-sand-line bg-sand-surface px-3 text-sm outline-none focus:border-forest-500"
                 />
                 {errors.meta_primeira_resposta_min && (
                   <p className="mt-1 text-xs text-rust-500">{errors.meta_primeira_resposta_min.message}</p>
@@ -106,7 +106,7 @@ export default function AdminMetas() {
                   type="number"
                   step="1"
                   {...register("meta_resolucao_min")}
-                  className="h-10 w-full rounded-xl border border-sand-line bg-white px-3 text-sm outline-none focus:border-forest-500"
+                  className="h-10 w-full rounded-xl border border-sand-line bg-sand-surface px-3 text-sm outline-none focus:border-forest-500"
                 />
                 {errors.meta_resolucao_min && <p className="mt-1 text-xs text-rust-500">{errors.meta_resolucao_min.message}</p>}
               </div>
@@ -121,7 +121,7 @@ export default function AdminMetas() {
                   min="1"
                   max="5"
                   {...register("meta_csat")}
-                  className="h-10 w-full rounded-xl border border-sand-line bg-white px-3 text-sm outline-none focus:border-forest-500"
+                  className="h-10 w-full rounded-xl border border-sand-line bg-sand-surface px-3 text-sm outline-none focus:border-forest-500"
                 />
                 {errors.meta_csat && <p className="mt-1 text-xs text-rust-500">{errors.meta_csat.message}</p>}
               </div>
