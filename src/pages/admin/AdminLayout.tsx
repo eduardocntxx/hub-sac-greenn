@@ -7,6 +7,7 @@ const tabs = [
   { to: "/admin/perfis", label: "Perfis" },
   { to: "/admin/permissoes", label: "Permissões" },
   { to: "/admin/escalas", label: "Escalas" },
+  { to: "/admin/metas", label: "Metas" },
   { to: "/admin/cursos", label: "Cursos" },
   { to: "/admin/documentacao", label: "Documentação" },
   { to: "/admin/atualizacoes", label: "Atualizações" },

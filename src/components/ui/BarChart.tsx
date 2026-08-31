@@ -46,6 +46,8 @@ export function BarChart({ data, getColorClass = corPorFaixa, height = 160, clas
 
 interface HorizontalBarChartProps extends BarChartProps {
   labelWidth?: number;
+  onBarClick?: (label: string, index: number) => void;
+  isSelected?: (label: string, index: number) => boolean;
 }
 
 // Barras horizontais ("escadinha") — cada linha tem sua própria altura fixa,
@@ -53,31 +55,49 @@ interface HorizontalBarChartProps extends BarChartProps {
 // alturas diferentes como acontecia no BarChart vertical (rótulo comprido
 // quebrando linha só nessa coluna). Ordenar `data` por valor decrescente
 // antes de passar pra ter o efeito de escada.
-export function HorizontalBarChart({ data, getColorClass = corPorFaixa, className, labelWidth = 104 }: HorizontalBarChartProps) {
+export function HorizontalBarChart({
+  data,
+  getColorClass = corPorFaixa,
+  className,
+  labelWidth = 104,
+  onBarClick,
+  isSelected,
+}: HorizontalBarChartProps) {
   if (data.length === 0) return null;
   const max = Math.max(...data.map((d) => Math.abs(d.value)), 1);
   return (
     <div className={cn("flex flex-col gap-2", className)}>
-      {data.map((d, i) => (
-        <div key={`${d.label}-${i}`} className="flex items-center gap-2">
-          <span
-            className="shrink-0 truncate text-[11px] text-ink/60"
-            style={{ width: labelWidth }}
-            title={d.label}
+      {data.map((d, i) => {
+        const selecionado = isSelected?.(d.label, i) ?? false;
+        return (
+          <div
+            key={`${d.label}-${i}`}
+            onClick={onBarClick ? () => onBarClick(d.label, i) : undefined}
+            className={cn(
+              "flex items-center gap-2 rounded-md",
+              onBarClick && "cursor-pointer",
+              selecionado && "bg-forest-50 ring-1 ring-forest-300"
+            )}
           >
-            {d.label}
-          </span>
-          <div className="h-5 flex-1 overflow-hidden rounded-md bg-sand-bg">
-            <div
-              className={cn("h-full rounded-md transition-[width] duration-300", getColorClass(d.value, i))}
-              style={{ width: `${Math.max((Math.abs(d.value) / max) * 100, 4)}%` }}
-            />
+            <span
+              className="shrink-0 truncate text-[11px] text-ink/60"
+              style={{ width: labelWidth }}
+              title={d.label}
+            >
+              {d.label}
+            </span>
+            <div className="h-5 flex-1 overflow-hidden rounded-md bg-sand-bg">
+              <div
+                className={cn("h-full rounded-md transition-[width] duration-300", getColorClass(d.value, i))}
+                style={{ width: `${Math.max((Math.abs(d.value) / max) * 100, 4)}%` }}
+              />
+            </div>
+            <span className="w-16 shrink-0 text-right text-[11px] font-semibold text-ink/70 tabular-nums">
+              {d.displayValue ?? d.value}
+            </span>
           </div>
-          <span className="w-16 shrink-0 text-right text-[11px] font-semibold text-ink/70 tabular-nums">
-            {d.displayValue ?? d.value}
-          </span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

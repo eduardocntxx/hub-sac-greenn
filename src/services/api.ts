@@ -575,15 +575,17 @@ export async function fetchTfrTtrPercentis(
   inicio: Date,
   fim: Date,
   canal?: string,
-  atendenteNome?: string,
-  modoTempo: ModoTempo = "uteis"
+  atendenteNomes?: string[],
+  modoTempo: ModoTempo = "uteis",
+  tipoCliente?: string
 ): Promise<TfrTtrPercentis | null> {
   const { data, error } = await client().rpc("tfr_ttr_percentis", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
-    p_atendente_nome: atendenteNome ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
     p_modo_tempo: modoTempo,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   return (data?.[0] ?? null) as TfrTtrPercentis | null;
@@ -598,11 +600,12 @@ export interface RelogioPosse {
 // Só considera chamados já resolvidos no período — pra chamado ainda
 // pendente, "posse" cresceria indefinidamente enquanto ninguém retomar,
 // o que infla o agregado sem refletir trabalho de verdade (ver CLAUDE.md).
-export async function fetchRelogioPosse(inicio: Date, fim: Date, canal?: string): Promise<RelogioPosse[]> {
+export async function fetchRelogioPosse(inicio: Date, fim: Date, canal?: string, tipoCliente?: string): Promise<RelogioPosse[]> {
   const { data, error } = await client().rpc("relogio_posse_periodo", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   return (data ?? []) as RelogioPosse[];
@@ -614,25 +617,31 @@ export interface RelogioEsperaCliente {
   minutos_espera_total: number | null;
 }
 
-export async function fetchRelogioEsperaCliente(inicio: Date, fim: Date, canal?: string): Promise<RelogioEsperaCliente | null> {
+export async function fetchRelogioEsperaCliente(inicio: Date, fim: Date, canal?: string, atendenteNomes?: string[], tipoCliente?: string): Promise<RelogioEsperaCliente | null> {
   const { data, error } = await client().rpc("relogio_espera_cliente", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   return (data?.[0] ?? null) as RelogioEsperaCliente | null;
 }
 
-// Horas de expediente cadastrado (união das jornadas de todos os usuários
-// ativos) no período — mesmo cálculo que já desconta fora de expediente em
-// TFR/TTR ("horas úteis"), só que aqui aplicado ao período inteiro, não a um
+// Horas de expediente cadastrado (união das jornadas dos usuários ativos)
+// no período — mesmo cálculo que já desconta fora de expediente em TFR/TTR
+// ("horas úteis"), só que aqui aplicado ao período inteiro, não a um
 // chamado específico. É "capacidade nominal", não "estava online de fato" —
-// o Crisp não expõe presença/status do operador pela API.
-export async function fetchHorasExpedientePeriodo(inicio: Date, fim: Date): Promise<number> {
+// o Crisp não expõe presença/status do operador pela API. Sem
+// atendenteNomes, é a união do time inteiro; com, só das pessoas
+// selecionadas (sábado fixo 08-12 só entra na versão sem filtro — não dá
+// pra atribuir esse plantão a uma pessoa específica aqui).
+export async function fetchHorasExpedientePeriodo(inicio: Date, fim: Date, atendenteNomes?: string[]): Promise<number> {
   const { data, error } = await client().rpc("minutos_uteis_entre_time", {
     p_inicio: inicio.toISOString(),
     p_fim: fim.toISOString(),
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
   });
   if (error) throw error;
   return (data as number) ?? 0;
@@ -651,13 +660,14 @@ export interface TransferenciasResumo {
 // — ver CLAUDE.md seção 10) — passar a bola do bot pro humano é fluxo
 // normal de escalonamento, não é "transferência" no sentido de fricção
 // operacional que essa métrica quer capturar.
-export async function fetchTransferenciasResumo(inicio: Date, fim: Date, canal?: string, atendenteNome?: string, modoTempo: ModoTempo = "uteis"): Promise<TransferenciasResumo | null> {
+export async function fetchTransferenciasResumo(inicio: Date, fim: Date, canal?: string, atendenteNomes?: string[], modoTempo: ModoTempo = "uteis", tipoCliente?: string): Promise<TransferenciasResumo | null> {
   const { data, error } = await client().rpc("transferencias_resumo", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
-    p_atendente_nome: atendenteNome ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
     p_modo_tempo: modoTempo,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   return (data?.[0] ?? null) as TransferenciasResumo | null;
@@ -673,12 +683,14 @@ export interface TransferenciaCaso {
   link_chamado: string | null;
 }
 
-export async function fetchTransferenciasCasos(inicio: Date, fim: Date, canal?: string, modoTempo: ModoTempo = "uteis"): Promise<TransferenciaCaso[]> {
+export async function fetchTransferenciasCasos(inicio: Date, fim: Date, canal?: string, modoTempo: ModoTempo = "uteis", atendenteNomes?: string[], tipoCliente?: string): Promise<TransferenciaCaso[]> {
   const { data, error } = await client().rpc("transferencias_casos", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
     p_modo_tempo: modoTempo,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   return (data ?? []) as TransferenciaCaso[];
@@ -696,12 +708,13 @@ export interface FcrRecontatoResumo {
 // pra saber se o cliente voltou se souber quem é o cliente e sobre o quê).
 // "Mesmo motivo" = topico idêntico (texto exato — decisão confirmada com o
 // usuário, dado que topico é texto livre da Crisp); janela de 7 dias.
-export async function fetchFcrRecontatoResumo(inicio: Date, fim: Date, canal?: string, atendenteNome?: string): Promise<FcrRecontatoResumo | null> {
+export async function fetchFcrRecontatoResumo(inicio: Date, fim: Date, canal?: string, atendenteNomes?: string[], tipoCliente?: string): Promise<FcrRecontatoResumo | null> {
   const { data, error } = await client().rpc("fcr_recontato_resumo", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
-    p_atendente_nome: atendenteNome ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   return (data?.[0] ?? null) as FcrRecontatoResumo | null;
@@ -717,11 +730,13 @@ export interface RecontatoCaso {
   link_chamado: string | null;
 }
 
-export async function fetchRecontatoCasos(inicio: Date, fim: Date, canal?: string): Promise<RecontatoCaso[]> {
+export async function fetchRecontatoCasos(inicio: Date, fim: Date, canal?: string, atendenteNomes?: string[], tipoCliente?: string): Promise<RecontatoCaso[]> {
   const { data, error } = await client().rpc("recontato_casos", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   return (data ?? []) as RecontatoCaso[];
@@ -734,12 +749,14 @@ export interface MotivoContatoResumo {
   ttr_media_seg: number | null;
 }
 
-export async function fetchMotivoContatoResumo(inicio: Date, fim: Date, canal?: string, modoTempo: ModoTempo = "uteis"): Promise<MotivoContatoResumo[]> {
+export async function fetchMotivoContatoResumo(inicio: Date, fim: Date, canal?: string, modoTempo: ModoTempo = "uteis", atendenteNomes?: string[], tipoCliente?: string): Promise<MotivoContatoResumo[]> {
   const { data, error } = await client().rpc("motivo_contato_resumo", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
     p_modo_tempo: modoTempo,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   return (data ?? []) as MotivoContatoResumo[];
@@ -755,16 +772,16 @@ export interface MetricaTipoCliente {
 // Um card por tipo_cliente que existir DE VERDADE no período — não é uma
 // lista fixa de segmentos; quando o pipeline capturar um segmento novo,
 // aparece aqui automaticamente, sem precisar mexer no código.
-// atendenteNome escopa pro próprio colaborador (Meu Painel) — sem admin,
-// só retorna dado se atendenteNome bater com o nome do usuário autenticado
-// (checado no banco, não confiar só no parâmetro).
-export async function fetchMetricasPorTipoCliente(inicio: Date, fim: Date, canal?: string, modoTempo: ModoTempo = "uteis", atendenteNome?: string): Promise<MetricaTipoCliente[]> {
+// atendenteNomes escopa pro próprio colaborador (Meu Painel) — sem admin,
+// só retorna dado se for um array de 1 nome batendo com o usuário
+// autenticado (checado no banco, não confiar só no parâmetro).
+export async function fetchMetricasPorTipoCliente(inicio: Date, fim: Date, canal?: string, modoTempo: ModoTempo = "uteis", atendenteNomes?: string[]): Promise<MetricaTipoCliente[]> {
   const { data, error } = await client().rpc("metricas_por_tipo_cliente", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
     p_modo_tempo: modoTempo,
-    p_atendente_nome: atendenteNome ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
   });
   if (error) throw error;
   return (data ?? []) as MetricaTipoCliente[];
@@ -777,12 +794,13 @@ export interface ReaberturaResumo {
   total_eventos: number;
 }
 
-export async function fetchReaberturaResumo(inicio: Date, fim: Date, canal?: string, atendenteNome?: string): Promise<ReaberturaResumo | null> {
+export async function fetchReaberturaResumo(inicio: Date, fim: Date, canal?: string, atendenteNomes?: string[], tipoCliente?: string): Promise<ReaberturaResumo | null> {
   const { data, error } = await client().rpc("reabertura_resumo", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
-    p_atendente_nome: atendenteNome ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   return (data?.[0] ?? null) as ReaberturaResumo | null;
@@ -798,11 +816,13 @@ export interface ReaberturaCaso {
   link_chamado: string | null;
 }
 
-export async function fetchReaberturaCasos(inicio: Date, fim: Date, canal?: string): Promise<ReaberturaCaso[]> {
+export async function fetchReaberturaCasos(inicio: Date, fim: Date, canal?: string, atendenteNomes?: string[], tipoCliente?: string): Promise<ReaberturaCaso[]> {
   const { data, error } = await client().rpc("reabertura_casos", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   return (data ?? []) as ReaberturaCaso[];
@@ -815,11 +835,12 @@ export interface CsatDistribuicao {
   total: number;
 }
 
-export async function fetchCsatDistribuicao(inicio: Date, fim: Date, canal?: string): Promise<CsatDistribuicao | null> {
+export async function fetchCsatDistribuicao(inicio: Date, fim: Date, canal?: string, atendenteNomes?: string[]): Promise<CsatDistribuicao | null> {
   const { data, error } = await client().rpc("csat_distribuicao_notas", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
   });
   if (error) throw error;
   return (data?.[0] ?? null) as CsatDistribuicao | null;
@@ -845,11 +866,13 @@ export interface ContagemPeriodo {
   total_mensagens: number;
 }
 
-export async function fetchContagemPeriodo(inicio: Date, fim: Date, canal?: string): Promise<ContagemPeriodo | null> {
+export async function fetchContagemPeriodo(inicio: Date, fim: Date, canal?: string, atendenteNomes?: string[], tipoCliente?: string): Promise<ContagemPeriodo | null> {
   const { data, error } = await client().rpc("contagem_periodo", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   return (data?.[0] ?? null) as ContagemPeriodo | null;
@@ -860,10 +883,11 @@ export interface BacklogFaixa {
   total: number;
 }
 
-export async function fetchBacklogPorIdade(canal?: string, atendenteNome?: string): Promise<BacklogFaixa[]> {
+export async function fetchBacklogPorIdade(canal?: string, atendenteNomes?: string[], tipoCliente?: string): Promise<BacklogFaixa[]> {
   const { data, error } = await client().rpc("backlog_por_idade", {
     p_canal: canal ?? null,
-    p_atendente_nome: atendenteNome ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   return (data ?? []) as BacklogFaixa[];
@@ -885,18 +909,20 @@ export interface BacklogCaso {
 export async function fetchBacklogCasos(
   faixa: string,
   canal?: string,
-  atendenteNome?: string,
+  atendenteNomes?: string[],
   page = 0,
   pageSize = 15,
-  direcao: "asc" | "desc" = "asc"
+  direcao: "asc" | "desc" = "asc",
+  tipoCliente?: string
 ): Promise<{ rows: BacklogCaso[]; count: number }> {
   const { data, error } = await client().rpc("backlog_casos", {
     p_faixa: faixa,
     p_canal: canal ?? null,
-    p_atendente_nome: atendenteNome ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
     p_limit: pageSize,
     p_offset: page * pageSize,
     p_direcao: direcao,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   const rows = (data ?? []) as BacklogCaso[];
@@ -907,12 +933,13 @@ export interface SlaConfig {
   id: string;
   meta_primeira_resposta_min: number;
   meta_resolucao_min: number;
+  meta_csat: number | null;
 }
 
 export async function fetchSlaConfigPadrao(): Promise<SlaConfig | null> {
   const { data, error } = await client()
     .from("sla_config")
-    .select("id, meta_primeira_resposta_min, meta_resolucao_min")
+    .select("id, meta_primeira_resposta_min, meta_resolucao_min, meta_csat")
     .is("canal", null)
     .is("prioridade", null)
     .is("motivo", null)
@@ -921,7 +948,7 @@ export async function fetchSlaConfigPadrao(): Promise<SlaConfig | null> {
   return data;
 }
 
-export async function upsertSlaConfigPadrao(id: string, meta: { meta_primeira_resposta_min: number; meta_resolucao_min: number }) {
+export async function upsertSlaConfigPadrao(id: string, meta: { meta_primeira_resposta_min: number; meta_resolucao_min: number; meta_csat: number }) {
   const { error } = await client().from("sla_config").update(meta).eq("id", id);
   if (error) throw error;
 }
@@ -1196,7 +1223,8 @@ export async function fetchAtendentePerformance(
   fim: Date,
   canal?: string,
   status?: string,
-  modoTempo: ModoTempo = "uteis"
+  modoTempo: ModoTempo = "uteis",
+  tipoCliente?: string
 ): Promise<AtendentePerformanceRow[]> {
   const { data, error } = await client().rpc("atendente_performance", {
     data_inicio: inicio.toISOString(),
@@ -1204,6 +1232,7 @@ export async function fetchAtendentePerformance(
     p_canal: canal ?? null,
     p_status: status ?? null,
     p_modo_tempo: modoTempo,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   return (data ?? []) as AtendentePerformanceRow[];
@@ -1713,6 +1742,10 @@ export interface AtendimentoComMetricas {
 }
 
 export interface AtendimentoTimelineEntry {
+  // "fila" = ainda sem roteamento pra um humano; "resolvido" = marcado
+  // resolvido, aguardando reabertura (ou fim real) — nos dois casos
+  // `atendente` vem null, ninguém está de posse nesse trecho.
+  tipo: "atendente" | "fila" | "resolvido";
   atendente: string | null;
   atribuido_em: string;
   liberado_em: string;
@@ -1731,7 +1764,8 @@ export interface AtendimentosMetricasFilters {
   fim: Date;
   canal?: string;
   tipoCliente?: string;
-  atendenteNome?: string;
+  /** Um ou mais atendentes — sem filtro (undefined/[]) mostra todo mundo. */
+  atendenteNomes?: string[];
   busca?: string;
   page?: number;
   pageSize?: number;
@@ -1752,7 +1786,7 @@ export async function fetchAtendimentosComMetricas(
     data_fim: f.fim.toISOString(),
     p_canal: f.canal ?? null,
     p_tipo_cliente: f.tipoCliente ?? null,
-    p_atendente_nome: f.atendenteNome ?? null,
+    p_atendente_nomes: f.atendenteNomes && f.atendenteNomes.length > 0 ? f.atendenteNomes : null,
     p_busca: f.busca ?? null,
     p_limit: pageSize,
     p_offset: page * pageSize,

@@ -20,10 +20,21 @@ import {
   fetchMinhasConversasMetricas,
   fetchDashboardAtendimentoSummary,
   fetchAtendentePerformance,
+  fetchContagemPeriodo,
+  fetchTfrTtrPercentis,
+  fetchMetricasPorTipoCliente,
+  fetchCsatDistribuicao,
+  fetchReaberturaResumo,
+  fetchTransferenciasResumo,
+  fetchFcrRecontatoResumo,
   type AtendentePerformanceRow,
 } from "@/services/api";
 import { formatDuration } from "@/lib/formatDuration";
 import { exportRRHistoricoToPdf, exportRRUnicaToPdf } from "@/lib/exportPdf";
+import type { ResultadosSacData } from "@/lib/resultadosSac";
+import { RelatorioResultadosSac } from "@/components/RelatorioResultadosSac";
+
+const NOME_BOT = "IA Greenn";
 import type { DbRRHistory } from "@/types/database";
 
 type Granularidade = "mensal" | "semanal";
@@ -93,6 +104,18 @@ function ultimosPeriodos(granularidade: Granularidade, n: number) {
     const label = `${String(seg.getDate()).padStart(2, "0")}/${String(seg.getMonth() + 1).padStart(2, "0")} a ${String(dom.getDate()).padStart(2, "0")}/${String(dom.getMonth() + 1).padStart(2, "0")}`;
     return { id, label };
   });
+}
+
+// Mesmo formato de label de ultimosPeriodos(), mas pra um par inicio/fim
+// qualquer — precisa funcionar pro período anterior também, que pode cair
+// fora da janela dos 6 períodos listados no dropdown.
+function labelDoPeriodo(granularidade: Granularidade, inicio: Date, fim: Date): string {
+  if (granularidade === "mensal") {
+    const label = inicio.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }
+  const fmt = (d: Date) => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return `${fmt(inicio)} a ${fmt(fim)}`;
 }
 
 function agregarPorPeriodo(csat: { data_hora: string; nota: number | null }[], inicio: Date, fim: Date) {
@@ -260,6 +283,156 @@ export default function ReuniaoResultados() {
     });
   }, [perfAtual, perfAnterior]);
 
+  // Ranking humano por volume — deriva de perfAtual/perfAnterior (já
+  // buscados acima), sem query nova. Bot fica de fora (mesma exclusão do
+  // Overview): comparar volume/CSAT dele lado a lado com humanos não faz
+  // sentido nessa tabela.
+  const rankingHumanoAtual = useMemo(
+    () => (perfAtual ?? []).filter((r) => r.operator_nome !== NOME_BOT).sort((a, b) => b.total_atendimentos - a.total_atendimentos),
+    [perfAtual]
+  );
+  const rankingHumanoAnterior = useMemo(
+    () => (perfAnterior ?? []).filter((r) => r.operator_nome !== NOME_BOT).sort((a, b) => b.total_atendimentos - a.total_atendimentos),
+    [perfAnterior]
+  );
+
+  // Métricas do relatório "Resultados SAC" (Chamados, Por tipo de cliente,
+  // CSAT, Reabertura, Transferências, FCR/Recontato) pro período selecionado
+  // nesta página — usadas só pelo botão "Baixar PDF" abaixo. Admin-only:
+  // são agregados do time inteiro, mesma barreira já aplicada em
+  // teamSummary/perfAtual nesta página (as funções SQL também exigem
+  // is_admin() por trás, então pedir sem admin só voltaria vazio mesmo).
+  const { data: contagemAtual } = useQuery({
+    queryKey: ["contagem-periodo", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchContagemPeriodo(inicioPeriodo, fimPeriodo),
+    enabled: isAdmin,
+  });
+  const { data: contagemAnterior } = useQuery({
+    queryKey: ["contagem-periodo", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchContagemPeriodo(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: isAdmin,
+  });
+
+  const { data: percentisAtual } = useQuery({
+    queryKey: ["tfr-ttr-percentis", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchTfrTtrPercentis(inicioPeriodo, fimPeriodo),
+    enabled: isAdmin,
+  });
+  const { data: percentisAnterior } = useQuery({
+    queryKey: ["tfr-ttr-percentis", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchTfrTtrPercentis(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: isAdmin,
+  });
+
+  const { data: tipoClienteAtual } = useQuery({
+    queryKey: ["metricas-tipo-cliente", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchMetricasPorTipoCliente(inicioPeriodo, fimPeriodo),
+    enabled: isAdmin,
+  });
+  const { data: tipoClienteAnterior } = useQuery({
+    queryKey: ["metricas-tipo-cliente", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchMetricasPorTipoCliente(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: isAdmin,
+  });
+
+  const { data: csatDistAtual } = useQuery({
+    queryKey: ["csat-distribuicao", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchCsatDistribuicao(inicioPeriodo, fimPeriodo),
+    enabled: isAdmin,
+  });
+  const { data: csatDistAnterior } = useQuery({
+    queryKey: ["csat-distribuicao", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchCsatDistribuicao(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: isAdmin,
+  });
+
+  const { data: reaberturaAtual } = useQuery({
+    queryKey: ["reabertura-resumo", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchReaberturaResumo(inicioPeriodo, fimPeriodo),
+    enabled: isAdmin,
+  });
+  const { data: reaberturaAnterior } = useQuery({
+    queryKey: ["reabertura-resumo", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchReaberturaResumo(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: isAdmin,
+  });
+
+  const { data: transferenciasAtual } = useQuery({
+    queryKey: ["transferencias-resumo", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchTransferenciasResumo(inicioPeriodo, fimPeriodo),
+    enabled: isAdmin,
+  });
+  const { data: transferenciasAnterior } = useQuery({
+    queryKey: ["transferencias-resumo", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchTransferenciasResumo(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: isAdmin,
+  });
+
+  const { data: fcrAtual } = useQuery({
+    queryKey: ["fcr-recontato-resumo", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchFcrRecontatoResumo(inicioPeriodo, fimPeriodo),
+    enabled: isAdmin,
+  });
+  const { data: fcrAnterior } = useQuery({
+    queryKey: ["fcr-recontato-resumo", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchFcrRecontatoResumo(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: isAdmin,
+  });
+
+  const [mostrarRelatorio, setMostrarRelatorio] = useState(false);
+
+  const dadosRelatorio: ResultadosSacData = useMemo(
+    () => ({
+      periodoAtualLabel: labelDoPeriodo(granularidade, inicioPeriodo, fimPeriodo),
+      periodoAnteriorLabel: labelDoPeriodo(granularidade, inicioPeriodoAnterior, fimPeriodoAnterior),
+      atual: {
+        contagem: contagemAtual ?? null,
+        percentis: percentisAtual ?? null,
+        tipoCliente: tipoClienteAtual ?? [],
+        rankingHumano: rankingHumanoAtual,
+        csat: csatDistAtual ?? null,
+        reabertura: reaberturaAtual ?? null,
+        transferencias: transferenciasAtual ?? null,
+        fcr: fcrAtual ?? null,
+      },
+      anterior: {
+        contagem: contagemAnterior ?? null,
+        percentis: percentisAnterior ?? null,
+        tipoCliente: tipoClienteAnterior ?? [],
+        rankingHumano: rankingHumanoAnterior,
+        csat: csatDistAnterior ?? null,
+        reabertura: reaberturaAnterior ?? null,
+        transferencias: transferenciasAnterior ?? null,
+        fcr: fcrAnterior ?? null,
+      },
+      csatPorAtendente: perfAtual ?? [],
+    }),
+    [
+      granularidade,
+      inicioPeriodo,
+      fimPeriodo,
+      inicioPeriodoAnterior,
+      fimPeriodoAnterior,
+      contagemAtual,
+      contagemAnterior,
+      percentisAtual,
+      percentisAnterior,
+      tipoClienteAtual,
+      tipoClienteAnterior,
+      rankingHumanoAtual,
+      rankingHumanoAnterior,
+      csatDistAtual,
+      csatDistAnterior,
+      reaberturaAtual,
+      reaberturaAnterior,
+      transferenciasAtual,
+      transferenciasAnterior,
+      fcrAtual,
+      fcrAnterior,
+      perfAtual,
+    ]
+  );
+
   const {
     register,
     handleSubmit,
@@ -271,6 +444,13 @@ export default function ReuniaoResultados() {
   const [editando, setEditando] = useState<DbRRHistory | null>(null);
   const [salvandoEdicao, setSalvandoEdicao] = useState(false);
   const [erroEdicao, setErroEdicao] = useState<string | null>(null);
+  // Separado de erroEdicao: exclusão pode ser disparada de fora do dialog de
+  // edição (ícone de lixeira na lista, ou botão Excluir dentro do dialog de
+  // visualização) — erroEdicao só é renderizado dentro do form de edição, e
+  // ficava mostrando erro em lugar nenhum se o delete falhasse por qualquer
+  // motivo (achado real: usuário reportou "botão de excluir não funciona",
+  // e a falha ficava silenciosa mesmo quando de fato falhava).
+  const [erroExclusao, setErroExclusao] = useState<string | null>(null);
   const {
     register: registerEdicao,
     handleSubmit: handleSubmitEdicao,
@@ -292,12 +472,13 @@ export default function ReuniaoResultados() {
   async function excluirRR(rr: DbRRHistory) {
     if (!user) return;
     if (!confirm(`Excluir a RR de "${rr.periodo}"? Essa ação não pode ser desfeita.`)) return;
+    setErroExclusao(null);
     try {
       await deleteRRHistory(rr.id);
       await queryClient.invalidateQueries({ queryKey: ["rr-history", user.id] });
       setVisualizando(null);
     } catch (err) {
-      setErroEdicao(err instanceof Error ? err.message : "Não foi possível excluir.");
+      setErroExclusao(err instanceof Error ? err.message : "Não foi possível excluir.");
     }
   }
 
@@ -352,7 +533,14 @@ export default function ReuniaoResultados() {
   }
 
   return (
-    <div className="space-y-8">
+    <>
+      {/* print:hidden — a única coisa que deve sair na impressão/PDF é o
+          RelatorioResultadosSac abaixo, nunca a página crua por trás dele
+          (achado real: sem isso, o Ctrl+P/"Baixar PDF" imprimia os KPIs, a
+          tabela de Detalhamento e o formulário em branco ANTES do
+          relatório, porque `position:fixed` vira `static` no print e só
+          flui como mais um bloco da página em vez de cobri-la). */}
+      <div className="space-y-8 print:hidden">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="font-display text-display text-ink">
@@ -384,6 +572,11 @@ export default function ReuniaoResultados() {
               </option>
             ))}
           </select>
+          {isAdmin && (
+            <Button variant="secondary" onClick={() => setMostrarRelatorio(true)}>
+              <Download size={14} /> Baixar PDF
+            </Button>
+          )}
         </div>
       </div>
 
@@ -536,6 +729,7 @@ export default function ReuniaoResultados() {
             </Button>
           )}
         </div>
+        {erroExclusao && <p className="mb-3 text-sm text-rust-500">{erroExclusao}</p>}
         {!historico || historico.length === 0 ? (
           <p className="text-sm text-ink/50">Nenhuma RR registrada ainda.</p>
         ) : (
@@ -544,7 +738,10 @@ export default function ReuniaoResultados() {
               <Card
                 key={rr.id}
                 className="cursor-pointer p-4 transition-colors hover:bg-sand-bg/50"
-                onClick={() => setVisualizando(rr)}
+                onClick={() => {
+                  setErroExclusao(null);
+                  setVisualizando(rr);
+                }}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium text-ink">{rr.periodo}</span>
@@ -616,6 +813,7 @@ export default function ReuniaoResultados() {
             )}
           </div>
 
+          {erroExclusao && <p className="mt-4 text-sm text-rust-500">{erroExclusao}</p>}
           <div className="mt-5 flex justify-end gap-2">
             {isAdmin && (
               <Button variant="danger" onClick={() => excluirRR(visualizando)}>
@@ -665,6 +863,11 @@ export default function ReuniaoResultados() {
           </form>
         </Dialog>
       )}
-    </div>
+      </div>
+
+      {mostrarRelatorio && (
+        <RelatorioResultadosSac data={dadosRelatorio} onClose={() => setMostrarRelatorio(false)} />
+      )}
+    </>
   );
 }

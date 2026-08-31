@@ -4,7 +4,25 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { formatDuration } from "@/lib/formatDuration";
-import { fetchAtendimentoTimeline, type AtendimentoComMetricas } from "@/services/api";
+import { cn } from "@/lib/utils";
+import { fetchAtendimentoTimeline, type AtendimentoComMetricas, type AtendimentoTimelineEntry } from "@/services/api";
+
+const GAP_LABEL: Record<"fila" | "resolvido", string> = {
+  fila: "Sem atendente (fila)",
+  resolvido: "Sem atendente (resolvido, aguardando reabertura)",
+};
+const GAP_AINDA_ATIVO: Record<"fila" | "resolvido", string> = {
+  fila: "agora (ainda em fila)",
+  resolvido: "agora (ainda aguardando reabertura)",
+};
+
+function labelDoTrecho(t: AtendimentoTimelineEntry) {
+  return t.tipo === "atendente" ? t.atendente ?? "—" : GAP_LABEL[t.tipo];
+}
+
+function aindaAtivoDoTrecho(t: AtendimentoTimelineEntry) {
+  return t.tipo === "atendente" ? "agora (ainda com o chamado)" : GAP_AINDA_ATIVO[t.tipo];
+}
 
 // Valores reais de crisp_conversations.status são "pending"/"resolved".
 const statusTone: Record<string, "success" | "warning" | "neutral"> = {
@@ -91,7 +109,12 @@ export function AtendimentoDetalheDialog({ atendimento: c, onClose }: Atendiment
           <p className="text-ink">{formatDuration(c.tempo_primeira_resposta_geral_seg)}</p>
         </div>
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-ink/40" title="Tempo que o atendente atual ficou de posse desse chamado especificamente">Tempo ativo (atendente atual)</p>
+          <p
+            className="text-xs font-medium uppercase tracking-wide text-ink/40"
+            title="Tempo que o atendente atual ficou de posse desse chamado — sempre em horas corridas (não desconta fora de expediente, diferente de 'Tempo até resolução' ao lado). Por isso pode ficar bem maior quando o chamado atravessa noite/fim de semana."
+          >
+            Tempo ativo (atendente atual)
+          </p>
           <p className="text-ink">{formatDuration(c.tempo_ativo_seg)}</p>
         </div>
       </div>
@@ -104,19 +127,30 @@ export function AtendimentoDetalheDialog({ atendimento: c, onClose }: Atendiment
           <p className="mt-1 text-sm text-ink/50">Sem histórico de atribuição registrado.</p>
         ) : (
           <ul className="mt-2 space-y-2">
-            {timeline.map((t, i) => (
-              <li key={i} className="flex items-center justify-between gap-2 rounded-lg border border-sand-line px-3 py-2 text-sm">
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-ink">{t.atendente ?? "—"}</p>
-                  <p className="truncate text-xs text-ink/50">
-                    {new Date(t.atribuido_em).toLocaleString("pt-BR")}
-                    {" → "}
-                    {t.ainda_ativo ? "agora (ainda com o chamado)" : new Date(t.liberado_em).toLocaleString("pt-BR")}
-                  </p>
-                </div>
-                <span className="shrink-0 text-xs font-medium text-ink/60">{formatDuration(t.minutos_posse * 60)}</span>
-              </li>
-            ))}
+            {timeline.map((t, i) => {
+              const isGap = t.tipo !== "atendente";
+              return (
+                <li
+                  key={i}
+                  className={cn(
+                    "flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm",
+                    isGap ? "border-dashed border-sand-line bg-sand-bg/60" : "border-sand-line"
+                  )}
+                >
+                  <div className="min-w-0">
+                    <p className={cn("truncate", isGap ? "italic text-ink/40" : "font-medium text-ink")}>{labelDoTrecho(t)}</p>
+                    <p className="truncate text-xs text-ink/50">
+                      {new Date(t.atribuido_em).toLocaleString("pt-BR")}
+                      {" → "}
+                      {t.ainda_ativo ? aindaAtivoDoTrecho(t) : new Date(t.liberado_em).toLocaleString("pt-BR")}
+                    </p>
+                  </div>
+                  <span className={cn("shrink-0 text-xs font-medium", isGap ? "text-ink/40" : "text-ink/60")}>
+                    {formatDuration(t.minutos_posse * 60)}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

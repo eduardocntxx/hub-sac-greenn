@@ -111,25 +111,25 @@ export default function MeuPainel() {
   // que não faz sentido mostrar aqui).
   const { data: slaPessoal, isLoading: loadingSla } = useQuery({
     queryKey: ["tfr-ttr-percentis", user?.nome, inicio.toISOString(), fim.toISOString()],
-    queryFn: () => fetchTfrTtrPercentis(inicio, fim, undefined, user!.nome),
+    queryFn: () => fetchTfrTtrPercentis(inicio, fim, undefined, [user!.nome]),
     enabled: Boolean(user?.nome),
   });
 
   const { data: fcrPessoal, isLoading: loadingFcr } = useQuery({
     queryKey: ["fcr-recontato-resumo", user?.nome, inicio.toISOString(), fim.toISOString()],
-    queryFn: () => fetchFcrRecontatoResumo(inicio, fim, undefined, user!.nome),
+    queryFn: () => fetchFcrRecontatoResumo(inicio, fim, undefined, [user!.nome]),
     enabled: Boolean(user?.nome),
   });
 
   const { data: reaberturaPessoal, isLoading: loadingReaberturaPessoal } = useQuery({
     queryKey: ["reabertura-resumo", user?.nome, inicio.toISOString(), fim.toISOString()],
-    queryFn: () => fetchReaberturaResumo(inicio, fim, undefined, user!.nome),
+    queryFn: () => fetchReaberturaResumo(inicio, fim, undefined, [user!.nome]),
     enabled: Boolean(user?.nome),
   });
 
   const { data: transferenciasPessoal, isLoading: loadingTransferenciasPessoal } = useQuery({
     queryKey: ["transferencias-resumo", user?.nome, inicio.toISOString(), fim.toISOString()],
-    queryFn: () => fetchTransferenciasResumo(inicio, fim, undefined, user!.nome),
+    queryFn: () => fetchTransferenciasResumo(inicio, fim, undefined, [user!.nome]),
     enabled: Boolean(user?.nome),
   });
 
@@ -140,7 +140,7 @@ export default function MeuPainel() {
 
   const { data: metricasTipoCliente, isLoading: loadingTipoCliente } = useQuery({
     queryKey: ["metricas-tipo-cliente", user?.nome, inicio.toISOString(), fim.toISOString()],
-    queryFn: () => fetchMetricasPorTipoCliente(inicio, fim, undefined, "uteis", user!.nome),
+    queryFn: () => fetchMetricasPorTipoCliente(inicio, fim, undefined, "uteis", [user!.nome]),
     enabled: Boolean(user?.nome),
   });
 

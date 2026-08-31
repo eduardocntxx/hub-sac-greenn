@@ -9,14 +9,16 @@ function AppLayoutInner() {
   useRealtimeAnnouncementsNotifier();
 
   return (
-    <div className="flex h-screen bg-sand-bg">
-      <div className="fixed inset-y-0 left-0 z-30">
+    <div className="flex h-screen bg-sand-bg print:block print:h-auto">
+      <div className="fixed inset-y-0 left-0 z-30 print:hidden">
         <Sidebar />
       </div>
-      <div className="flex flex-1 flex-col overflow-hidden pl-[72px]">
-        <Header />
-        <main className="flex-1 overflow-y-auto scrollbar-thin px-6 py-6">
-          <div className="mx-auto w-full max-w-[1600px]">
+      <div className="flex flex-1 flex-col overflow-hidden pl-[72px] print:block print:overflow-visible print:pl-0">
+        <div className="print:hidden">
+          <Header />
+        </div>
+        <main className="flex-1 overflow-y-auto scrollbar-thin px-6 py-6 print:h-auto print:overflow-visible print:p-0">
+          <div className="mx-auto w-full max-w-[1600px] print:max-w-none">
             <Outlet />
           </div>
         </main>

@@ -105,6 +105,7 @@ const CORES_VIVAS = [
 ];
 
 type RankingCampo = "total_atendimentos" | "tfr_medio" | "tempo_resolucao_medio" | "csat_medio" | "total_avaliacoes";
+type MotivoCampo = "chamados" | "tfr_media_seg" | "ttr_media_seg";
 
 export default function Performance() {
   useRealtimeConversas();
@@ -123,7 +124,7 @@ export default function Performance() {
   const [busca, setBusca] = useState("");
   const [tipoCliente, setTipoCliente] = usePersistedState("overview:tipoCliente", "");
   const [motivo, setMotivo] = usePersistedState("overview:motivo", "");
-  const [atendenteNome, setAtendenteNome] = usePersistedState("overview:atendenteNome", "");
+  const [atendenteNomes, setAtendenteNomes] = usePersistedState<string[]>("overview:atendenteNomes", []);
   const [page, setPage] = useState(0);
   const [ordenarPor, setOrdenarPor] = useState<OrdenarCampo | undefined>(undefined);
   const [direcao, setDirecao] = useState<"asc" | "desc">("desc");
@@ -134,13 +135,20 @@ export default function Performance() {
   const [backlogPage, setBacklogPage] = useState(0);
   const [backlogDirecao, setBacklogDirecao] = useState<"asc" | "desc">("asc");
   const [filtroAberto, setFiltroAberto] = useState(false);
-  // Controla só a seção "Por tipo de cliente" (não filtra a página inteira) —
-  // "" = mostra todos os segmentos que existirem de verdade no período.
+  // Filtra o Dashboard inteiro (mesmo tratamento do filtro de Atendente) —
+  // "" = sem filtro, mostra todos os segmentos que existirem de verdade no
+  // período. CSAT e Relógio de trabalho ativo ficam de fora de propósito
+  // (ver notas nos respectivos cards).
   const [tipoClienteFiltro, setTipoClienteFiltro] = usePersistedState("overview:tipoClienteFiltro", "");
   const [detalhe, setDetalhe] = useState<AtendimentoComMetricas | null>(null);
   const [explicacaoVelocidadeAberta, setExplicacaoVelocidadeAberta] = useState(false);
   const [mostrarTodosMotivos, setMostrarTodosMotivos] = useState(false);
+  const [motivoDestaque, setMotivoDestaque] = useState("");
+  const [motivoOrdenarPor, setMotivoOrdenarPor] = useState<MotivoCampo | undefined>(undefined);
+  const [motivoDirecao, setMotivoDirecao] = useState<"asc" | "desc">("desc");
   const [mostrarTodasReaberturas, setMostrarTodasReaberturas] = useState(false);
+  const [reaberturaFiltroAtendente, setReaberturaFiltroAtendente] = useState("");
+  const [reaberturaFiltroReaberto, setReaberturaFiltroReaberto] = useState("");
   const [mostrarTodasTransferencias, setMostrarTodasTransferencias] = useState(false);
   const [mostrarTodosRecontatos, setMostrarTodosRecontatos] = useState(false);
 
@@ -168,49 +176,55 @@ export default function Performance() {
   const { data: tiposCliente } = useQuery({ queryKey: ["tipos-cliente"], queryFn: fetchDistinctTiposCliente });
   const { data: atendentes } = useQuery({ queryKey: ["atendentes-conversas"], queryFn: fetchDistinctAtendentesConversas });
 
+  const atendenteNomesFiltro = atendenteNomes.length > 0 ? atendenteNomes : undefined;
+  // "" quando "Todos os tipos de cliente" está selecionado — vira undefined
+  // pra não mandar string vazia pro RPC (chamado_tem_tipo_cliente espera
+  // null quando não há filtro, não "").
+  const tipoClienteRpc = tipoClienteFiltro || undefined;
+
   const { data: percentis, isLoading: loadingPercentis } = useQuery({
-    queryKey: ["tfr-ttr-percentis", inicio, fim, modoTempo],
-    queryFn: () => fetchTfrTtrPercentis(inicio, fim, undefined, undefined, modoTempo),
+    queryKey: ["tfr-ttr-percentis", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchTfrTtrPercentis(inicio, fim, undefined, atendenteNomesFiltro, modoTempo, tipoClienteRpc),
   });
 
   const { data: backlog, isLoading: loadingBacklog } = useQuery({
-    queryKey: ["backlog-por-idade"],
-    queryFn: () => fetchBacklogPorIdade(),
+    queryKey: ["backlog-por-idade", atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchBacklogPorIdade(undefined, atendenteNomesFiltro, tipoClienteRpc),
   });
 
   const { data: posse, isLoading: loadingPosse } = useQuery({
-    queryKey: ["relogio-posse", inicio, fim],
-    queryFn: () => fetchRelogioPosse(inicio, fim),
+    queryKey: ["relogio-posse", inicio, fim, tipoClienteFiltro],
+    queryFn: () => fetchRelogioPosse(inicio, fim, undefined, tipoClienteRpc),
   });
 
   const { data: esperaCliente, isLoading: loadingEspera } = useQuery({
-    queryKey: ["relogio-espera-cliente", inicio, fim],
-    queryFn: () => fetchRelogioEsperaCliente(inicio, fim),
+    queryKey: ["relogio-espera-cliente", inicio, fim, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchRelogioEsperaCliente(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
   });
 
   const { data: horasExpediente, isLoading: loadingExpediente } = useQuery({
-    queryKey: ["horas-expediente-periodo", inicio, fim],
-    queryFn: () => fetchHorasExpedientePeriodo(inicio, fim),
+    queryKey: ["horas-expediente-periodo", inicio, fim, atendenteNomes],
+    queryFn: () => fetchHorasExpedientePeriodo(inicio, fim, atendenteNomesFiltro),
   });
 
   const { data: motivos, isLoading: loadingMotivos } = useQuery({
-    queryKey: ["motivo-contato-resumo", inicio, fim, modoTempo],
-    queryFn: () => fetchMotivoContatoResumo(inicio, fim, undefined, modoTempo),
+    queryKey: ["motivo-contato-resumo", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchMotivoContatoResumo(inicio, fim, undefined, modoTempo, atendenteNomesFiltro, tipoClienteRpc),
   });
 
   const { data: metricasTipoCliente, isLoading: loadingTipoCliente } = useQuery({
-    queryKey: ["metricas-tipo-cliente", inicio, fim, modoTempo],
-    queryFn: () => fetchMetricasPorTipoCliente(inicio, fim, undefined, modoTempo),
+    queryKey: ["metricas-tipo-cliente", inicio, fim, modoTempo, atendenteNomes],
+    queryFn: () => fetchMetricasPorTipoCliente(inicio, fim, undefined, modoTempo, atendenteNomesFiltro),
   });
 
   const { data: csatDist } = useQuery({
-    queryKey: ["csat-distribuicao", inicio, fim],
-    queryFn: () => fetchCsatDistribuicao(inicio, fim),
+    queryKey: ["csat-distribuicao", inicio, fim, atendenteNomes],
+    queryFn: () => fetchCsatDistribuicao(inicio, fim, undefined, atendenteNomesFiltro),
   });
 
   const { data: contagem } = useQuery({
-    queryKey: ["contagem-periodo", inicio, fim],
-    queryFn: () => fetchContagemPeriodo(inicio, fim),
+    queryKey: ["contagem-periodo", inicio, fim, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchContagemPeriodo(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
   });
 
   const { data: tempoRespostaBot } = useQuery({
@@ -219,50 +233,50 @@ export default function Performance() {
   });
 
   const { data: reaberturaResumo, isLoading: loadingReabertura } = useQuery({
-    queryKey: ["reabertura-resumo", inicio, fim],
-    queryFn: () => fetchReaberturaResumo(inicio, fim),
+    queryKey: ["reabertura-resumo", inicio, fim, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchReaberturaResumo(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
   });
 
   const { data: reaberturaCasos } = useQuery({
-    queryKey: ["reabertura-casos", inicio, fim],
-    queryFn: () => fetchReaberturaCasos(inicio, fim),
+    queryKey: ["reabertura-casos", inicio, fim, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchReaberturaCasos(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
     enabled: !!reaberturaResumo && reaberturaResumo.total_reabertos > 0,
   });
 
   const { data: transferenciasResumo, isLoading: loadingTransferencias } = useQuery({
-    queryKey: ["transferencias-resumo", inicio, fim, modoTempo],
-    queryFn: () => fetchTransferenciasResumo(inicio, fim, undefined, undefined, modoTempo),
+    queryKey: ["transferencias-resumo", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchTransferenciasResumo(inicio, fim, undefined, atendenteNomesFiltro, modoTempo, tipoClienteRpc),
   });
 
   const { data: transferenciasCasos } = useQuery({
-    queryKey: ["transferencias-casos", inicio, fim, modoTempo],
-    queryFn: () => fetchTransferenciasCasos(inicio, fim, undefined, modoTempo),
+    queryKey: ["transferencias-casos", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchTransferenciasCasos(inicio, fim, undefined, modoTempo, atendenteNomesFiltro, tipoClienteRpc),
     enabled: !!transferenciasResumo && transferenciasResumo.total_transferidos > 0,
   });
 
   const { data: fcrRecontato, isLoading: loadingFcr } = useQuery({
-    queryKey: ["fcr-recontato-resumo", inicio, fim],
-    queryFn: () => fetchFcrRecontatoResumo(inicio, fim),
+    queryKey: ["fcr-recontato-resumo", inicio, fim, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchFcrRecontatoResumo(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
   });
 
   const { data: recontatoCasos } = useQuery({
-    queryKey: ["recontato-casos", inicio, fim],
-    queryFn: () => fetchRecontatoCasos(inicio, fim),
+    queryKey: ["recontato-casos", inicio, fim, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchRecontatoCasos(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
     enabled: !!fcrRecontato && fcrRecontato.total_recontato > 0,
   });
 
   const { data: posseDetalheAtendimentos, isLoading: loadingPosseDetalhe } = useQuery({
     queryKey: ["atendimentos-por-atendente", inicio, fim, posseDetalhe, modoTempo, posseDetalheOrdenarPor, posseDetalheDirecao],
     queryFn: () => fetchAtendimentosComMetricas({
-      inicio, fim, atendenteNome: posseDetalhe ?? undefined, page: 0, pageSize: 50, modoTempo,
+      inicio, fim, atendenteNomes: posseDetalhe ? [posseDetalhe] : undefined, page: 0, pageSize: 50, modoTempo,
       ordenarPor: posseDetalheOrdenarPor, direcao: posseDetalheDirecao,
     }),
     enabled: !!posseDetalhe,
   });
 
   const { data: backlogCasos, isLoading: loadingBacklogCasos } = useQuery({
-    queryKey: ["backlog-casos", backlogFaixaAberta, backlogPage, backlogDirecao],
-    queryFn: () => fetchBacklogCasos(backlogFaixaAberta!, undefined, undefined, backlogPage, PAGE_SIZE, backlogDirecao),
+    queryKey: ["backlog-casos", backlogFaixaAberta, backlogPage, backlogDirecao, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchBacklogCasos(backlogFaixaAberta!, undefined, atendenteNomesFiltro, backlogPage, PAGE_SIZE, backlogDirecao, tipoClienteRpc),
     enabled: !!backlogFaixaAberta,
   });
 
@@ -272,8 +286,8 @@ export default function Performance() {
   }
 
   const { data: ranking, isLoading } = useQuery({
-    queryKey: ["atendente-performance", inicio, fim, modoTempo],
-    queryFn: () => fetchAtendentePerformance(inicio, fim, undefined, undefined, modoTempo),
+    queryKey: ["atendente-performance", inicio, fim, modoTempo, tipoClienteFiltro],
+    queryFn: () => fetchAtendentePerformance(inicio, fim, undefined, undefined, modoTempo, tipoClienteRpc),
     enabled: podeVer && aba === "ranking",
   });
 
@@ -289,8 +303,23 @@ export default function Performance() {
     }
   }
 
+  function ordenarMotivoPorColuna(campo: MotivoCampo) {
+    if (motivoOrdenarPor === campo) {
+      setMotivoDirecao((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setMotivoOrdenarPor(campo);
+      setMotivoDirecao("desc");
+    }
+  }
+
   const iaEntry = useMemo(() => ranking?.find((r) => r.operator_nome === "IA Greenn"), [ranking]);
-  const rankingHumano = useMemo(() => ranking?.filter((r) => r.operator_nome !== "IA Greenn"), [ranking]);
+  // Ranking/posse já vêm um-registro-por-atendente — filtrar no cliente por
+  // atendenteNomes evita reescrever atendente_performance/relogio_posse_periodo
+  // só pra isso (ver CLAUDE.md).
+  const rankingHumano = useMemo(
+    () => ranking?.filter((r) => r.operator_nome !== "IA Greenn" && (atendenteNomes.length === 0 || atendenteNomes.includes(r.operator_nome))),
+    [ranking, atendenteNomes]
+  );
 
   const rankingOrdenado = useMemo(() => {
     if (!rankingHumano || !rankingOrdenarPor) return rankingHumano;
@@ -308,6 +337,11 @@ export default function Performance() {
     (posse ?? []).forEach((p) => mapa.set(p.atendente, p));
     return mapa;
   }, [posse]);
+
+  const posseFiltrada = useMemo(
+    () => (posse ?? []).filter((p) => atendenteNomes.length === 0 || atendenteNomes.includes(p.atendente)),
+    [posse, atendenteNomes]
+  );
 
   // Produtividade contextualizada na própria tabela de Ranking (não como
   // número isolado) — reaberturas/transferências por atendente, derivadas
@@ -353,6 +387,42 @@ export default function Performance() {
       .map(([label, value]) => ({ label, value }));
   }, [reaberturaCasos]);
 
+  // Filtros locais da tabela de casos (não afetam os cards/gráficos acima,
+  // que continuam refletindo o resumo do período inteiro) — opções vêm do
+  // próprio dado, não é lista fixa.
+  const reaberturaAtendentesDisponiveis = useMemo(
+    () => Array.from(new Set((reaberturaCasos ?? []).map((c) => c.atendente).filter((a): a is string => !!a))).sort(),
+    [reaberturaCasos]
+  );
+  const reaberturaReabertosDisponiveis = useMemo(
+    () => Array.from(new Set((reaberturaCasos ?? []).map((c) => c.reopened_count))).sort((a, b) => a - b),
+    [reaberturaCasos]
+  );
+  const reaberturaCasosFiltrados = useMemo(
+    () =>
+      (reaberturaCasos ?? []).filter(
+        (c) =>
+          (!reaberturaFiltroAtendente || c.atendente === reaberturaFiltroAtendente) &&
+          (!reaberturaFiltroReaberto || String(c.reopened_count) === reaberturaFiltroReaberto)
+      ),
+    [reaberturaCasos, reaberturaFiltroAtendente, reaberturaFiltroReaberto]
+  );
+
+  const motivosFiltrados = useMemo(
+    () => (motivos ?? []).filter((m) => !motivoDestaque || m.topico === motivoDestaque),
+    [motivos, motivoDestaque]
+  );
+  const motivosOrdenados = useMemo(() => {
+    if (!motivoOrdenarPor) return motivosFiltrados;
+    const copia = [...motivosFiltrados];
+    copia.sort((a, b) => {
+      const av = a[motivoOrdenarPor] ?? -Infinity;
+      const bv = b[motivoOrdenarPor] ?? -Infinity;
+      return motivoDirecao === "asc" ? av - bv : bv - av;
+    });
+    return copia;
+  }, [motivosFiltrados, motivoOrdenarPor, motivoDirecao]);
+
   const transferenciasPorOrigem = useMemo(() => {
     const mapa = new Map<string, number>();
     (transferenciasCasos ?? []).forEach((c) => {
@@ -393,13 +463,13 @@ export default function Performance() {
       busca: busca || undefined,
       tipoCliente: tipoCliente || undefined,
       canal: canal || undefined,
-      atendenteNome: atendenteNome || undefined,
+      atendenteNomes: atendenteNomes.length > 0 ? atendenteNomes : undefined,
       motivo: motivo || undefined,
       ordenarPor,
       direcao,
       modoTempo,
     }),
-    [inicio, fim, busca, tipoCliente, canal, atendenteNome, motivo, ordenarPor, direcao, modoTempo]
+    [inicio, fim, busca, tipoCliente, canal, atendenteNomes, motivo, ordenarPor, direcao, modoTempo]
   );
 
   const { data: atendimentos, isLoading: loadingAtendimentos } = useQuery({
@@ -443,7 +513,7 @@ export default function Performance() {
               onClick={() => setFiltroAberto((a) => !a)}
               className={cn(
                 "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[13px] transition-colors",
-                modoTempo === "corridas" || tipoClienteFiltro || (aba === "atendimentos" && (atendenteNome || canal || tipoCliente || motivo))
+                modoTempo === "corridas" || tipoClienteFiltro || atendenteNomes.length > 0 || (aba === "atendimentos" && (canal || tipoCliente || motivo))
                   ? "border-forest-300 bg-forest-50 text-forest-700"
                   : "border-sand-line bg-white text-ink/60 hover:border-sand-line-strong"
               )}
@@ -467,9 +537,51 @@ export default function Performance() {
                       : "Tempo de relógio cru, sem desconto."}
                   </p>
                 </div>
+                <div className="space-y-2 border-t border-sand-line pt-3">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink/40">
+                        Atendentes{atendenteNomes.length > 0 ? ` (${atendenteNomes.length})` : ""}
+                      </p>
+                      {atendenteNomes.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => { setAtendenteNomes([]); setPage(0); }}
+                          className="mb-1.5 text-[11px] text-forest-600 hover:underline"
+                        >
+                          Limpar
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-sand-line p-2">
+                      {(atendentes ?? []).length === 0 && (
+                        <p className="px-1 py-0.5 text-xs text-ink/40">Nenhum atendente no período.</p>
+                      )}
+                      {(atendentes ?? []).map((a) => (
+                        <label key={a.nome} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-sand-bg">
+                          <input
+                            type="checkbox"
+                            checked={atendenteNomes.includes(a.nome)}
+                            onChange={(e) => {
+                              setAtendenteNomes((prev) =>
+                                e.target.checked ? [...prev, a.nome] : prev.filter((n) => n !== a.nome)
+                              );
+                              setPage(0);
+                            }}
+                            className="h-3.5 w-3.5 rounded border-sand-line-strong text-forest-600 focus:ring-forest-500"
+                          />
+                          <span className="truncate">{a.nome}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  {aba === "ranking" && (
+                    <p className="text-[11px] text-ink/40">Filtra o Dashboard inteiro (Ranking, Velocidade, Backlog, Posse, Reabertura, Transferências, FCR/Recontato, Por tipo de cliente).</p>
+                  )}
+                </div>
                 {aba === "ranking" ? (
                   <div className="border-t border-sand-line pt-3">
-                    <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink/40">Tipo de cliente (seção "Por tipo de cliente")</p>
+                    <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink/40">Tipo de cliente</p>
                     <select
                       value={tipoClienteFiltro}
                       onChange={(e) => setTipoClienteFiltro(e.target.value)}
@@ -478,13 +590,13 @@ export default function Performance() {
                       <option value="">Todos</option>
                       {(tiposCliente ?? []).map((t) => <option key={t.tag} value={t.tag}>{t.label}</option>)}
                     </select>
+                    <p className="mt-1.5 text-[11px] text-ink/40">
+                      Filtra o Dashboard inteiro (Ranking, Velocidade, Backlog, Posse, Reabertura, Transferências,
+                      FCR/Recontato, Por tipo de cliente) — exceto CSAT e Relógio de trabalho ativo.
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-2 border-t border-sand-line pt-3">
-                    <select value={atendenteNome} onChange={(e) => { setAtendenteNome(e.target.value); setPage(0); }} className="h-9 w-full rounded-lg border border-sand-line bg-white px-2 text-sm">
-                      <option value="">Todos os atendentes</option>
-                      {(atendentes ?? []).map((a) => <option key={a.nome} value={a.nome}>{a.nome}</option>)}
-                    </select>
                     <select value={canal} onChange={(e) => { setCanal(e.target.value); setPage(0); }} className="h-9 w-full rounded-lg border border-sand-line bg-white px-2 text-sm">
                       <option value="">Todos os canais</option>
                       {(canais ?? []).map((c) => <option key={c} value={c}>{c}</option>)}
@@ -537,6 +649,14 @@ export default function Performance() {
 
           {csatDist && csatDist.total > 0 && (
             <div className="grid gap-4 sm:grid-cols-3">
+              {tipoClienteFiltro && (
+                <p
+                  className="text-[11px] text-ink/40 sm:col-span-3"
+                  title="CSAT é reconciliado por e-mail do atendente, numa tabela separada (csat_results) que não tem a mesma coluna de tipo de cliente do Crisp — não dá pra aplicar esse filtro aqui sem inventar um vínculo que não existe."
+                >
+                  CSAT não respeita o filtro de tipo de cliente — mostra o time inteiro (motivo no hover).
+                </p>
+              )}
               <Card className="border-forest-400/30 bg-forest-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
                 <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Avaliações boas (4–5)</p>
                 <p className="mt-1 font-display text-kpi-lg font-bold text-forest-600">{csatDist.boas}</p>
@@ -576,7 +696,12 @@ export default function Performance() {
                 </div>
                 {tempoRespostaBot && tempoRespostaBot.amostras > 0 && (
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Tempo médio de 1ª resposta</p>
+                    <p
+                      className="text-xs font-medium uppercase tracking-wide text-ink/40"
+                      title="Mediana, não média — poucas conversas retomadas dias depois (reabertura, ou o início registrado não sendo exatamente quando o cliente mandou a mensagem que o bot respondeu) distorceriam muito uma média simples"
+                    >
+                      Tempo até 1ª resposta (típico)
+                    </p>
                     <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{formatDuration(tempoRespostaBot.tempo_medio_seg)}</p>
                     <p className="mt-1 text-[11px] text-ink/40">{tempoRespostaBot.amostras} amostras</p>
                   </div>
@@ -589,14 +714,21 @@ export default function Performance() {
                 )}
                 {iaPosse && (
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Chamados c/ posse</p>
+                    <p
+                      className="text-xs font-medium uppercase tracking-wide text-ink/40"
+                      title="Conta diferente de 'Atendimentos': inclui qualquer chamado em que o bot segurou a conversa em algum momento, mesmo que um humano tenha assumido depois — por isso os dois números não precisam bater"
+                    >
+                      Chamados c/ posse
+                    </p>
                     <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{iaPosse.conversas}</p>
                   </div>
                 )}
               </Card>
               <p className="mt-2 text-xs text-ink/40">
                 Separado do ranking humano — TFR e tempo de resolução não fazem sentido pro bot (ele não "responde
-                como humano" nem "resolve" no sentido usado ali).
+                como humano" nem "resolve" no sentido usado ali). "Atendimentos" conta chamados onde o bot é o
+                atendente registrado agora; "Chamados c/ posse" conta todo chamado que passou pelo bot em algum
+                momento, mesmo repassado depois — por isso os números podem divergir (não é erro).
               </p>
             </div>
           )}
@@ -936,47 +1068,71 @@ export default function Performance() {
                 )}
 
                 {reaberturaCasos && reaberturaCasos.length > 0 && (
-                  <Card className="mt-4 overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
-                        <tr>
-                          <th className="px-4 py-3 text-left font-medium">Cliente</th>
-                          <th className="px-4 py-3 font-medium">Motivo</th>
-                          <th className="px-4 py-3 font-medium">Atendente</th>
-                          <th className="px-4 py-3 font-medium">Reaberto</th>
-                          <th className="px-4 py-3 font-medium">Início</th>
-                          <th className="px-4 py-3 font-medium">Ação</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(mostrarTodasReaberturas ? reaberturaCasos : reaberturaCasos.slice(0, 10)).map((c) => (
-                          <tr key={c.crisp_id} className="border-t border-sand-line text-center align-top">
-                            <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
-                            <td className="px-4 py-3 text-ink/70">{c.topico}</td>
-                            <td className="px-4 py-3 text-ink/70">{c.atendente ?? "—"}</td>
-                            <td className="px-4 py-3 font-medium text-ink">{c.reopened_count}x</td>
-                            <td className="px-4 py-3 text-xs text-ink/60">{new Date(c.current_started_at).toLocaleString("pt-BR")}</td>
-                            <td className="px-4 py-3">
-                              {c.link_chamado ? (
-                                <a href={c.link_chamado} target="_blank" rel="noreferrer">
-                                  <Button variant="secondary" size="sm"><ExternalLink size={13} /> Ver</Button>
-                                </a>
-                              ) : (
-                                <span className="text-xs text-ink/30">sem link</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </Card>
-                )}
-                {reaberturaCasos && reaberturaCasos.length > 10 && (
-                  <div className="mt-2 flex justify-center">
-                    <Button variant="secondary" size="sm" onClick={() => setMostrarTodasReaberturas((v) => !v)}>
-                      {mostrarTodasReaberturas ? "Ver menos" : `Ver mais (${reaberturaCasos.length - 10})`}
-                    </Button>
-                  </div>
+                  <>
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <select
+                        value={reaberturaFiltroAtendente}
+                        onChange={(e) => { setReaberturaFiltroAtendente(e.target.value); setMostrarTodasReaberturas(false); }}
+                        className="h-8 rounded-lg border border-sand-line bg-white px-2 text-xs"
+                      >
+                        <option value="">Todos os atendentes</option>
+                        {reaberturaAtendentesDisponiveis.map((a) => <option key={a} value={a}>{a}</option>)}
+                      </select>
+                      <select
+                        value={reaberturaFiltroReaberto}
+                        onChange={(e) => { setReaberturaFiltroReaberto(e.target.value); setMostrarTodasReaberturas(false); }}
+                        className="h-8 rounded-lg border border-sand-line bg-white px-2 text-xs"
+                      >
+                        <option value="">Qualquer nº de reaberturas</option>
+                        {reaberturaReabertosDisponiveis.map((n) => <option key={n} value={n}>{n}x reaberto</option>)}
+                      </select>
+                    </div>
+                    {reaberturaCasosFiltrados.length === 0 ? (
+                      <p className="mt-2 text-sm text-ink/50">Nenhum caso com esse filtro.</p>
+                    ) : (
+                      <Card className="mt-2 overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
+                            <tr>
+                              <th className="px-4 py-3 text-left font-medium">Cliente</th>
+                              <th className="px-4 py-3 font-medium">Motivo</th>
+                              <th className="px-4 py-3 font-medium">Atendente</th>
+                              <th className="px-4 py-3 font-medium">Reaberto</th>
+                              <th className="px-4 py-3 font-medium">Início</th>
+                              <th className="px-4 py-3 font-medium">Ação</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(mostrarTodasReaberturas ? reaberturaCasosFiltrados : reaberturaCasosFiltrados.slice(0, 4)).map((c) => (
+                              <tr key={c.crisp_id} className="border-t border-sand-line text-center align-top">
+                                <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
+                                <td className="px-4 py-3 text-ink/70">{c.topico}</td>
+                                <td className="px-4 py-3 text-ink/70">{c.atendente ?? "—"}</td>
+                                <td className="px-4 py-3 font-medium text-ink">{c.reopened_count}x</td>
+                                <td className="px-4 py-3 text-xs text-ink/60">{new Date(c.current_started_at).toLocaleString("pt-BR")}</td>
+                                <td className="px-4 py-3">
+                                  {c.link_chamado ? (
+                                    <a href={c.link_chamado} target="_blank" rel="noreferrer">
+                                      <Button variant="secondary" size="sm"><ExternalLink size={13} /> Ver</Button>
+                                    </a>
+                                  ) : (
+                                    <span className="text-xs text-ink/30">sem link</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </Card>
+                    )}
+                    {reaberturaCasosFiltrados.length > 4 && (
+                      <div className="mt-2 flex justify-center">
+                        <Button variant="secondary" size="sm" onClick={() => setMostrarTodasReaberturas((v) => !v)}>
+                          {mostrarTodasReaberturas ? "Ver menos" : `Ver mais reaberturas (${reaberturaCasosFiltrados.length - 4})`}
+                        </Button>
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -1035,7 +1191,7 @@ export default function Performance() {
                         </tr>
                       </thead>
                       <tbody>
-                        {(mostrarTodasTransferencias ? transferenciasCasos : transferenciasCasos.slice(0, 10)).map((c, i) => (
+                        {(mostrarTodasTransferencias ? transferenciasCasos : transferenciasCasos.slice(0, 4)).map((c, i) => (
                           <tr key={`${c.crisp_id}-${i}`} className="border-t border-sand-line text-center align-top">
                             <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
                             <td className="px-4 py-3 text-ink/70">{c.origem ?? "—"}</td>
@@ -1056,10 +1212,10 @@ export default function Performance() {
                     </table>
                   </Card>
                 )}
-                {transferenciasCasos && transferenciasCasos.length > 10 && (
+                {transferenciasCasos && transferenciasCasos.length > 4 && (
                   <div className="mt-2 flex justify-center">
                     <Button variant="secondary" size="sm" onClick={() => setMostrarTodasTransferencias((v) => !v)}>
-                      {mostrarTodasTransferencias ? "Ver menos" : `Ver mais (${transferenciasCasos.length - 10})`}
+                      {mostrarTodasTransferencias ? "Ver menos" : `Ver mais (${transferenciasCasos.length - 4})`}
                     </Button>
                   </div>
                 )}
@@ -1122,7 +1278,7 @@ export default function Performance() {
                         </tr>
                       </thead>
                       <tbody>
-                        {(mostrarTodosRecontatos ? recontatoCasos : recontatoCasos.slice(0, 10)).map((c) => (
+                        {(mostrarTodosRecontatos ? recontatoCasos : recontatoCasos.slice(0, 4)).map((c) => (
                           <tr key={c.crisp_id} className="border-t border-sand-line text-center align-top">
                             <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
                             <td className="px-4 py-3 text-ink/70">{c.topico ?? "—"}</td>
@@ -1144,10 +1300,10 @@ export default function Performance() {
                     </table>
                   </Card>
                 )}
-                {recontatoCasos && recontatoCasos.length > 10 && (
+                {recontatoCasos && recontatoCasos.length > 4 && (
                   <div className="mt-2 flex justify-center">
                     <Button variant="secondary" size="sm" onClick={() => setMostrarTodosRecontatos((v) => !v)}>
-                      {mostrarTodosRecontatos ? "Ver menos" : `Ver mais (${recontatoCasos.length - 10})`}
+                      {mostrarTodosRecontatos ? "Ver menos" : `Ver mais (${recontatoCasos.length - 4})`}
                     </Button>
                   </div>
                 )}
@@ -1200,7 +1356,19 @@ export default function Performance() {
                   ) : (
                     <>
                       <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{formatDuration(horasExpediente * 60)}</p>
-                      <p className="mt-1 text-[11px] text-ink/40">expediente cadastrado do time (cobertura, não soma individual)</p>
+                      <p
+                        className="mt-1 text-[11px] text-ink/40"
+                        title={atendenteNomes.length > 0 ? "Plantão fixo de sábado (08h-12h) não entra aqui filtrado — não dá pra saber quem especificamente está de plantão nessa data." : undefined}
+                      >
+                        {atendenteNomes.length > 0
+                          ? "expediente cadastrado das pessoas selecionadas (união, não soma)"
+                          : "expediente cadastrado do time (cobertura, não soma individual)"}
+                      </p>
+                      {tipoClienteFiltro && (
+                        <p className="mt-0.5 text-[11px] text-ink/40" title="Cobertura de horário é sobre a agenda do time, não sobre chamados — não existe 'expediente do tipo Produtor'.">
+                          Não respeita o filtro de tipo de cliente (motivo no hover)
+                        </p>
+                      )}
                     </>
                   )}
                   <p className="mt-1 text-[11px] text-ink/30" title="O Crisp não expõe estado de ativo/ausente do operador pela API">
@@ -1212,11 +1380,11 @@ export default function Performance() {
               <p className="mb-2 mt-4 text-xs font-medium uppercase tracking-wide text-ink/40">Posse por atendente humano (chamados resolvidos no período)</p>
               {loadingPosse ? (
                 <p className="text-sm text-ink/50">Carregando...</p>
-              ) : !posse || posse.filter((p) => p.atendente !== "IA Greenn").length === 0 ? (
+              ) : posseFiltrada.filter((p) => p.atendente !== "IA Greenn").length === 0 ? (
                 <p className="text-sm text-ink/50">Sem chamados resolvidos no período pra medir posse.</p>
               ) : (
                 <HorizontalBarChart
-                  data={[...posse]
+                  data={posseFiltrada
                     .filter((p) => p.atendente !== "IA Greenn")
                     .sort((a, b) => b.minutos_posse - a.minutos_posse)
                     .map((p) => ({ label: p.atendente, value: p.minutos_posse / 60, displayValue: `${(p.minutos_posse / 60).toFixed(1)}h` }))}
@@ -1320,42 +1488,62 @@ export default function Performance() {
             ) : (
               <>
                 <Card className="mb-4 p-4">
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Top 8 tópicos por volume</p>
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Top 3 tópicos por volume</p>
+                    {motivoDestaque && (
+                      <button
+                        type="button"
+                        onClick={() => { setMotivoDestaque(""); setMostrarTodosMotivos(false); }}
+                        className="text-[11px] text-forest-600 hover:underline"
+                      >
+                        Limpar
+                      </button>
+                    )}
+                  </div>
                   <HorizontalBarChart
                     data={[...motivos]
                       .sort((a, b) => b.chamados - a.chamados)
-                      .slice(0, 8)
+                      .slice(0, 3)
                       .map((m) => ({ label: m.topico, value: m.chamados }))}
                     getColorClass={(_, i) => CORES_VIVAS[i % CORES_VIVAS.length]}
                     labelWidth={200}
+                    onBarClick={(label) => {
+                      setMotivoDestaque((atual) => (atual === label ? "" : label));
+                      setMostrarTodosMotivos(false);
+                    }}
+                    isSelected={(label) => motivoDestaque === label}
                   />
                 </Card>
-                <Card className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
-                      <tr>
-                        <th className="px-4 py-3 text-left font-medium">Tópico</th>
-                        <th className="px-4 py-3 font-medium">Chamados</th>
-                        <th className="px-4 py-3 font-medium">TFR médio</th>
-                        <th className="px-4 py-3 font-medium">TTR médio</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(mostrarTodosMotivos ? motivos : motivos.slice(0, 10)).map((m) => (
-                        <tr key={m.topico} className="border-t border-sand-line text-center">
-                          <td className="px-4 py-3 text-left font-medium text-ink">{m.topico}</td>
-                          <td className="px-4 py-3 text-ink/70">{m.chamados}</td>
-                          <td className="px-4 py-3 text-ink/70">{formatDuration(m.tfr_media_seg)}</td>
-                          <td className="px-4 py-3 text-ink/70">{formatDuration(m.ttr_media_seg)}</td>
+                {motivosFiltrados.length === 0 ? (
+                  <p className="text-sm text-ink/50">Nenhum tópico com esse filtro.</p>
+                ) : (
+                  <Card className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-medium">Tópico</th>
+                          <SortableHeader field="chamados" label="Chamados" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
+                          <SortableHeader field="tfr_media_seg" label="TFR médio" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
+                          <SortableHeader field="ttr_media_seg" label="TTR médio" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </Card>
-                {motivos.length > 10 && (
+                      </thead>
+                      <tbody>
+                        {(mostrarTodosMotivos ? motivosOrdenados : motivosOrdenados.slice(0, 4)).map((m) => (
+                          <tr key={m.topico} className="border-t border-sand-line text-center">
+                            <td className="px-4 py-3 text-left font-medium text-ink">{m.topico}</td>
+                            <td className="px-4 py-3 text-ink/70">{m.chamados}</td>
+                            <td className="px-4 py-3 text-ink/70">{formatDuration(m.tfr_media_seg)}</td>
+                            <td className="px-4 py-3 text-ink/70">{formatDuration(m.ttr_media_seg)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </Card>
+                )}
+                {motivosOrdenados.length > 4 && (
                   <div className="mt-2 flex justify-center">
                     <Button variant="secondary" size="sm" onClick={() => setMostrarTodosMotivos((v) => !v)}>
-                      {mostrarTodosMotivos ? "Ver menos" : `Ver mais (${motivos.length - 10})`}
+                      {mostrarTodosMotivos ? "Ver menos" : `Ver mais (${motivosOrdenados.length - 4})`}
                     </Button>
                   </div>
                 )}
@@ -1388,14 +1576,24 @@ export default function Performance() {
                     )}
                   >
                     <p className="text-sm font-semibold text-ink">{m.tipo_cliente}</p>
-                    <p className="mt-1 text-xs text-ink/40">{m.chamados} chamados</p>
+                    <p
+                      className="mt-1 text-xs text-ink/40"
+                      title="Conta todo chamado com essa tag no período, tenha ou não resposta/resolução ainda — por isso pode ser maior que a quantidade de amostras usada pro TFR/TTR médio ao lado."
+                    >
+                      {m.chamados} chamados
+                    </p>
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <div>
                         <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40">TFR médio</p>
                         <p className="font-display text-sm font-semibold text-ink">{formatDuration(m.tfr_media_seg)}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40">TTR médio</p>
+                        <p
+                          className="text-[10px] font-medium uppercase tracking-wide text-ink/40"
+                          title="'—' quando nenhum chamado desse tipo foi resolvido ainda no período (comum cedo no dia, ou com fila grande)."
+                        >
+                          TTR médio
+                        </p>
                         <p className="font-display text-sm font-semibold text-ink">{formatDuration(m.ttr_media_seg)}</p>
                       </div>
                     </div>
@@ -1406,7 +1604,9 @@ export default function Performance() {
             <p className="mt-2 text-xs text-ink/40">
               Só aparece aqui o tipo de cliente que existir de verdade em <code>crisp_conversations.tipo_cliente</code> no
               período — não é uma lista fixa, novos segmentos aparecem sozinhos assim que o pipeline capturar. Clique num
-              card pra ver só aquele tipo (clique de novo pra voltar a ver todos).
+              card pra ver só aquele tipo (clique de novo pra voltar a ver todos). "Chamados" conta todo mundo com a tag,
+              independente de já ter sido respondido ou resolvido — por isso pode ser maior que as amostras do card de
+              Velocidade acima, que só conta quem já tem TFR/TTR calculado de verdade.
             </p>
           </div>
         </>
@@ -1440,7 +1640,7 @@ export default function Performance() {
                       <th className="px-4 py-3 font-medium">1ª resposta humana</th>
                       <SortableHeader align="center" field="tfr" label="Tempo até 1ª resposta" ordenarPor={ordenarPor} direcao={direcao} onSort={ordenarPorColuna} />
                       <SortableHeader align="center" field="tempo_resolucao" label="Resolução" ordenarPor={ordenarPor} direcao={direcao} onSort={ordenarPorColuna} className="hidden lg:table-cell" />
-                      <th className="hidden px-4 py-3 font-medium xl:table-cell" title="Tempo que o atendente atual ficou de posse desse chamado especificamente">Tempo ativo</th>
+                      <th className="hidden px-4 py-3 font-medium xl:table-cell" title="Tempo que o atendente atual ficou de posse desse chamado — sempre em horas corridas (não desconta fora de expediente, diferente de 'Resolução' ao lado). Pode ficar bem maior quando o chamado atravessa noite/fim de semana.">Tempo ativo</th>
                       <th className="px-4 py-3 font-medium">Status</th>
                       <th className="px-4 py-3 font-medium">Ação</th>
                     </tr>
