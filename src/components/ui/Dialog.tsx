@@ -28,7 +28,7 @@ export function Dialog({ onClose, children, className }: DialogProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
     >
       <div
@@ -38,7 +38,7 @@ export function Dialog({ onClose, children, className }: DialogProps) {
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          "w-full max-w-md rounded-2xl border border-sand-line bg-sand-surface p-5 shadow-float outline-none",
+          "w-full max-w-xl rounded-2xl border border-sand-line bg-sand-surface p-5 shadow-float outline-none",
           className
         )}
       >

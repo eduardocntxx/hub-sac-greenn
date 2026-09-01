@@ -191,14 +191,14 @@ export default function Calendario() {
     register: registerFolga,
     handleSubmit: handleSubmitFolga,
     reset: resetFolga,
-    formState: { errors: errorsFolga },
+    formState: { errors: errorsFolga, isSubmitting: enviandoFolga },
   } = useForm<LeaveForm>({ resolver: zodResolver(leaveSchema), defaultValues: { tipo: "folga" } });
 
   const {
     register: registerOncall,
     handleSubmit: handleSubmitOncall,
     reset: resetOncall,
-    formState: { errors: errorsOncall },
+    formState: { errors: errorsOncall, isSubmitting: enviandoOncall },
   } = useForm<OncallForm>({ resolver: zodResolver(oncallSchema) });
 
   async function salvarSobreaviso(data: OncallForm) {
@@ -373,7 +373,7 @@ export default function Calendario() {
       )}
 
       {diaSelecionado && infoSelecionado && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-ink/40" onClick={() => setDiaSelecionado(null)}>
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/50" onClick={() => setDiaSelecionado(null)}>
           <div className="h-full w-full max-w-md overflow-y-auto bg-sand-surface p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between">
               <div>
@@ -417,31 +417,37 @@ export default function Calendario() {
                   </div>
                 )}
 
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-4">
                   <Button size="sm" onClick={() => { resetFolga({ tipo: "folga", motivo: "", observacao: "" }); setDialogFolga(true); }}>
                     <Plus size={13} /> Solicitar Folga
                   </Button>
-                  {isAdmin && (
+                </div>
+
+                {isAdmin && (
+                  <div className="mt-3 flex flex-wrap gap-2">
                     <Button size="sm" variant="secondary" onClick={() => { resetOncall({ user_id: "", horario_inicio: "", horario_fim: "", observacao: "" }); setDialogSobreaviso(true); }}>
                       <Clock size={13} /> Adicionar Sobreaviso
                     </Button>
-                  )}
-                  {isAdmin && (
                     <Button size="sm" variant="secondary" onClick={() => setDialogFerias(true)}>
                       <Palmtree size={13} /> Cadastrar Férias
                     </Button>
-                  )}
-                  {isAdmin && (
                     <Button size="sm" variant="secondary" onClick={() => setDialogLancamento(true)}>
                       <Plus size={13} /> Lançamento extra
                     </Button>
-                  )}
-                  {isAdmin && (
-                    <Button size="sm" variant="danger" onClick={apagarDia}>
+                  </div>
+                )}
+
+                {isAdmin && (
+                  <div className="mt-4 border-t border-sand-line pt-3">
+                    <button
+                      type="button"
+                      onClick={apagarDia}
+                      className="flex items-center gap-1.5 text-xs text-rust-500 hover:text-rust-600 hover:underline"
+                    >
                       <Trash2 size={13} /> Limpar dados do dia
-                    </Button>
-                  )}
-                </div>
+                    </button>
+                  </div>
+                )}
 
                 <div className="mt-4">
                   <p className="text-xs font-medium text-ink/70">Lançamentos extras</p>
@@ -517,8 +523,8 @@ export default function Calendario() {
               <textarea {...registerFolga("observacao")} rows={2} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setDialogFolga(false)}>Cancelar</Button>
-              <Button type="submit">Enviar solicitação</Button>
+              <Button type="button" variant="secondary" onClick={() => setDialogFolga(false)} disabled={enviandoFolga}>Cancelar</Button>
+              <Button type="submit" disabled={enviandoFolga}>{enviandoFolga ? "Enviando..." : "Enviar solicitação"}</Button>
             </div>
           </form>
         </Dialog>
@@ -551,8 +557,8 @@ export default function Calendario() {
               <textarea {...registerOncall("observacao")} rows={2} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setDialogSobreaviso(false)}>Cancelar</Button>
-              <Button type="submit">Salvar</Button>
+              <Button type="button" variant="secondary" onClick={() => setDialogSobreaviso(false)} disabled={enviandoOncall}>Cancelar</Button>
+              <Button type="submit" disabled={enviandoOncall}>{enviandoOncall ? "Salvando..." : "Salvar"}</Button>
             </div>
           </form>
         </Dialog>
@@ -593,15 +599,19 @@ function FeriasDialog({
   const [dataFim, setDataFim] = useState(dataInicial);
   const [obs, setObs] = useState("");
   const [erro, setErro] = useState<string | null>(null);
+  const [salvando, setSalvando] = useState(false);
 
   async function salvar() {
     if (!userId) { setErro("Selecione um colaborador."); return; }
+    setSalvando(true);
     try {
       await createVacation({ user_id: userId, data_inicio: dataInicial, data_fim: dataFim, observacao: obs, created_by: criadoPor });
       onSaved();
       onClose();
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível salvar.");
+    } finally {
+      setSalvando(false);
     }
   }
 
@@ -632,8 +642,8 @@ function FeriasDialog({
         </div>
         {erro && <p className="text-sm text-rust-500">{erro}</p>}
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button onClick={salvar}>Salvar</Button>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={salvando}>Cancelar</Button>
+          <Button onClick={salvar} disabled={salvando}>{salvando ? "Salvando..." : "Salvar"}</Button>
         </div>
       </div>
     </Dialog>
@@ -652,15 +662,19 @@ function LancamentoDialog({
   const [horas, setHoras] = useState(1);
   const [obs, setObs] = useState("");
   const [erro, setErro] = useState<string | null>(null);
+  const [salvando, setSalvando] = useState(false);
 
   async function salvar() {
     if (!titulo) { setErro("Informe um título."); return; }
+    setSalvando(true);
     try {
       await createDayEntry({ data, titulo, horas, observacao: obs, created_by: criadoPor });
       onSaved();
       onClose();
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível salvar.");
+    } finally {
+      setSalvando(false);
     }
   }
 
@@ -682,8 +696,8 @@ function LancamentoDialog({
         </div>
         {erro && <p className="text-sm text-rust-500">{erro}</p>}
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button onClick={salvar}>Salvar</Button>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={salvando}>Cancelar</Button>
+          <Button onClick={salvar} disabled={salvando}>{salvando ? "Salvando..." : "Salvar"}</Button>
         </div>
       </div>
     </Dialog>

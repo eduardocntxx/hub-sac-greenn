@@ -83,7 +83,6 @@ export default {
         "card-hover": "0 8px 24px -6px rgba(15,45,35,0.14), 0 2px 6px rgba(15,45,35,0.06)",
         soft: "0 4px 18px rgba(15,45,35,0.06)",
         float: "0 16px 40px -8px rgba(15,45,35,0.22)",
-        glow: "0 4px 14px -2px rgba(25,188,156,0.45)",
       },
       transitionDuration: {
         DEFAULT: "150ms",

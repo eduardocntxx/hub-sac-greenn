@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Lock, AlertTriangle, PhoneCall, Search, ExternalLink, Info, X, SlidersHorizontal, Download } from "lucide-react";
+import { Lock, AlertTriangle, PhoneCall, Search, ExternalLink, Info, X, SlidersHorizontal, Download, Star, StarOff } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -651,10 +651,20 @@ export default function Performance() {
       {aba === "ranking" ? (
         <>
           {contagem && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Card className="border-sky-400/30 bg-sky-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Card
+                className="border-sky-400/30 bg-sky-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
+                title="Cada ciclo aberto→resolvido conta separado — uma conversa reaberta soma mais de um chamado."
+              >
                 <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Total de chamados</p>
                 <p className="mt-1 font-display text-kpi-lg font-bold text-sky-700">{contagem.total_chamados}</p>
+              </Card>
+              <Card
+                className="border-forest-400/30 bg-forest-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
+                title="Cada conversa do Crisp conta uma vez só, mesmo que tenha reaberto — é a população de conversas, não de atendimentos."
+              >
+                <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Total de conversas</p>
+                <p className="mt-1 font-display text-kpi-lg font-bold text-forest-700">{contagem.total_conversas}</p>
               </Card>
               <Card className="border-violet-400/30 bg-violet-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
                 <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Total de mensagens</p>
@@ -732,7 +742,7 @@ export default function Performance() {
                   <div>
                     <p
                       className="text-xs font-medium uppercase tracking-wide text-ink/40"
-                      title="Conta diferente de 'Atendimentos': inclui qualquer chamado em que o bot segurou a conversa em algum momento, mesmo que um humano tenha assumido depois — por isso os dois números não precisam bater"
+                      title="Conta diferente de 'Atendimentos': inclui qualquer chamado em que o bot segurou a posse em algum momento, mesmo que um humano tenha assumido depois — por isso os dois números não precisam bater"
                     >
                       Chamados c/ posse
                     </p>
@@ -894,8 +904,12 @@ export default function Performance() {
                     </p>
                     <p className="mt-1 text-[11px] text-ink/40">{percentis.ttr_amostras} amostras</p>
                     {percentis.ttr_primeira_resolucao_amostras > 0 && (
-                      <p className="mt-2 border-t border-sand-line pt-2 text-[11px] text-ink/50">
+                      <p
+                        className="mt-2 border-t border-sand-line pt-2 text-[11px] text-ink/50"
+                        title="Amostra diferente do TTR principal de propósito: o TTR acima só conta quem está resolvido agora (resolved_at). Esta linha conta quem já foi resolvido pelo menos uma vez, mesmo que tenha reaberto depois e esteja pendente de novo agora (first_resolved_at) — por isso o número de amostras pode ser maior aqui, e o valor médio pode não bater com o TTR acima."
+                      >
                         1ª resolução (antes de reabrir): <span className="font-medium text-ink/70">{formatDuration(percentis.ttr_primeira_resolucao_media)}</span>
+                        {" "}({percentis.ttr_primeira_resolucao_amostras} amostra{percentis.ttr_primeira_resolucao_amostras === 1 ? "" : "s"})
                       </p>
                     )}
                   </>
@@ -975,7 +989,7 @@ export default function Performance() {
           </div>
 
           {backlogFaixaAberta && (
-            <Dialog onClose={() => setBacklogFaixaAberta(null)} className="max-w-4xl">
+            <Dialog onClose={() => setBacklogFaixaAberta(null)} className="max-w-6xl">
               <div className="flex items-start justify-between gap-3">
                 <h3 className="font-display text-sm font-semibold text-ink">Backlog — {backlogFaixaAberta}</h3>
                 <button type="button" onClick={() => setBacklogFaixaAberta(null)} className="text-ink/40 hover:text-ink">
@@ -1060,13 +1074,13 @@ export default function Performance() {
                     <p className="mt-1 text-[11px] text-ink/40">{reaberturaResumo.total_resolvidos} chamados resolvidos no período</p>
                   </Card>
                   <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Chamados reabertos</p>
+                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40" title="Conta CONVERSAS que reabriram pelo menos uma vez — não é ponderado por reopened_count igual 'chamados resolvidos' ao lado, porque 'reaberto' já é em si uma transição entre chamados, não uma contagem de coisas que existem.">Conversas reabertas</p>
                     <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{reaberturaResumo.total_reabertos}</p>
                   </Card>
                   <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
                     <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Total de eventos de reabertura</p>
                     <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{reaberturaResumo.total_eventos}</p>
-                    <p className="mt-1 text-[11px] text-ink/40">um chamado pode reabrir mais de uma vez</p>
+                    <p className="mt-1 text-[11px] text-ink/40">uma conversa pode reabrir mais de uma vez</p>
                   </Card>
                 </div>
 
@@ -1171,9 +1185,9 @@ export default function Performance() {
                     <p className="mt-1 text-[11px] text-ink/40">{transferenciasResumo.total_atendidos} chamados atendidos no período</p>
                   </Card>
                   <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Chamados transferidos</p>
+                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40" title="Conta CONVERSAS que trocaram de atendente pelo menos uma vez — não ponderado por reopened_count igual 'chamados atendidos' ao lado, porque transferência já é em si uma transição, não uma contagem de coisas que existem.">Conversas transferidas</p>
                     <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{transferenciasResumo.total_transferidos}</p>
-                    <p className="mt-1 text-[11px] text-ink/40">{transferenciasResumo.total_eventos} eventos (um chamado pode trocar de mão mais de uma vez)</p>
+                    <p className="mt-1 text-[11px] text-ink/40">{transferenciasResumo.total_eventos} eventos (uma conversa pode trocar de mão mais de uma vez)</p>
                   </Card>
                   <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
                     <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Tempo médio até transferir</p>
@@ -1248,7 +1262,7 @@ export default function Performance() {
             {loadingFcr ? (
               <p className="text-sm text-ink/50">Carregando...</p>
             ) : !fcrRecontato || fcrRecontato.total_elegiveis === 0 ? (
-              <Card className="p-4"><p className="text-sm text-ink/50">Nenhum chamado elegível no período (precisa estar resolvido, com cliente e motivo identificados).</p></Card>
+              <Card className="p-4"><p className="text-sm text-ink/50">Nenhuma conversa elegível no período (precisa estar resolvida, com cliente e motivo identificados).</p></Card>
             ) : (
               <>
                 <div className="grid gap-4 sm:grid-cols-3">
@@ -1267,7 +1281,7 @@ export default function Performance() {
                     <p className="mt-1 text-[11px] text-ink/40">{fcrRecontato.total_recontato} de {fcrRecontato.total_elegiveis} voltaram pelo mesmo motivo</p>
                   </Card>
                   <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Chamados elegíveis</p>
+                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Conversas elegíveis</p>
                     <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{fcrRecontato.total_elegiveis}</p>
                     <p className="mt-1 text-[11px] text-ink/40">resolvidos, com cliente e motivo identificados</p>
                   </Card>
@@ -1325,9 +1339,9 @@ export default function Performance() {
                 )}
                 <p className="mt-2 text-xs text-ink/40">
                   "Mesmo motivo" = mesmo texto de tópico (classificado pela Crisp), dentro de 7 dias após a resolução.
-                  Chamado sem cliente identificado (people_id) ou sem tópico não entra na conta — não dá pra saber se
-                  ele voltou. Separado de Reabertura: aqui é o cliente abrindo um chamado <em>novo</em>, não reabrindo
-                  o mesmo.
+                  Conversa sem cliente identificado (people_id) ou sem tópico não entra na conta — não dá pra saber se
+                  ele voltou. Separado de Reabertura: aqui é o cliente abrindo uma conversa <em>nova</em>, não reabrindo
+                  a mesma.
                 </p>
               </>
             )}
@@ -1419,7 +1433,7 @@ export default function Performance() {
           </div>
 
           {posseDetalhe && (
-            <Dialog onClose={() => setPosseDetalhe(null)} className="max-w-4xl">
+            <Dialog onClose={() => setPosseDetalhe(null)} className="max-w-6xl">
               <div className="flex items-start justify-between gap-3">
                 <h3 className="font-display text-sm font-semibold text-ink">Chamados de {posseDetalhe}</h3>
                 <button type="button" onClick={() => setPosseDetalhe(null)} className="text-ink/40 hover:text-ink">
@@ -1487,9 +1501,22 @@ export default function Performance() {
                               )}
                             </td>
                             <td className="px-3 py-2">
-                              <Badge tone={c.status ? statusTone[c.status] ?? "neutral" : "neutral"}>
-                                {c.status ? statusLabel[c.status] ?? c.status : "—"}
-                              </Badge>
+                              <div className="flex items-center justify-center gap-1">
+                                <Badge tone={c.status ? statusTone[c.status] ?? "neutral" : "neutral"}>
+                                  {c.status ? statusLabel[c.status] ?? c.status : "—"}
+                                </Badge>
+                                {c.status === "resolved" && (
+                                  c.avaliado ? (
+                                    <span title="Avaliado — existe CSAT vinculado direto a esse chamado" className="text-forest-600">
+                                      <Star size={14} className="fill-current" />
+                                    </span>
+                                  ) : (
+                                    <span title="Não avaliado (ou avaliação anterior a 26/08/2026, sem vínculo direto)" className="text-ink/30">
+                                      <StarOff size={14} />
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             </td>
                             <td className="px-3 py-2">
                               {c.link_chamado ? (
@@ -1754,9 +1781,22 @@ export default function Performance() {
                           </td>
                           <td className="hidden px-4 py-3 text-ink/70 xl:table-cell">{formatDuration(c.tempo_ativo_seg)}</td>
                           <td className="px-4 py-3">
-                            <Badge tone={c.status ? statusTone[c.status] ?? "neutral" : "neutral"}>
-                              {c.status ? statusLabel[c.status] ?? c.status : "—"}
-                            </Badge>
+                            <div className="flex items-center justify-center gap-1">
+                              <Badge tone={c.status ? statusTone[c.status] ?? "neutral" : "neutral"}>
+                                {c.status ? statusLabel[c.status] ?? c.status : "—"}
+                              </Badge>
+                              {c.status === "resolved" && (
+                                c.avaliado ? (
+                                  <span title="Avaliado — existe CSAT vinculado direto a esse chamado" className="text-forest-600">
+                                    <Star size={14} className="fill-current" />
+                                  </span>
+                                ) : (
+                                  <span title="Não avaliado (ou avaliação anterior a 26/08/2026, sem vínculo direto)" className="text-ink/30">
+                                    <StarOff size={14} />
+                                  </span>
+                                )
+                              )}
+                            </div>
                           </td>
                           <td className="px-4 py-3">
                             {c.link_chamado ? (

@@ -659,7 +659,7 @@ export default function Csat() {
       )}
 
       {atendenteDetalhe && (
-        <Dialog onClose={() => setAtendenteDetalhe(null)} className="max-w-2xl">
+        <Dialog onClose={() => setAtendenteDetalhe(null)} className="max-w-3xl">
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="font-display text-base font-semibold text-ink">{atendenteDetalhe.nome}</h3>

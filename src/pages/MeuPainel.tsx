@@ -174,6 +174,10 @@ export default function MeuPainel() {
   // foi repassada depois — mesmo critério usado no ranking de Overview.
   const conversasPeriodoCarteira = conversasPeriodo.filter((c) => c.minha_carteira);
   const conversasAnteriorCarteira = conversasAnteriorLista.filter((c) => c.minha_carteira);
+  // "Chamado" conta cada ciclo aberto→resolvido, não a conversa inteira — uma
+  // conversa reaberta N vezes soma 1+N chamados (mesmo critério de Overview/Analytics).
+  const totalChamadosCarteira = conversasPeriodoCarteira.reduce((acc, c) => acc + 1 + (c.reopened_count ?? 0), 0);
+  const totalChamadosAnteriorCarteira = conversasAnteriorCarteira.reduce((acc, c) => acc + 1 + (c.reopened_count ?? 0), 0);
   const tempoPrimeiraResposta = media(conversasPeriodo.map((c) => c.tempo_primeira_resposta_seg));
   const tempoPrimeiraRespostaAnterior = media(conversasAnteriorLista.map((c) => c.tempo_primeira_resposta_seg));
   const tempoResolucao = media(conversasPeriodoCarteira.map((c) => c.tempo_resolucao_seg));
@@ -275,9 +279,15 @@ export default function MeuPainel() {
         <h2 className="mb-3 font-display text-sm font-semibold text-ink">
           Indicadores do período
         </h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <Kpi
             label="Total de chamados"
+            value={loadingConversas ? "..." : String(totalChamadosCarteira)}
+            delta={variacao(totalChamadosCarteira, totalChamadosAnteriorCarteira || null)}
+            icon={PhoneCall}
+          />
+          <Kpi
+            label="Total de conversas"
             value={loadingConversas ? "..." : String(conversasPeriodoCarteira.length)}
             delta={variacao(conversasPeriodoCarteira.length, conversasAnteriorCarteira.length || null)}
             icon={PhoneCall}

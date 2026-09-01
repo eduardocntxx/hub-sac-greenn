@@ -497,6 +497,22 @@ export interface CsatFilters {
   pageSize?: number;
 }
 
+export interface CsatTempoReal {
+  tempo_primeira_resposta_seg: number | null;
+  tempo_encerramento_seg: number | null;
+}
+
+// csat_results.tempo_primeira_resposta_seg/tempo_encerramento_seg nunca são
+// preenchidos pelo n8n (ver CLAUDE.md) — mas csat_results.crisp_id passou a
+// vir populado pro dado recente (desde 26/08/2026), permitindo buscar o
+// tempo real direto em crisp_conversations quando esse vínculo existe.
+// Retorna null quando não há vínculo (dado antigo) ou sem permissão.
+export async function fetchCsatTempoReal(crispId: string): Promise<CsatTempoReal | null> {
+  const { data, error } = await client().rpc("csat_tempo_real", { p_crisp_id: crispId });
+  if (error) throw error;
+  return data && data.length > 0 ? data[0] : null;
+}
+
 export async function fetchCsatFiltered(
   filters: CsatFilters
 ): Promise<{ rows: DbCsatResult[]; count: number }> {
@@ -918,6 +934,7 @@ export async function fetchTempoRespostaBot(inicio: Date, fim: Date, canal?: str
 
 export interface ContagemPeriodo {
   total_chamados: number;
+  total_conversas: number;
   total_mensagens: number;
 }
 
@@ -1227,6 +1244,9 @@ export async function deleteNpsResponse(id: string) {
 
 export interface DashboardAtendimentoSummary {
   total_conversas: number;
+  // 1 + reaberturas por conversa — "chamado" é cada ciclo aberto→resolvido,
+  // diferente de total_conversas (contagem crua de conversas, usada só pela Home).
+  total_chamados: number;
   conversas_resolvidas: number;
   tfr_medio_min: number | null;
   tempo_resolucao_medio_min: number | null;
@@ -1564,7 +1584,7 @@ export interface DbWeekResponsible {
 export async function fetchWeekResponsibles(inicio: string, fim: string): Promise<DbWeekResponsible[]> {
   const { data, error } = await client()
     .from("calendar_week_responsibles")
-    .select("*, usuario:users(nome)")
+    .select("*, usuario:users!calendar_week_responsibles_user_id_fkey(nome)")
     .gte("semana_inicio", inicio)
     .lte("semana_inicio", fim);
   if (error) throw error;
@@ -1590,7 +1610,7 @@ export interface DbSaturdayOncall {
 export async function fetchSaturdayOncall(inicio: string, fim: string): Promise<DbSaturdayOncall[]> {
   const { data, error } = await client()
     .from("calendar_saturday_oncall")
-    .select("*, usuario:users(nome)")
+    .select("*, usuario:users!calendar_saturday_oncall_user_id_fkey(nome)")
     .gte("data", inicio)
     .lte("data", fim);
   if (error) throw error;
@@ -1627,7 +1647,7 @@ export interface DbLeaveRequest {
 export async function fetchLeaveRequests(inicio: string, fim: string): Promise<DbLeaveRequest[]> {
   const { data, error } = await client()
     .from("calendar_leave_requests")
-    .select("*, usuario:users(nome)")
+    .select("*, usuario:users!calendar_leave_requests_user_id_fkey(nome)")
     .gte("data", inicio)
     .lte("data", fim)
     .order("created_at", { ascending: false });
@@ -1638,7 +1658,7 @@ export async function fetchLeaveRequests(inicio: string, fim: string): Promise<D
 export async function fetchPendingLeaveRequests(): Promise<DbLeaveRequest[]> {
   const { data, error } = await client()
     .from("calendar_leave_requests")
-    .select("*, usuario:users(nome)")
+    .select("*, usuario:users!calendar_leave_requests_user_id_fkey(nome)")
     .eq("status", "pendente")
     .order("created_at", { ascending: false });
   if (error) throw error;
@@ -1677,7 +1697,7 @@ export interface DbOncall {
 export async function fetchOncall(inicio: string, fim: string): Promise<DbOncall[]> {
   const { data, error } = await client()
     .from("calendar_oncall")
-    .select("*, usuario:users(nome)")
+    .select("*, usuario:users!calendar_oncall_user_id_fkey(nome)")
     .gte("data", inicio)
     .lte("data", fim);
   if (error) throw error;
@@ -1708,7 +1728,7 @@ export interface DbVacation {
 export async function fetchVacations(inicio: string, fim: string): Promise<DbVacation[]> {
   const { data, error } = await client()
     .from("calendar_vacations")
-    .select("*, usuario:users(nome)")
+    .select("*, usuario:users!calendar_vacations_user_id_fkey(nome)")
     .lte("data_inicio", fim)
     .gte("data_fim", inicio);
   if (error) throw error;
@@ -1802,6 +1822,13 @@ export interface AtendimentoComMetricas {
   // Quantas vezes esse chamado reabriu (0 = nunca) — mesmo campo de
   // crisp_conversations.reopened_count, só passthrough.
   reopened_count: number;
+  // true só quando existe csat_results.crisp_id apontando pra esse chamado —
+  // vínculo direto, sem aproximação por e-mail/horário. csat_results.crisp_id
+  // só passou a ser preenchido pelo n8n a partir de 2026-08-26; avaliações
+  // anteriores a isso (ou sem esse campo populado por algum motivo) aparecem
+  // como false mesmo tendo nota real — é um falso-negativo conhecido, não
+  // um bug: nunca dá falso-positivo.
+  avaliado: boolean;
   total_count: number;
 }
 
@@ -1898,6 +1925,9 @@ export interface MinhaConversaMetrica {
   // sempre que o usuário respondeu primeiro, mesmo em linhas com minha_carteira
   // false (conversa repassada depois) — mesmo critério do ranking em Overview.
   minha_carteira: boolean;
+  // 1 + isso = quantos "chamados" essa conversa representa (cada reabertura
+  // conta como um ciclo novo) — usado no "Total de chamados" do Meu Painel.
+  reopened_count: number;
 }
 
 export async function fetchMinhasConversasMetricas(inicio: Date, fim: Date): Promise<MinhaConversaMetrica[]> {
