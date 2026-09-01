@@ -105,7 +105,7 @@ export function GlobalSearch() {
 
       {open && (
         <div
-          className="fixed inset-0 z-[100] flex items-start justify-center bg-ink/40 pt-[15vh]"
+          className="fixed inset-0 z-[100] flex items-start justify-center bg-black/50 pt-[15vh]"
           onClick={() => setOpen(false)}
         >
           <div

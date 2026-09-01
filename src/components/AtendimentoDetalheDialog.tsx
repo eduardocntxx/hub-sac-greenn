@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ExternalLink, X } from "lucide-react";
+import { AlertTriangle, ExternalLink, Star, StarOff, X } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -49,7 +49,7 @@ export function AtendimentoDetalheDialog({ atendimento: c, onClose }: Atendiment
   });
 
   return (
-    <Dialog onClose={onClose} className="max-w-lg">
+    <Dialog onClose={onClose} className="max-w-xl">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-display text-sm font-semibold text-ink">{c.cliente_nome ?? "Cliente não identificado"}</h3>
@@ -64,6 +64,12 @@ export function AtendimentoDetalheDialog({ atendimento: c, onClose }: Atendiment
         <Badge tone={c.status ? statusTone[c.status] ?? "neutral" : "neutral"}>
           {c.status ? statusLabel[c.status] ?? c.status : "—"}
         </Badge>
+        <Badge
+          tone="info"
+          title="1 (a conversa em si) + quantas vezes já reabriu depois de resolvida. Uma troca de atendente sem passar por 'resolvido' no meio (handoff) não conta como chamado novo — só reabertura conta."
+        >
+          {1 + c.reopened_count} {1 + c.reopened_count === 1 ? "chamado" : "chamados"}
+        </Badge>
         {c.canal && <Badge tone="neutral">{c.canal}</Badge>}
         {c.tipo_cliente && <Badge tone="neutral">{c.tipo_cliente}</Badge>}
         {c.reopened_count > 0 && (
@@ -73,6 +79,21 @@ export function AtendimentoDetalheDialog({ atendimento: c, onClose }: Atendiment
           >
             🔄 Reaberto {c.reopened_count}x
           </Badge>
+        )}
+        {c.status === "resolved" && (
+          c.avaliado ? (
+            <Badge tone="success" className="gap-1" title="Existe uma avaliação de CSAT vinculada diretamente a esse chamado.">
+              <Star size={12} className="fill-current" /> Avaliado
+            </Badge>
+          ) : (
+            <Badge
+              tone="neutral"
+              className="gap-1"
+              title="Nenhuma avaliação de CSAT vinculada diretamente a esse chamado. Esse vínculo direto só existe pro dado mais recente (desde 26/08/2026) — uma avaliação real pode existir sem aparecer aqui se for de antes disso."
+            >
+              <StarOff size={12} /> Não avaliado
+            </Badge>
+          )
         )}
         {invalido && (
           <span title="Dado inconsistente: resposta antes do início ou tempo negativo" className="inline-flex items-center gap-1 text-xs text-rust-500">

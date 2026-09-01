@@ -198,8 +198,9 @@ export default function Analytics() {
 
       <div>
         <h2 className="mb-3 font-display text-sm font-semibold text-ink">Indicadores principais</h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Kpi label="Total de chamados" value={loadingTotalChamados ? "..." : String(totalChamados?.total_conversas ?? 0)} icon={PhoneCall} />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Kpi label="Total de chamados" value={loadingTotalChamados ? "..." : String(totalChamados?.total_chamados ?? 0)} icon={PhoneCall} />
+          <Kpi label="Total de conversas" value={loadingTotalChamados ? "..." : String(totalChamados?.total_conversas ?? 0)} icon={PhoneCall} />
           <Kpi label="Total de avaliações" value={loadingSummary ? "..." : String(summary?.total_avaliacoes ?? 0)} delta={totalDelta} icon={MessagesSquare} />
           <Kpi label="CSAT (nota média)" value={loadingSummary ? "..." : summary?.media_csat?.toFixed(1) ?? "—"} icon={Star} />
           <Kpi label="CSAT positivo" value={loadingSummary ? "..." : summary?.percentual_satisfacao !== null && summary?.percentual_satisfacao !== undefined ? `${summary.percentual_satisfacao}%` : "—"} icon={CheckCircle2} />
@@ -207,14 +208,15 @@ export default function Analytics() {
           <Kpi label="Tempo médio de encerramento" value={formatDuration(summary?.tempo_encerramento_medio ?? null)} icon={Timer} />
         </div>
         <p className="mt-2 text-xs text-ink/40">
-          "Total de chamados" conta todas as conversas do período (avaliadas ou não); "Total de avaliações" conta
-          só as que receberam uma nota de CSAT — por isso os dois números normalmente são diferentes.
+          "Total de chamados" conta cada ciclo aberto→resolvido do período (uma conversa reaberta soma mais de um
+          chamado); "Total de conversas" conta cada conversa do Crisp uma vez só; "Total de avaliações" conta só as
+          que receberam uma nota de CSAT — por isso os três números normalmente são diferentes.
         </p>
       </div>
 
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 p-5 pb-0">
-          <h2 className="font-display text-sm font-semibold text-ink">Evolução de chamados e CSAT</h2>
+          <h2 className="font-display text-sm font-semibold text-ink">Evolução de conversas e CSAT</h2>
           <SegmentedControl
             options={[["day", "Diária"], ["week", "Semanal"], ["month", "Mensal"]] as const}
             value={granularidade}
@@ -223,7 +225,7 @@ export default function Analytics() {
         </div>
         <div className="grid gap-4 p-5 md:grid-cols-2">
           <div>
-            <p className="mb-2 text-xs font-medium text-ink/50">Chamados</p>
+            <p className="mb-2 text-xs font-medium text-ink/50">Conversas</p>
             {loadingEvolucao ? <p className="text-sm text-ink/50">Carregando...</p> : serieChamados.length === 0 ? <p className="text-sm text-ink/50">Sem dados.</p> : <BarChart data={serieChamados} getColorClass={corChamados} height={128} />}
           </div>
           <div>

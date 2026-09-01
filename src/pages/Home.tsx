@@ -74,7 +74,7 @@ export default function Home() {
   const { user, isAdmin } = useAuth();
   const primeiroNome = user?.nome.split(" ")[0] ?? "";
 
-  const { inicio, fim } = useMemo(() => resolvePeriodo("30dias"), []);
+  const { inicio, fim } = useMemo(() => resolvePeriodo("7dias"), []);
   const { inicio: inicioAnterior, fim: fimAnterior } = useMemo(
     () => periodoAnterior(inicio, fim),
     [inicio, fim]
@@ -135,13 +135,19 @@ export default function Home() {
       {isAdmin && (
         <div>
           <h2 className="mb-3 font-display text-sm font-semibold text-ink">
-            Atendimento (últimos 30 dias)
+            Atendimento (últimos 7 dias)
           </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
             <Kpi
               label="Total de conversas"
               value={loadingDashboard ? "..." : String(dashboard?.total_conversas ?? 0)}
               delta={delta(dashboard?.total_conversas, dashboardAnterior?.total_conversas)}
+              icon={PhoneCall}
+            />
+            <Kpi
+              label="Total de chamados"
+              value={loadingDashboard ? "..." : String(dashboard?.total_chamados ?? 0)}
+              delta={delta(dashboard?.total_chamados, dashboardAnterior?.total_chamados)}
               icon={PhoneCall}
             />
             <Kpi
@@ -171,6 +177,10 @@ export default function Home() {
               icon={Star}
             />
           </div>
+          <p className="mt-2 text-xs text-ink/40">
+            "Total de conversas" conta cada conversa do Crisp uma vez só; "Total de chamados" conta cada ciclo
+            aberto→resolvido (uma conversa reaberta soma mais de um chamado) — por isso o segundo número pode ser maior.
+          </p>
           <Card className="mt-4 p-5">
             <p className="mb-2 text-xs font-medium text-ink/50">Evolução diária de conversas</p>
             {loadingEvolucao ? (

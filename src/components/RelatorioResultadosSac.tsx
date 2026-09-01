@@ -236,7 +236,7 @@ export function RelatorioResultadosSac({ data, onClose }: RelatorioResultadosSac
         </section>
 
         <section className="mt-11 print:mt-8">
-          <SecaoHead titulo="Reabertura" tag="novo" nota="Chamado resolvido que o cliente reabriu." />
+          <SecaoHead titulo="Reabertura" tag="novo" nota="Conversa resolvida que o cliente reabriu." />
           <MetricaGrid>
             <MetricaCard
               label="Taxa de reabertura"
@@ -245,20 +245,20 @@ export function RelatorioResultadosSac({ data, onClose }: RelatorioResultadosSac
               nota={A.reabertura ? `${A.reabertura.total_resolvidos} chamados resolvidos no período` : undefined}
             />
             <MetricaCard
-              label="Chamados reabertos"
+              label="Conversas reabertas"
               valor={fmtNum(A.reabertura?.total_reabertos)}
               delta={deltaPercentual(A.reabertura?.total_reabertos, P.reabertura?.total_reabertos, true)}
             />
             <MetricaCard
               label="Eventos de reabertura"
               valor={fmtNum(A.reabertura?.total_eventos)}
-              nota="Um chamado pode reabrir mais de uma vez"
+              nota="Uma conversa pode reabrir mais de uma vez"
             />
           </MetricaGrid>
         </section>
 
         <section className="mt-11 print:mt-8">
-          <SecaoHead titulo="Transferências" tag="novo" nota="Troca de atendente humano no mesmo chamado." />
+          <SecaoHead titulo="Transferências" tag="novo" nota="Troca de atendente humano na mesma conversa." />
           <MetricaGrid>
             <MetricaCard
               label="Taxa de transferência"
@@ -267,7 +267,7 @@ export function RelatorioResultadosSac({ data, onClose }: RelatorioResultadosSac
               nota={A.transferencias ? `${A.transferencias.total_atendidos} chamados atendidos no período` : undefined}
             />
             <MetricaCard
-              label="Chamados transferidos"
+              label="Conversas transferidas"
               valor={fmtNum(A.transferencias?.total_transferidos)}
               delta={deltaPercentual(A.transferencias?.total_transferidos, P.transferencias?.total_transferidos, true)}
             />
@@ -295,7 +295,7 @@ export function RelatorioResultadosSac({ data, onClose }: RelatorioResultadosSac
               nota={A.fcr ? `${A.fcr.total_recontato} de ${A.fcr.total_elegiveis}` : undefined}
             />
             <MetricaCard
-              label="Chamados elegíveis"
+              label="Conversas elegíveis"
               valor={fmtNum(A.fcr?.total_elegiveis)}
               delta={deltaPercentual(A.fcr?.total_elegiveis, P.fcr?.total_elegiveis, false)}
               nota="Resolvidos, com cliente e motivo identificados"

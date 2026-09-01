@@ -117,7 +117,9 @@ src/
 ```
 
 Não existe pasta `supabase/` com migrations neste repositório — o schema é
-gerenciado diretamente no projeto Supabase ("Centralização - SAC"), fora do
+gerenciado diretamente no projeto Supabase ("Hub SAC", project-ref
+`riiwphsvqlatqtaqaemd` desde 2026-09-01 — projeto anterior "Centralização
+- SAC"/`cqcjfirnwpvisicdiuaf` migrado nessa data, ver seção 10), fora do
 controle de versão do frontend. Isso é um risco documentado (seção 20).
 
 ## 5. Fluxo de autenticação
@@ -320,15 +322,25 @@ via SQL direto no Supabase.
   join real que funciona é por e-mail: `csat_results.email_atendente =
   users.email`. Mesma lógica para `crisp_conversations.operator_email`.
 - `csat_results.crisp_id` e `csat_results.conversation_id` deveriam
-  correlacionar com uma conversa do Crisp, mas os dois estão **100% nulos**
-  no pipeline atual — `csat_tempo_resposta_correlacao` ainda depende disso
-  e fica vazia. `conversas_nota_baixa()` foi **corrigida em 2026-08-16**
-  pra não depender mais desse vínculo: `csat_results` já carrega
-  `cliente`/`atendente`/`canal`/`topico`/`comentario`/`link_chamado`
-  próprios, então a função passou a ler direto da tabela em vez de fazer
-  `join` com `crisp_conversations` por `crisp_id` (que nunca casava
-  nenhuma linha). Continua podendo aparecer vazia — mas agora por não
-  haver avaliação com nota baixa no período, não por falha de vínculo.
+  correlacionar com uma conversa do Crisp — por muito tempo os dois
+  ficaram **100% nulos** no pipeline, e `conversas_nota_baixa()` foi
+  **corrigida em 2026-08-16** pra não depender mais desse vínculo:
+  `csat_results` já carrega `cliente`/`atendente`/`canal`/`topico`/
+  `comentario`/`link_chamado` próprios, então a função passou a ler
+  direto da tabela em vez de fazer `join` com `crisp_conversations` por
+  `crisp_id` (que na época nunca casava nenhuma linha). **Atualização
+  2026-09-01**: `conversation_id` continua 100% nulo, mas `crisp_id`
+  passou a vir preenchido pelo n8n em parte do dado — 103 de 255
+  avaliações no projeto novo (40%, tudo a partir de 2026-08-26), sempre
+  batendo 1:1 com uma `crisp_conversations.crisp_id` real (validado
+  103/103). Não documentado quando exatamente o n8n passou a gravar isso.
+  Usado pela primeira vez no badge "Avaliado"/"Não avaliado" do popup de
+  detalhe do chamado (seção 10) — mas só cobre dado recente, então
+  qualquer nova função que dependa desse vínculo tem que aceitar
+  falso-negativo pra avaliação anterior a 26/08 (nunca falso-positivo). O
+  vínculo primário por e-mail (linha acima) continua sendo a base de tudo
+  que já existia antes dessa mudança (agregados por atendente,
+  dashboards) — não foi revisitado nesta correção.
 - `reclame_aqui_cases.responsavel_id → users.id`.
 - `helpdesks.created_by → users.id`, `helpdesks.approved_by → users.id`.
 - `user_status.user_id → users.id` (1:1).
@@ -3365,6 +3377,438 @@ de volta sem a senha real; a correção é uma cópia estrutural do padrão já
 comprovado nesta mesma tela, risco baixo, mas fica marcado como pendente
 de conferir visualmente na próxima vez que alguém abrir o Overview.
 
+**Bug grave corrigido em 2026-09-01 — "Responsável da semana"/"plantão de
+sábado" nunca funcionavam, e não era só isso: 6 funções de `api.ts`
+quebradas em silêncio pelo mesmo motivo:** usuário reportou de novo (2ª
+vez) que clicar no sábado não deixava definir o responsável, e que
+"salvar" em Solicitar Folga não fazia nada — pedi pra investigar a fundo
+em vez de aceitar como já resolvido. Reproduzido ao vivo: `.select("*,
+usuario:users(nome)")` chamado contra 6 tabelas de calendário
+(`calendar_week_responsibles`, `calendar_saturday_oncall`,
+`calendar_leave_requests` ×2 funções, `calendar_oncall`,
+`calendar_vacations`) retornava **erro** do PostgREST — `"Could not
+embed because more than one relationship was found for '<tabela>' and
+'users'"` — porque cada uma dessas tabelas tem **duas** foreign keys pra
+`users` (`user_id` e `created_by`/`decided_by`), e o embed implícito
+`users(nome)` não consegue adivinhar qual delas usar. O erro nunca
+aparecia pra ninguém porque `useQuery` só deixa `data` undefined
+silenciosamente — nenhuma das telas mostra erro de query. Esse MESMO
+padrão de bug já tinha sido corrigido em outras 3 tabelas antes (`missions`,
+`reclame_aqui_cases`, `helpdesks`, usando a sintaxe explícita
+`users!nome_da_constraint(nome)`) — só as 6 de calendário ficaram de
+fora, provavelmente por terem sido escritas antes de `created_by`
+existir nelas, ou por essa correção anterior nunca ter varrido o arquivo
+inteiro.
+
+Corrigido trocando `usuario:users(nome)` por
+`usuario:users!<tabela>_user_id_fkey(nome)` nas 6 (confirmado via
+`information_schema` qual FK cada tabela tem — `escala_sabado`, a
+sétima tabela com esse padrão, tem só 1 FK pra `users` e por isso nunca
+teve o problema, não precisou de mudança). **Impacto real, descoberto
+só depois de corrigir**: não era só o sábado — "Responsável da semana"
+mostrava "Não definido" *sempre* (mesmo com dado real cadastrado),
+"Folgas pendentes" e "Férias no mês" mostravam **0** sempre no card do
+topo, e a lista "Solicitações pendentes de aprovação" nunca aparecia —
+apesar de existirem 30+ solicitações reais represadas no banco (viradas
+visíveis assim que o fix foi aplicado). Validado no navegador: card do
+topo passou de "Não definido / 0 / 0" pra "Ana Paula Maximiano de Souza
+/ 13 / 2" na hora, e o plantão de sábado que eu tinha setado momentos
+antes (gravado corretamente no banco o tempo todo — o bug era só na
+leitura, nunca na escrita) passou a aparecer como "Vittor Fernandes".
+**Achado à parte, não corrigido agora**: a lista de pendentes revelou
+dezenas de solicitações com `motivo` "a"/"2" repetidos várias vezes
+(datas 31/07, 31/08, 04/09, 12/09) — claramente dado de teste de sessões
+anteriores, nunca visível até este fix por causa do mesmo bug. Não apaguei
+nada — são linhas reais no banco, fica pro usuário decidir se quer
+limpar.
+
+**Bug real corrigido no mesmo lote — "Enviar solicitação"/"Salvar" dos
+4 modais do Calendário pareciam não fazer nada:** essa era a segunda
+metade da reclamação do usuário. Investigado ao vivo: o clique **salvava
+de verdade** no banco (confirmado via SQL direto), só que nenhum dos 4
+formulários (Solicitar Folga, Adicionar Sobreaviso, Cadastrar Férias,
+Lançamento extra) tinha estado de carregamento no botão — sem
+`disabled`/texto "Salvando...", o único sinal de que algo aconteceu é o
+modal fechar sozinho depois da resposta da rede, o que pode levar tempo
+suficiente pra parecer travado. Corrigido usando `formState.isSubmitting`
+do React Hook Form (Solicitar Folga/Sobreaviso, que já usam RHF) e um
+`salvando` local novo (Férias/Lançamento extra, que usam estado solto) —
+mesmo padrão já usado em outros formulários da plataforma
+("Entrando...", "Criando conta..." etc.).
+
+**Reorganização visual dos botões do "Registro do dia"** (3º pedido do
+mesmo usuário, repetido pela 2ª vez): "Solicitar Folga" (única ação
+disponível pra todo colaborador) ganhou linha própria, em destaque;
+as 3 ações admin-only (Sobreaviso/Férias/Lançamento extra) ficaram
+agrupadas numa segunda linha; "Limpar dados do dia" (destrutiva) saiu
+do meio dos botões normais — virou um link de texto vermelho pequeno
+abaixo de uma linha divisória, em vez de um botão sólido do mesmo
+tamanho dos outros, pra reduzir o risco de clique acidental e a poluição
+visual já reportada.
+
+**Mudança de definição em 2026-09-01 — "chamado" passou a contar cada
+ciclo aberto→resolvido, não a conversa inteira:** usuário questionou se
+"Total de chamados" estava certo, dando o exemplo de uma conversa que
+abre, resolve, reabre e resolve de novo — isso é uma conversa só, mas
+deveriam ser dois chamados. Conferido com dado real (90 dias): 4256
+conversas, mas 849 delas já reabriram pelo menos uma vez (1204
+reaberturas no total) — contando 1+reaberturas por conversa, o total
+sobe pra 5460 (quase 30% maior). Confirmado com o usuário: mudança
+restrita aos KPIs literalmente rotulados "Total de chamados" (Analytics,
+Overview, Meu Painel) — TFR/TTR, ranking por atendente, CSAT e a lista
+da aba Atendimentos continuam com o critério de sempre (1 linha por
+conversa), não fazia sentido mexer nisso pra essa leva.
+
+- `contagem_periodo()` (Overview): `total_chamados` trocou de `count(*)`
+  pra `sum(1 + coalesce(reopened_count,0))` — mesma assinatura, só o
+  corpo mudou.
+- `dashboard_atendimento_summary()` (Analytics **e** Home, que
+  compartilham essa função): ganhou uma coluna **nova** `total_chamados`
+  com a mesma fórmula, mantendo `total_conversas` **intocada** — a Home
+  usa esse campo antigo pro próprio KPI "Total de conversas" (nome já
+  correto pro que ela quer dizer), então não podia mudar de semântica ali.
+  Analytics trocou de ler `total_conversas` pra `total_chamados`.
+- `minhas_conversas_metricas()` (Meu Painel): ganhou coluna nova
+  `reopened_count` (passthrough de `crisp_conversations.reopened_count`).
+  O KPI "Total de chamados" trocou de `conversasPeriodoCarteira.length`
+  pra somar `1 + reopened_count` de cada linha da carteira atual (client-side,
+  igual o resto dos cálculos dessa página).
+
+Validado no navegador (sessão real): Overview foi de "Total de chamados"
+batendo com a contagem crua de conversas pra **5474** no período
+01/01–01/09/2026 (bate com a conta manual feita antes da mudança);
+Analytics e Meu Painel renderizaram sem erro com os novos números.
+
+**Ajuste no mesmo dia, logo em seguida — usuário pediu os dois números
+lado a lado, não um substituindo o outro:** "preciso da metrica de
+chamados e conversas... preciso dos dois dados na plataforma". Adicionado
+`total_conversas` em `contagem_periodo()` (Overview, terceira coluna no
+card do topo do Dashboard, ao lado de "Total de chamados"/"Total de
+mensagens") e `total_chamados` no KPI da Home (que já usa
+`dashboard_atendimento_summary()`, só precisou expor o campo novo que a
+mudança anterior já tinha adicionado). Meu Painel voltou a mostrar
+"Total de conversas" (`conversasPeriodoCarteira.length`, cálculo que já
+existia, só não estava mais sendo exibido) ao lado do novo "Total de
+chamados". As 4 telas (Home/Analytics/Overview/Meu Painel) agora mostram
+os dois números sempre juntos, com nota de rodapé explicando a diferença.
+Validado nas 4: chamados ≥ conversas em todos os casos reais conferidos.
+
+**Achado relacionado, no mesmo dia — card "1ª resolução (antes de
+reabrir)" em Velocidade não mostrava quantas amostras tinha, dando a
+entender (errado) que era o mesmo grupo do TTR principal:** usuário
+colou um caso real onde TTR principal = 15min22s (1 amostra) e "1ª
+resolução" = 28min18s sem contagem nenhuma — perguntou por que
+divergiam. Conferido na função (`tfr_ttr_percentis`): TTR principal só
+conta quem está **resolvido agora** (`resolved_at`); "1ª resolução" conta
+quem **já foi resolvido pelo menos uma vez**, mesmo reaberto e pendente
+de novo (`first_resolved_at`, nunca sobrescrito) — population maior, não
+menor, o oposto do que eu tinha assumido na primeira tentativa de
+explicar isso (corrigido antes de publicar). `ttr_primeira_resolucao_amostras`
+já existia na função, só nunca era exibido na tela — adicionado
+"(N amostras)" na própria linha. Validado com o caso real do usuário:
+"1ª resolução: 31min 22s (**12 amostras**)" contra "TTR: 15min 22s
+(**1 amostra**)" — confirma que a população realmente é maior, não é
+mais um caso de "número parece não bater" sem explicação.
+
+**Migração de banco em 2026-09-01 — novo projeto Supabase
+(`riiwphsvqlatqtaqaemd`), substituindo o antigo (`cqcjfirnwpvisicdiuaf`):**
+usuário pediu pra migrar "todo o banco" pro projeto novo (mesma conta,
+ambos com ele como admin) — schema completo (44 tabelas, 65 funções, 10
+triggers, 87 policies, 2 buckets de Storage com suas RLS) reconstruído via
+introspecção SQL (`pg_get_functiondef`/`pg_get_constraintdef`/
+`pg_indexes`, já que não existe `pg_dump` no ambiente nem a senha do
+Postgres estava disponível) e aplicado no projeto novo via Management API
+do Supabase (`POST /v1/projects/{ref}/database/query`, usando um Personal
+Access Token de conta — não a senha do banco; precisa de header
+`User-Agent` custom, senão o WAF do Cloudflare bloqueia com um erro
+genérico "1010"). As 65 funções tiveram que ser carregadas com um loop de
+retry (iam falhando por causa da ordem alfabética não bater com a ordem
+de dependência entre elas — função `LANGUAGE sql` valida a existência de
+funções referenciadas já na criação, diferente de `plpgsql`) até resolver
+sozinho em 3 passadas. Depois, a pedido do usuário, os dados reais de
+negócio também foram copiados (não só o schema) via REST bulk insert
+(paginado, `Prefer: resolution=ignore-duplicates`) — inclusive
+`crisp_messages` (37k+ linhas), `crisp_conversation_state_history` (14k+),
+`operator_routing_history` (6k+). Os 6 usuários reais foram recriados com
+os mesmos `id` do projeto antigo (pra nenhuma FK de outra tabela precisar
+de remapeamento) — só o `auth_id` do Eduardo foi trocado pro auth.users
+real do projeto novo (já existia, criado antes desta sessão); os outros 5
+(contas só-cobertura, sem login) ficaram com `auth_id = null`, mesmo
+padrão de sempre. `.env` já foi trocado pro projeto novo — é o que a app
+usa desde então. **`cqcjfirnwpvisicdiuaf` foi abandonado** por decisão
+explícita do usuário no mesmo dia ("o projeto antigo abandonamos pode
+esquece-lo") — continua existindo no Supabase (não apagado), mas não é
+mais referência de nada: não recebe deploy de função, não precisa ficar
+sincronizado com o projeto novo, não é staging. A conexão MCP do Supabase
+configurada nesta sessão ainda aponta pro antigo (e além disso passou a
+dar erro de acesso/organização no meio da sessão, motivo não resolvido)
+— então qualquer trabalho futuro no projeto novo via este
+assistente precisa de um novo Personal Access Token (mesma técnica) ou
+reconfiguração do MCP.
+
+**Achado importante no meio dessa migração — a descrição de
+`csat_results.crisp_id`/`conversation_id` como "100% nulos" (seções 7/8/10
+antigas deste documento) estava desatualizada**: no dado real do projeto
+novo, `crisp_id` já vem preenchido em 103 de 255 avaliações (40%,
+crescendo — tudo desde 2026-08-26), sempre batendo 1:1 com uma
+`crisp_conversations.crisp_id` real (validado: 103/103). `conversation_id`
+continua 100% nulo. Isso significa que o n8n passou a gravar esse vínculo
+em algum momento sem que isso tivesse sido documentado aqui — o vínculo
+direto chamado↔avaliação existe agora pra dado recente, só não existe
+retroativamente. Usado imediatamente pra uma feature nova (badge
+"Avaliado"/"Não avaliado" no popup de detalhe do chamado — ver abaixo);
+CSAT continua reconciliado por e-mail como fonte primária pra tudo que já
+existia antes (agregados por atendente, dashboards) — esse achado não
+muda a decisão arquitetural da seção 21, só corrige um detalhe que tinha
+ficado desatualizado.
+
+**Bug real corrigido em 2026-09-01 — `atendimento_timeline()` marcava
+mais de um trecho como "ainda ativo" ao mesmo tempo quando os handoffs
+aconteciam rápido:** usuário reportou um popup confuso — um chamado
+reaberto rapidamente (< 1 min entre os eventos) mostrava os 3 trechos
+anteriores TODOS com "agora"/"ainda ativo", quando só o último deveria
+estar. Causa: `ainda_ativo` era calculado como `fim >= now() - interval
+'1 minute'` — uma aproximação por "o fim está a menos de 60s de agora" em
+vez de checar se o trecho é genuinamente o último cronológico. Quando
+vários trechos terminam dentro da mesma janela de 1 minuto (exatamente o
+caso de handoffs rápidos), todos batem nesse teste. Corrigido substituindo
+por uma flag real `eh_ultimo` (`lead(inicio) over (order by inicio) is
+null`, carregada pelas CTEs até o final) combinada com `resolved_at is
+null` — só o trecho genuinamente sem próximo, de um chamado ainda aberto,
+é `ainda_ativo`. Mesmo padrão de bug existia no fallback Tier B (usava
+`proximo is null` disponível mas não usado) — corrigido junto. `Tier A`
+de `relogio_posse_periodo()` foi checado e **não** tinha esse bug (não
+expõe `ainda_ativo` por linha, só soma agregada). Validado com um chamado
+real reaberto (fila → atendente → resolvido → atendente de novo, todo
+dentro de ~90s): antes, os 2 trechos do mesmo atendente apareciam os dois
+"ainda ativo"; depois do fix, só o 2º (o de fato em andamento).
+
+**Auditoria em 2026-09-01 — "chamado" usado como rótulo em ~18 lugares
+que na real contam "conversa" (1 por `crisp_id`, sem o ajuste
+`1 + reopened_count` da mudança de definição documentada acima nesta
+seção):** usuário notou dois sintomas (soma do Backlog não batendo com
+"Total de conversas", e o card do bot mostrando "Chamados c/ posse")
+e perguntou se isso acontecia em mais lugares. Backlog vs. "Total de
+conversas" **não é bug** — Backlog não tem filtro de período (é sempre
+"o que está aberto agora"), o KPI é filtrado pelo período selecionado,
+populações diferentes por definição. Mas a auditoria confirmou 18 rótulos
+"chamado(s)" apoiados em campos vindos de função SQL fora da lista das 3
+migradas (`contagem_periodo`, `dashboard_atendimento_summary`,
+`minhas_conversas_metricas`) — `relogio_posse_periodo` (posse, card do bot
+e coluna do Ranking), `backlog_por_idade`/`backlog_casos`,
+`motivo_contato_resumo`, `metricas_por_tipo_cliente`, `reabertura_resumo`,
+`transferencias_resumo`, `fcr_recontato_resumo`, `atendente_performance`
+(prosa explicativa), `analytics_evolucao`. Usuário confirmou: só corrigir
+o **rótulo** pra "conversa(s)" (não mudar o cálculo dessas 8 funções pro
+critério novo) — 17 dos 18 relabeled em `Performance.tsx`, `Analytics.tsx`,
+`MeuPainel.tsx`, `ReuniaoResultados.tsx` e `RelatorioResultadosSac.tsx`
+(PDF). Deixado **intocado** de propósito: a coluna "Chamados" do Ranking
+de operadores em `Analytics.tsx` (`operador_ranking()`, campo já se chama
+`total_chamados` — não dá pra saber pelo código se essa função foi
+migrada silenciosamente ou não, fica como pendência a verificar direto no
+banco antes de relabelar errado num sentido ou no outro). O popup
+"Chamados de {atendente}" (posse) e a seção "Posse por atendente humano"
+foram deixados como estão — são a mesma convenção de nomenclatura que a
+aba Atendimentos inteira já usa há muito mais tempo que essa auditoria,
+não fazem parte da inconsistência específica encontrada.
+
+**Feature nova em 2026-09-01 — badge "Avaliado"/"Não avaliado" no popup de
+detalhe do chamado:** pedido do usuário ("quando for resolvido e avaliado
+adiciona um badge visual... com uma estrelinha, e se nao avaliada uma
+estrelinha riscada"). Usa o vínculo direto `csat_results.crisp_id`
+descoberto nesta mesma sessão (ver achado acima) — `atendimentos_com_
+metricas()` ganhou coluna `avaliado boolean` (`exists(select 1 from
+csat_results cr where cr.crisp_id = cc.crisp_id)`), badge só aparece
+quando `status = 'resolved'` (`AtendimentoDetalheDialog.tsx`): estrela
+cheia verde "Avaliado" quando true, estrela riscada cinza "Não avaliado"
+quando false, com tooltip explicando a limitação conhecida — como o
+vínculo direto só existe pra dado a partir de 2026-08-26, um chamado
+resolvido antes disso (ou sem esse campo populado por outro motivo) pode
+aparecer "Não avaliado" mesmo tendo nota real (falso-negativo possível,
+nunca falso-positivo). Validado com 2 casos reais (um `avaliado: true`,
+um `avaliado: false`, achados via RPC direta antes de confirmar na tela).
+Mesmo badge replicado nas outras 2 tabelas que também renderizam
+`AtendimentoComMetricas` (aba Atendimentos, popup "Chamados de
+{atendente}" da Posse) a pedido do usuário, que notou a falta num desses
+popups — versão compacta (só o ícone, sem o texto "Avaliado"/"Não
+avaliado", por espaço de coluna).
+
+**Bug real corrigido em 2026-09-01 (mesmo dia) — backdrop de modal ficava
+com um "elemento cinza" visível, mais óbvio com dois modais abertos ao
+mesmo tempo:** achado pelo usuário testando o popup de detalhe (aberto de
+dentro do popup "Chamados de {atendente}", os dois empilhados). Causa:
+`Dialog.tsx` (e mais 2 lugares que nunca migraram pra esse componente —
+`GlobalSearch.tsx` e a gaveta lateral do Calendário) usavam `bg-ink/40`
+pro véu de fundo — mas `ink` é a variável de **texto**, que inverte no
+modo escuro (fica quase-branca, ver seção 13). Resultado: no modo escuro,
+o "véu escurecedor" na verdade CLAREIA o fundo; com dois modais
+empilhados (dois véus claros de 40% somados) ficava visivelmente um
+retalho acinzentado, sobre qualquer coisa por trás. Corrigido nos 3
+lugares trocando `bg-ink/40` por `bg-black/50` — preto puro, não é um
+token de tema, então nunca inverte, dimming correto nos dois temas.
+Validado reabrindo os dois modais empilhados: fundo escurece de forma
+uniforme, sem nenhum retalho claro.
+
+**Mudança de escopo em 2026-09-01 (mesmo dia, mais tarde) — usuário pediu
+pra estender o critério de "chamado" (1 + reopened_count) pras métricas
+que ainda usavam "1 por conversa", revertendo o relabel-only decidido
+horas antes:** "Backlog, de usar chamados como metrica, total de
+atendimentos tbm, na real todos os dados usa como chamados". Antes de
+mexer em 8 funções SQL, investiguei o pedido função por função — nem toda
+"conta de conversa" vira "conta de chamado" da mesma forma, e duas
+categorias precisavam de tratamento diferente do que "aplicar `sum(1 +
+reopened_count)` em todo lugar":
+
+1. **Backlog (`backlog_por_idade`/`backlog_casos`) — nenhuma mudança de
+   SQL, só o rótulo voltou.** Backlog é sempre "o que está aberto agora"
+   — uma conversa em aberto só pode ter exatamente 1 ciclo ativo no
+   momento (ciclos anteriores, se houve reabertura, já fecharam), então
+   `count(*)` já era o número certo de chamados abertos, mesmo antes
+   desta mudança. Só o rótulo "conversas" (do relabel de horas atrás)
+   voltou pra "chamados".
+2. **FCR/Recontato (`fcr_recontato_resumo`/`recontato_casos`) —
+   deliberadamente NÃO migrado, rótulo continua "conversas".** FCR mede
+   "o cliente voltou pelo mesmo motivo dentro de 7 dias" comparando
+   `crisp_id` DIFERENTES (`outro.crisp_id <> e.crisp_id`) — é um conceito
+   por CONVERSA/cliente, não por ciclo. Ponderar `total_elegiveis` por
+   `1+reopened_count` teria um efeito colateral errado: uma conversa que
+   reabriu 2x (virando "3 chamados" na conta) teria seu único evento real
+   de recontato triplicado, já que `tem_recontato` não distingue ciclos
+   dentro da MESMA conversa. Fora de escopo mudar a definição de FCR pra
+   resolver isso — mantido como estava, documentado aqui pra não parecer
+   esquecimento numa auditoria futura.
+
+Para as 6 funções que efetivamente mudaram (`motivo_contato_resumo`,
+`metricas_por_tipo_cliente`, `atendente_performance`, `reabertura_resumo`,
+`transferencias_resumo`, `relogio_posse_periodo`), o padrão aplicado foi
+sempre `sum(1 + coalesce(reopened_count, 0))` no lugar de `count(*)`/
+`count(distinct crisp_id)` — mesma fórmula já usada em `contagem_periodo`
+desde a mudança de definição original. Duas delas (`reabertura_resumo`,
+`transferencias_resumo`) exigiram tratamento **cirúrgico**: só o
+DENOMINADOR (`total_resolvidos`/`total_atendidos`) virou chamado-ponderado
+— os números que já eram contagem de EVENTO (`total_reabertos`/
+`total_eventos` em Reabertura; `total_transferidos`/`total_eventos` em
+Transferências) continuam por conversa, porque "reabrir"/"transferir" já
+é uma transição, não uma contagem de coisas que existem — ponderar de
+novo duplicaria o próprio evento. Os cards desses dois números ganharam
+`title` novo explicando por que não batem com o card vizinho agora
+"chamado"-denominado, pro rótulo "conversas" ali não parecer um erro que
+sobrou do relabel anterior.
+
+`relogio_posse_periodo` foi a mais arriscada de mexer — é a função com o
+histórico de bugs mais longo do projeto (fix O(N²), índice faltando,
+duplicação de "ainda_ativo", vazamento de ciclo anterior, tudo nesta
+mesma seção). Não dava pra só trocar `count(distinct session_id)` por uma
+soma direta: como os 3 tiers agregam POR TRECHO/SEGMENTO (uma conversa
+pode ter vários segmentos do mesmo atendente, ex: antes e depois de uma
+reabertura), somar `1+reopened_count` por segmento contaria a mesma
+conversa mais de uma vez. Corrigido com um passo de agregação extra:
+cada tier primeiro colapsa por `(atendente, session_id)` — pegando
+`max(1+reopened_count)` (constante por sessão, `max` só "puxa" o valor)
+— só depois soma por atendente. Aplicado nos 3 tiers × 2 ramos (com/sem
+filtro de tipo de cliente) = 6 blocos idênticos.
+
+**Bug real cometido e corrigido antes de aplicar**: a primeira versão
+dessa reescrita usava `group by atendente` (sem qualificar) dentro dos
+`posse_tierA/B/C` — e como a função é `LANGUAGE plpgsql` com `RETURNS
+TABLE(atendente text, minutos_posse numeric, conversas bigint)`, os 3
+nomes de coluna do retorno also existem como variáveis implícitas no
+escopo da função inteira. `select atendente, sum(minutos_posse)...`
+deu erro em produção na primeira tentativa: `column reference "atendente"
+is ambiguous — It could refer to either a PL/pgSQL variable or a table
+column`. Corrigido qualificando tudo com o alias da subquery
+(`sub.atendente`, `sum(sub.minutos_posse)`, `group by sub.atendente`) —
+pego ANTES de reportar como pronto, testando a função real via RPC pela
+sessão autenticada do navegador (não pela Management API, que roda sem
+`is_admin()` de verdade — mesma lição já documentada nesta seção).
+
+Validado com dado real (período "Este ano"): `total_chamados` oficial
+(`contagem_periodo`) = 5900; soma de `atendente_performance.
+total_atendimentos` = 5883 (diferença = chamados ainda sem atendente
+atribuído, esperado); soma de `metricas_por_tipo_cliente.chamados` = 5900
+exato (o bucket "Sem tipo" garante cobertura total); os 4 cards "Por tipo
+de cliente" somaram 349 = "Total de chamados" do período testado
+("Este ano" restrito). Caso específico conferido no `relogio_posse_
+periodo`: uma conversa reaberta 1x com o MESMO atendente nos dois ciclos
+(sem handoff) — checado que ele ganha exatamente 2 "chamados" de crédito
+pra essa conversa (não 1, não 4) — confirma que o colapso por
+`(atendente, session_id)` funciona antes da soma final.
+
+**Feature nova em 2026-09-01 (mesmo dia, mais tarde) — badge "N chamados"
+no popup de detalhe:** usuário testou um caso real (handoff Ana Paula →
+Vittor sem passar por resolvido, `reopened_count = 0`) e perguntou se
+contava como 2 chamados — não conta, é 1 (handoff sem reabertura não gera
+chamado novo). Pra não precisar inferir isso de cabeça toda vez,
+adicionado badge sempre visível em `AtendimentoDetalheDialog.tsx` com
+`1 + c.reopened_count` (singular/plural tratado), tom `info`, ao lado do
+badge de Status — não precisa de coluna nova no banco, o dado
+(`reopened_count`) já vinha na mesma query.
+
+**Ajuste de layout em 2026-09-01 (mesmo dia, mais tarde) — pop-ups
+ganharam mais largura, sobrando menos fundo escuro em telas largas:**
+usuário reportou (com print de tela larga) que os pop-ups pareciam
+"boiar" numa área escura grande demais ao redor. Causa: `Dialog.tsx` (o
+componente compartilhado por praticamente todo modal da plataforma, ver
+seção 11) tinha `max-w-md` (448px) como largura padrão, e mesmo os
+pop-ups com tabela que já sobrescreviam esse valor (ex: "Chamados de
+{atendente}", `max-w-4xl`/896px) ainda ficavam estreitos relativo a uma
+tela de verdade. Ajustado:
+- `Dialog.tsx`: padrão subiu de `max-w-md` pra `max-w-xl` (576px) —
+  afeta de graça todo pop-up que não sobrescreve a largura (a maioria:
+  formulários simples de Admin/Calendário/Missões/Cursos/etc.).
+- Pop-ups com TABELA larga (`backlogFaixaAberta`/`posseDetalhe` em
+  `Performance.tsx`, o popup "Chamados de {atendente}"): `max-w-4xl` →
+  `max-w-6xl` (1152px) — esses eram exatamente os apontados no print.
+- `atendenteDetalhe` (CSAT por colaborador, `Csat.tsx`): `max-w-2xl` →
+  `max-w-3xl`.
+- `AtendimentoDetalheDialog.tsx`/`CsatDetalheDialog.tsx` (grid 2 colunas
+  + lista): `max-w-lg` → `max-w-xl`, acompanhando o novo padrão.
+- Deixado como estava de propósito: o pop-up de explicação de
+  percentis (`explicacaoVelocidadeAberta`, só texto corrido — mais
+  largura pioraria a leitura) e formulários com altura restrita
+  (`Missoes.tsx`, `max-h-[90vh] overflow-y-auto`, já tem sua própria
+  lógica de scroll).
+
+Validado em viewport largo (1600px): pop-up de tabela deixou de cortar
+coluna, formulário simples (Solicitar Folga) continua com aparência
+normal no padrão novo — não esticou demais nem quebrou o layout.
+
+**Feature nova em 2026-09-01 (mesmo dia, mais tarde) — "Tempo até 1ª
+resposta"/"Tempo até encerramento" do CSAT passaram a mostrar valor real
+quando existe vínculo direto com a conversa:** usuário mostrou uma
+avaliação real (nota 2, atendente "IA Greenn") com os dois campos em "—"
+e apontou que isso não fazia sentido — "pra enviar a avaliação tem que
+resolver [o chamado]". Confirmado no banco: essa avaliação específica
+JÁ TINHA `csat_results.crisp_id` populado (achado da seção 7/10 sobre
+esse campo ter deixado de ser 100% nulo desde 26/08/2026), e o
+`crisp_conversations` correspondente tinha os timestamps reais
+(`first_response_at`, `resolved_at`) — só nunca eram buscados porque
+`csat_results.tempo_primeira_resposta_seg`/`tempo_encerramento_seg` (as
+colunas que o popup lia direto) nunca são preenchidas pelo n8n, decisão
+antiga e ainda válida, mas incompleta agora que existe uma forma melhor
+de saber esse tempo pra dado recente.
+
+Criada `public.csat_tempo_real(p_crisp_id text)` — `security definer`,
+calcula os dois tempos direto de `crisp_conversations` (`first_response_at
+- current_started_at`, `resolved_at - current_started_at`) quando o
+vínculo existe, replicando manualmente dentro da função a MESMA condição
+de acesso da policy `csat_select_own_or_admin_or_perm_v2` (dono da
+avaliação, e-mail do atendente, admin, ou permissão csat/analytics) —
+necessário porque `security definer` ignora RLS, então sem essa checagem
+manual um colaborador comum conseguiria ler o tempo de qualquer avaliação
+alheia. `CsatDetalheDialog.tsx` busca isso via `useQuery` (chave
+`crisp_id`, só habilitada quando o campo existe) e usa como valor
+preferencial, caindo pro campo antigo do CSAT (sempre nulo na prática) só
+quando não há vínculo — cobre tanto avaliação sem `crisp_id` (a maioria,
+anterior a 26/08) quanto o caso de só ter 1ª resposta e não resolução
+(chamado ainda pendente, tratado campo a campo, não tudo-ou-nada).
+
+Validado com a avaliação real do usuário: "5s" / "17h 52min 43s",
+batendo exato com o cálculo manual via SQL antes de implementar. Também
+validado um caso misto real (1ª resposta com valor, encerramento "—" por
+o chamado ainda estar pendente) e o caso de RPC sem vínculo nenhum
+(retorna vazio, sem erro, cai pro fallback antigo).
+
 Todos em `src/components/ui/`:
 
 - **`Button`** — variantes `primary`/`secondary`/`ghost`/`danger`, tamanhos
@@ -3450,6 +3894,16 @@ ver seção 6 para a lógica de seções por permissão),
   que cruze dados de mais de um usuário deve ser uma função SQL, nunca
   buscar tudo e agregar no cliente (motivo: performance e RLS — uma query
   agregada pode expor menos dado bruto do que buscar linha a linha).
+- **Embed do PostgREST em tabela com mais de uma FK pra `users`**: nunca
+  usar `select("*, usuario:users(nome)")` solto — se a tabela tem mais de
+  uma foreign key pra `users` (ex: `user_id` + `created_by`), o embed
+  implícito falha com "Could not embed because more than one relationship
+  was found", e o erro fica **silencioso** (a tela só mostra "Não
+  definido"/vazio, sem indicação de que a query quebrou). Sempre usar a
+  forma explícita `usuario:users!nome_da_constraint(nome)` (conferir o
+  nome real com `information_schema.table_constraints` antes de assumir);
+  já corrigido nas tabelas de calendário (seção 10, 2026-09-01) e em
+  `missions`/`reclame_aqui_cases`/`helpdesks` (anteriormente).
 
 ## 13. Convenções de UI/UX
 
@@ -3546,8 +4000,8 @@ ver seção 6 para a lógica de seções por permissão),
 
 ## 16. Fluxo para adicionar novas tabelas
 
-1. Definir e aplicar o schema diretamente no projeto Supabase
-   ("Centralização - SAC") — colunas, constraints, RLS. **Isto acontece
+1. Definir e aplicar o schema diretamente no projeto Supabase ("Hub SAC",
+   `riiwphsvqlatqtaqaemd`) — colunas, constraints, RLS. **Isto acontece
    fora deste repositório**; documentar aqui (seção 7) o que foi criado.
 2. Adicionar o tipo espelho em `src/types/database.ts`, prefixo `Db`,
    campos snake_case idênticos aos do Postgres. Incluir relações opcionais
