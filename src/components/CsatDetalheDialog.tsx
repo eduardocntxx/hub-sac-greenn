@@ -1,11 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, X } from "lucide-react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ExternalLink, Pencil, X } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { formatDuration } from "@/lib/formatDuration";
 import { classificacaoPorNota } from "@/lib/utils";
 import { fetchCsatTempoReal } from "@/services/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { CsatEditarDialog } from "@/components/CsatEditarDialog";
 import type { DbCsatResult } from "@/types/database";
 
 interface CsatDetalheDialogProps {
@@ -18,6 +21,10 @@ interface CsatDetalheDialogProps {
 // mostra tudo sem cortar, incluindo campos que a tabela nem lista
 // (telefone, tags, link do chamado etc.).
 export function CsatDetalheDialog({ registro: r, onClose }: CsatDetalheDialogProps) {
+  const { isAdmin } = useAuth();
+  const queryClient = useQueryClient();
+  const [editando, setEditando] = useState(false);
+
   const { data: tempoReal } = useQuery({
     queryKey: ["csat-tempo-real", r.crisp_id],
     queryFn: () => fetchCsatTempoReal(r.crisp_id!),
@@ -26,6 +33,20 @@ export function CsatDetalheDialog({ registro: r, onClose }: CsatDetalheDialogPro
   const tempoPrimeiraResposta = tempoReal?.tempo_primeira_resposta_seg ?? r.tempo_primeira_resposta_seg;
   const tempoEncerramento = tempoReal?.tempo_encerramento_seg ?? r.tempo_encerramento_seg;
 
+  if (editando) {
+    return (
+      <CsatEditarDialog
+        registro={r}
+        onClose={() => setEditando(false)}
+        onSalvo={() => {
+          queryClient.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("csat") });
+          setEditando(false);
+          onClose();
+        }}
+      />
+    );
+  }
+
   return (
     <Dialog onClose={onClose} className="max-w-xl">
       <div className="flex items-start justify-between gap-3">
@@ -33,9 +54,16 @@ export function CsatDetalheDialog({ registro: r, onClose }: CsatDetalheDialogPro
           <h3 className="font-display text-sm font-semibold text-ink">{r.cliente ?? "Cliente não identificado"}</h3>
           <p className="text-xs text-ink/50">{new Date(r.data_hora).toLocaleString("pt-BR")}</p>
         </div>
-        <button type="button" onClick={onClose} className="text-ink/40 hover:text-ink">
-          <X size={16} />
-        </button>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button type="button" onClick={() => setEditando(true)} className="text-ink/40 hover:text-ink" title="Editar metadados desta avaliação">
+              <Pencil size={15} />
+            </button>
+          )}
+          <button type="button" onClick={onClose} className="text-ink/40 hover:text-ink">
+            <X size={16} />
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">

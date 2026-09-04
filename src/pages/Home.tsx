@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { NavLink } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 import {
   Target,
   BarChart3,
@@ -119,7 +120,11 @@ export default function Home() {
 
   return (
     <div className="space-y-8">
-      <div>
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+      >
         <h1 className="font-display text-display text-ink">
           {getSaudacao()}, {primeiroNome}.
         </h1>
@@ -130,7 +135,7 @@ export default function Home() {
             month: "long",
           })}
         </p>
-      </div>
+      </motion.div>
 
       {isAdmin && (
         <div>
@@ -181,7 +186,7 @@ export default function Home() {
             "Total de conversas" conta cada conversa do Crisp uma vez só; "Total de chamados" conta cada ciclo
             aberto→resolvido (uma conversa reaberta soma mais de um chamado) — por isso o segundo número pode ser maior.
           </p>
-          <Card className="mt-4 p-5">
+          <Card className="mt-4 p-5" accent>
             <p className="mb-2 text-xs font-medium text-ink/50">Evolução diária de conversas</p>
             {loadingEvolucao ? (
               <p className="text-sm text-ink/50">Carregando...</p>
@@ -217,7 +222,7 @@ export default function Home() {
               </div>
               <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-sand-bg">
                 <div
-                  className="h-full rounded-full bg-forest-500"
+                  className="h-full rounded-full bg-gradient-to-r from-teal-500 to-forest-500 transition-[width] duration-500 ease-out"
                   style={{ width: `${progresso}%` }}
                 />
               </div>
@@ -268,7 +273,7 @@ export default function Home() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {quickAccess.map(({ to, label, desc, icon: Icon }) => (
             <NavLink key={label} to={to}>
-              <Card className="group h-full p-5 transition-all hover:border-forest-300">
+              <Card className="group h-full p-5 transition-all hover:-translate-y-0.5 hover:border-forest-300 hover:shadow-card-hover">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-forest-50 text-forest-600 dark:bg-forest-500/15 dark:text-forest-300 transition-colors group-hover:bg-forest-500 group-hover:text-white">
                   <Icon size={18} />
                 </div>

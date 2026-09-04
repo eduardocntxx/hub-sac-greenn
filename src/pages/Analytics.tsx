@@ -65,7 +65,13 @@ export default function Analytics() {
 
   const [preset, setPreset] = usePersistedState<PeriodoPreset>("analytics:preset", "30dias");
   const [personalizado, setPersonalizado] = usePersistedState("analytics:personalizado", { inicio: "", fim: "" });
-  const [operadorEmail, setOperadorEmail] = usePersistedState("analytics:operadorEmail", "");
+  // Filtro por nome, não e-mail — desde que o Ranking passou a ter
+  // crisp_conversations como base (2026-09-02), email_atendente fica null
+  // pra atendente sem nenhuma avaliação CSAT no período, e nome (vindo de
+  // nome_canonico_por_operator_id) é sempre garantido. Chave nova de
+  // propósito (não reaproveita "analytics:operadorEmail") pra não
+  // reidratar um e-mail salvo que nunca mais bate com nada.
+  const [operadorNome, setOperadorNome] = usePersistedState("analytics:operadorNome", "");
   const [canal, setCanal] = usePersistedState("analytics:canal", "");
   const [estado, setEstado] = usePersistedState("analytics:estado", "");
   const [granularidade, setGranularidade] = usePersistedState<"day" | "week" | "month">("analytics:granularidade", "day");
@@ -133,10 +139,10 @@ export default function Analytics() {
   });
 
   const operadoresDisponiveis = useMemo(
-    () => (ranking ?? []).map((r) => ({ nome: r.atendente, email: r.email_atendente })),
+    () => (ranking ?? []).map((r) => r.atendente),
     [ranking]
   );
-  const rankingFiltrado = operadorEmail ? (ranking ?? []).filter((r) => r.email_atendente === operadorEmail) : ranking ?? [];
+  const rankingFiltrado = operadorNome ? (ranking ?? []).filter((r) => r.atendente === operadorNome) : ranking ?? [];
 
   const rankingOrdenado = useMemo(() => {
     if (!rankingOrdenarPor) return rankingFiltrado;
@@ -180,10 +186,10 @@ export default function Analytics() {
       </div>
 
       <Card className="flex flex-wrap items-center gap-2 p-3">
-        <select value={operadorEmail} onChange={(e) => setOperadorEmail(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
+        <select value={operadorNome} onChange={(e) => setOperadorNome(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
           <option value="">Todos os operadores</option>
-          {operadoresDisponiveis.map((o) => (
-            <option key={o.email ?? o.nome} value={o.email ?? ""}>{o.nome}</option>
+          {operadoresDisponiveis.map((nome) => (
+            <option key={nome} value={nome}>{nome}</option>
           ))}
         </select>
         <select value={canal} onChange={(e) => setCanal(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">

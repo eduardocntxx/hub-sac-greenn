@@ -513,6 +513,28 @@ export async function fetchCsatTempoReal(crispId: string): Promise<CsatTempoReal
   return data && data.length > 0 ? data[0] : null;
 }
 
+// Correção manual de metadado (RLS já libera admin/permissão "csat" via
+// csat_write_admin_or_perm) — nunca inclui "nota", que é o dado real que o
+// cliente deu na pesquisa, não um metadado de atribuição/classificação.
+export async function updateCsatResult(
+  id: string,
+  payload: Partial<
+    Pick<
+      DbCsatResult,
+      "atendente" | "email_atendente" | "cliente" | "telefone" | "email" | "numero_whatsapp" | "canal" | "topico" | "categoria_cliente" | "tags_cliente" | "comentario" | "link_chamado"
+    >
+  >
+): Promise<DbCsatResult> {
+  const { data, error } = await client()
+    .from("csat_results")
+    .update(payload)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as DbCsatResult;
+}
+
 export async function fetchCsatFiltered(
   filters: CsatFilters
 ): Promise<{ rows: DbCsatResult[]; count: number }> {
@@ -754,17 +776,36 @@ export interface TransferenciaCaso {
   link_chamado: string | null;
 }
 
+// A função SQL pagina de verdade (p_limit/p_offset + total_count) porque o
+// PostgREST corta silenciosamente qualquer resposta de RPC em 1000 linhas —
+// sem isso, um período com mais de 1000 eventos de transferência perdia o
+// restante sem erro nenhum (bug real encontrado em 2026-09-02). Aqui
+// buscamos todas as páginas de uma vez porque essa lista é sempre consumida
+// inteira no cliente (mapas de Origem/Destino, tabela "Ver mais"), sem
+// paginação própria de UI.
 export async function fetchTransferenciasCasos(inicio: Date, fim: Date, canal?: string, modoTempo: ModoTempo = "uteis", atendenteNomes?: string[], tipoCliente?: string): Promise<TransferenciaCaso[]> {
-  const { data, error } = await client().rpc("transferencias_casos", {
-    data_inicio: inicio.toISOString(),
-    data_fim: fim.toISOString(),
-    p_canal: canal ?? null,
-    p_modo_tempo: modoTempo,
-    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
-    p_tipo_cliente: tipoCliente ?? null,
-  });
-  if (error) throw error;
-  return (data ?? []) as TransferenciaCaso[];
+  const BLOCO = 500;
+  const todos: TransferenciaCaso[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await client().rpc("transferencias_casos", {
+      data_inicio: inicio.toISOString(),
+      data_fim: fim.toISOString(),
+      p_canal: canal ?? null,
+      p_modo_tempo: modoTempo,
+      p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+      p_tipo_cliente: tipoCliente ?? null,
+      p_limit: BLOCO,
+      p_offset: offset,
+    });
+    if (error) throw error;
+    const rows = (data ?? []) as (TransferenciaCaso & { total_count: number })[];
+    todos.push(...rows);
+    const total = rows[0]?.total_count ?? 0;
+    if (rows.length < BLOCO || todos.length >= total) break;
+    offset += BLOCO;
+  }
+  return todos;
 }
 
 export interface FcrRecontatoResumo {
@@ -820,17 +861,33 @@ export interface MotivoContatoResumo {
   ttr_media_seg: number | null;
 }
 
+// Mesmo motivo do fix em fetchTransferenciasCasos acima: tópico é texto
+// livre de alta cardinalidade (3500+ valores distintos hoje) — sem paginar
+// de verdade, o PostgREST cortava a resposta em 1000 tópicos, silenciosamente
+// descartando ~70% da lista (bug real encontrado em 2026-09-02).
 export async function fetchMotivoContatoResumo(inicio: Date, fim: Date, canal?: string, modoTempo: ModoTempo = "uteis", atendenteNomes?: string[], tipoCliente?: string): Promise<MotivoContatoResumo[]> {
-  const { data, error } = await client().rpc("motivo_contato_resumo", {
-    data_inicio: inicio.toISOString(),
-    data_fim: fim.toISOString(),
-    p_canal: canal ?? null,
-    p_modo_tempo: modoTempo,
-    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
-    p_tipo_cliente: tipoCliente ?? null,
-  });
-  if (error) throw error;
-  return (data ?? []) as MotivoContatoResumo[];
+  const BLOCO = 500;
+  const todos: MotivoContatoResumo[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await client().rpc("motivo_contato_resumo", {
+      data_inicio: inicio.toISOString(),
+      data_fim: fim.toISOString(),
+      p_canal: canal ?? null,
+      p_modo_tempo: modoTempo,
+      p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+      p_tipo_cliente: tipoCliente ?? null,
+      p_limit: BLOCO,
+      p_offset: offset,
+    });
+    if (error) throw error;
+    const rows = (data ?? []) as (MotivoContatoResumo & { total_count: number })[];
+    todos.push(...rows);
+    const total = rows[0]?.total_count ?? 0;
+    if (rows.length < BLOCO || todos.length >= total) break;
+    offset += BLOCO;
+  }
+  return todos;
 }
 
 export interface MetricaTipoCliente {
@@ -1001,6 +1058,73 @@ export async function fetchBacklogCasos(
   return { rows, count: rows[0]?.total_count ?? 0 };
 }
 
+// "Resposta genérica da IA" — achado #1 de uma auditoria externa qualitativa
+// do SAC (leitura de conversa por conversa): o bot responde "Pode me dar
+// mais detalhes da sua solicitação" mesmo quando o cliente já mandou todo o
+// contexto (ex: e-mail com fatura). Validado contra nosso próprio banco
+// (33,1% das conversas, 2026-09-03) — bate perto do achado externo (35%).
+export interface RespostaGenericaResumo {
+  total_conversas: number;
+  total_com_generico: number;
+  taxa_pct: number | null;
+  generico_sem_resposta_depois: number;
+}
+
+export async function fetchRespostaGenericaResumo(
+  inicio: Date,
+  fim: Date,
+  canal?: string,
+  atendenteNomes?: string[],
+  tipoCliente?: string
+): Promise<RespostaGenericaResumo | null> {
+  const { data, error } = await client().rpc("resposta_generica_resumo", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_canal: canal ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+    p_tipo_cliente: tipoCliente ?? null,
+  });
+  if (error) throw error;
+  return (data?.[0] ?? null) as RespostaGenericaResumo | null;
+}
+
+export interface RespostaGenericaCaso {
+  crisp_id: string;
+  cliente_nome: string | null;
+  canal: string | null;
+  atendente: string | null;
+  topico: string | null;
+  primeira_generica_at: string;
+  sem_resposta_depois: boolean;
+  link_chamado: string | null;
+  total_count: number;
+}
+
+export async function fetchRespostaGenericaCasos(
+  inicio: Date,
+  fim: Date,
+  canal?: string,
+  atendenteNomes?: string[],
+  tipoCliente?: string,
+  soSemResposta = false,
+  page = 0,
+  pageSize = 15
+): Promise<{ rows: RespostaGenericaCaso[]; count: number }> {
+  const { data, error } = await client().rpc("resposta_generica_casos", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_canal: canal ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+    p_tipo_cliente: tipoCliente ?? null,
+    p_so_sem_resposta: soSemResposta,
+    p_limit: pageSize,
+    p_offset: page * pageSize,
+  });
+  if (error) throw error;
+  const rows = (data ?? []) as RespostaGenericaCaso[];
+  return { rows, count: rows[0]?.total_count ?? 0 };
+}
+
 export interface SlaConfig {
   id: string;
   meta_primeira_resposta_min: number;
@@ -1145,16 +1269,22 @@ export async function fetchDistinctOperadores(): Promise<{ atendente: string; em
     .select("atendente, email_atendente")
     .not("atendente", "is", null);
   if (error) throw error;
-  const vistos = new Set<string>();
-  const unicos: { atendente: string; email_atendente: string }[] = [];
+  // Agrupar por NOME, não por e-mail — dedupar pela chave (email ?? nome)
+  // fazia um mesmo atendente com uma linha antiga sem email_atendente
+  // preenchido cair numa chave diferente das linhas com email, duplicando
+  // a entrada na lista (ex: "Ana Franca" aparecendo 2x). Sempre 1 linha
+  // por nome; o e-mail escolhido é o primeiro não-nulo encontrado.
+  const porNome = new Map<string, string | null>();
   (data ?? []).forEach((r) => {
-    const chave = r.email_atendente ?? r.atendente;
-    if (chave && !vistos.has(chave)) {
-      vistos.add(chave);
-      unicos.push({ atendente: r.atendente, email_atendente: r.email_atendente });
+    if (!r.atendente) return;
+    const atual = porNome.get(r.atendente);
+    if (!porNome.has(r.atendente) || (!atual && r.email_atendente)) {
+      porNome.set(r.atendente, r.email_atendente);
     }
   });
-  return unicos.sort((a, b) => a.atendente.localeCompare(b.atendente));
+  return Array.from(porNome.entries())
+    .map(([atendente, email_atendente]) => ({ atendente, email_atendente: email_atendente ?? "" }))
+    .sort((a, b) => a.atendente.localeCompare(b.atendente));
 }
 
 // ---------- Reclame Aqui ----------
@@ -1290,6 +1420,8 @@ export interface AtendentePerformanceRow {
   tempo_resolucao_medio: number | null;
   csat_medio: number | null;
   total_avaliacoes: number;
+  total_interacoes: number;
+  total_mensagens: number;
   posicao: number;
 }
 
@@ -1574,29 +1706,6 @@ export async function fetchNextHoliday(fromDate: string): Promise<DbHoliday | nu
   return data;
 }
 
-export interface DbWeekResponsible {
-  id: string;
-  semana_inicio: string;
-  user_id: string | null;
-  usuario?: { nome: string } | null;
-}
-
-export async function fetchWeekResponsibles(inicio: string, fim: string): Promise<DbWeekResponsible[]> {
-  const { data, error } = await client()
-    .from("calendar_week_responsibles")
-    .select("*, usuario:users!calendar_week_responsibles_user_id_fkey(nome)")
-    .gte("semana_inicio", inicio)
-    .lte("semana_inicio", fim);
-  if (error) throw error;
-  return (data ?? []) as DbWeekResponsible[];
-}
-
-export async function upsertWeekResponsible(semanaInicio: string, userId: string, criadoPor: string) {
-  const { error } = await client()
-    .from("calendar_week_responsibles")
-    .upsert({ semana_inicio: semanaInicio, user_id: userId, created_by: criadoPor }, { onConflict: "semana_inicio" });
-  if (error) throw error;
-}
 
 export interface DbSaturdayOncall {
   id: string;
@@ -1627,6 +1736,11 @@ export async function upsertSaturdayOncall(payload: {
   const { error } = await client()
     .from("calendar_saturday_oncall")
     .upsert(payload, { onConflict: "data" });
+  if (error) throw error;
+}
+
+export async function deleteSaturdayOncall(id: string) {
+  const { error } = await client().from("calendar_saturday_oncall").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -1684,6 +1798,16 @@ export async function decideLeaveRequest(id: string, status: "aprovada" | "repro
   if (error) throw error;
 }
 
+export async function updateLeaveRequest(id: string, payload: Partial<Pick<DbLeaveRequest, "tipo" | "motivo" | "observacao">>) {
+  const { error } = await client().from("calendar_leave_requests").update(payload).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteLeaveRequest(id: string) {
+  const { error } = await client().from("calendar_leave_requests").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export interface DbOncall {
   id: string;
   data: string;
@@ -1713,6 +1837,16 @@ export async function createOncall(payload: {
   created_by: string;
 }) {
   const { error } = await client().from("calendar_oncall").insert(payload);
+  if (error) throw error;
+}
+
+export async function updateOncall(id: string, payload: Partial<Pick<DbOncall, "user_id" | "horario_inicio" | "horario_fim" | "observacao">>) {
+  const { error } = await client().from("calendar_oncall").update(payload).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteOncall(id: string) {
+  const { error } = await client().from("calendar_oncall").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -1746,6 +1880,16 @@ export async function createVacation(payload: {
   if (error) throw error;
 }
 
+export async function updateVacation(id: string, payload: Partial<Pick<DbVacation, "user_id" | "data_inicio" | "data_fim" | "observacao">>) {
+  const { error } = await client().from("calendar_vacations").update(payload).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteVacation(id: string) {
+  const { error } = await client().from("calendar_vacations").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export interface DbDayEntry {
   id: string;
   data: string;
@@ -1775,9 +1919,18 @@ export async function createDayEntry(payload: {
   if (error) throw error;
 }
 
+export async function updateDayEntry(id: string, payload: Partial<Pick<DbDayEntry, "titulo" | "horas" | "observacao">>) {
+  const { error } = await client().from("calendar_day_entries").update(payload).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteDayEntry(id: string) {
+  const { error } = await client().from("calendar_day_entries").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export async function limparDia(data: string) {
   await Promise.all([
-    client().from("calendar_week_responsibles").delete().eq("semana_inicio", data),
     client().from("calendar_saturday_oncall").delete().eq("data", data),
     client().from("calendar_oncall").delete().eq("data", data),
     client().from("calendar_day_entries").delete().eq("data", data),

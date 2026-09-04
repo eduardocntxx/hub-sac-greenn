@@ -1,4 +1,5 @@
 import { NavLink, useNavigate } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import { Bell, Moon, Sun } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/Badge";
@@ -31,18 +32,32 @@ export function Header() {
         >
           <Bell size={18} />
           {unreadCount > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rust-500 px-1 text-[10px] font-medium text-white">
-              {unreadCount > 9 ? "9+" : unreadCount}
+            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px]">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rust-400 opacity-75" />
+              <span className="relative inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rust-500 px-1 text-[10px] font-medium text-white">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
             </span>
           )}
         </button>
         <button
           onClick={alternar}
-          className="flex h-9 w-9 items-center justify-center rounded-xl text-ink/60 hover:bg-sand-bg"
+          className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl text-ink/60 hover:bg-sand-bg"
           aria-label={tema === "dark" ? "Mudar para modo claro" : "Mudar para modo escuro"}
           title={tema === "dark" ? "Modo claro" : "Modo escuro"}
         >
-          {tema === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={tema}
+              initial={{ rotate: -90, opacity: 0 }}
+              animate={{ rotate: 0, opacity: 1 }}
+              exit={{ rotate: 90, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="flex items-center justify-center"
+            >
+              {tema === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </motion.span>
+          </AnimatePresence>
         </button>
         <NavLink
           to="/perfil"

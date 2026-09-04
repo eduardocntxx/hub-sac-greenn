@@ -15,7 +15,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HT
           ref={ref}
           type={visivel ? "text" : "password"}
           className={cn(
-            "w-full rounded-lg border border-sand-line bg-sand-surface px-3 py-2 pr-10 text-sm outline-none focus:border-forest-500",
+            "w-full rounded-lg border border-sand-line bg-sand-surface px-3 py-2 pr-10 text-sm outline-none transition-shadow focus:border-forest-500 focus:ring-2 focus:ring-forest-500/20",
             className
           )}
           {...props}

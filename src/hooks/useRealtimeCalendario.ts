@@ -4,7 +4,6 @@ import { supabase } from "@/integrations/supabase/client";
 
 const TABELAS = [
   "calendar_leave_requests",
-  "calendar_week_responsibles",
   "calendar_saturday_oncall",
   "calendar_oncall",
   "calendar_vacations",

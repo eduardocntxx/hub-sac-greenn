@@ -353,6 +353,33 @@ export default function Csat() {
     return { total, csatPercent, promotores, neutros, detratores };
   }, [dashboardAnterior]);
 
+  // Distribuição por nível de avaliação (1 a 5), não só os 3 buckets de
+  // classificacaoPorNota — nota é sempre confiável (inteiro 1-5), então dá
+  // pra mostrar cada nível separado sem precisar de RPC nova, já que
+  // dashboardRows já traz o período inteiro carregado.
+  const NIVEL_POR_NOTA: Record<number, { label: string; cor: string }> = {
+    5: { label: "Muito satisfeito", cor: "bg-forest-600" },
+    4: { label: "Satisfeito", cor: "bg-forest-300" },
+    3: { label: "Neutro", cor: "bg-amber-500" },
+    2: { label: "Insatisfeito", cor: "bg-rust-400" },
+    1: { label: "Muito insatisfeito", cor: "bg-rust-600" },
+  };
+  const distribuicaoPorNota = useMemo(() => {
+    const rows = dashboardRows ?? [];
+    const contagem = new Map<number, number>([[5, 0], [4, 0], [3, 0], [2, 0], [1, 0]]);
+    for (const r of rows) {
+      if (r.nota !== null && contagem.has(r.nota)) {
+        contagem.set(r.nota, (contagem.get(r.nota) ?? 0) + 1);
+      }
+    }
+    return [5, 4, 3, 2, 1].map((nota) => ({
+      nota,
+      label: NIVEL_POR_NOTA[nota].label,
+      cor: NIVEL_POR_NOTA[nota].cor,
+      total: contagem.get(nota) ?? 0,
+    }));
+  }, [dashboardRows]);
+
   const totalPages = planilha ? Math.ceil(planilha.count / PAGE_SIZE) : 0;
 
   return (
@@ -426,6 +453,22 @@ export default function Csat() {
             valueClassName="text-rust-600"
           />
         </div>
+      )}
+
+      {aba === "dashboard" && !loadingDashboard && resumoAtual.total > 0 && (
+        <Card className="p-5">
+          <h2 className="font-display text-sm font-semibold text-ink">Distribuição por avaliação</h2>
+          <p className="mt-1 text-xs text-ink/40">
+            Cada um dos 5 níveis da pesquisa (nota 1 a 5) — mais granular que Promotores/Neutros/Detratores acima.
+          </p>
+          <div className="mt-4">
+            <HorizontalBarChart
+              data={distribuicaoPorNota.map((d) => ({ label: `${d.label} (${d.nota})`, value: d.total }))}
+              getColorClass={(_, i) => distribuicaoPorNota[i ?? 0].cor}
+              labelWidth={160}
+            />
+          </div>
+        </Card>
       )}
 
       <Card className="flex flex-wrap items-center gap-2 p-3">

@@ -73,9 +73,14 @@ export function resolvePeriodo(
       if (!personalizado?.inicio || !personalizado?.fim) {
         return { inicio: startOfDay(hoje), fim: endOfDay(hoje) };
       }
+      // "+T00:00:00" força o parse em horário LOCAL — sem isso,
+      // new Date("2026-08-31") é interpretado como UTC (spec ECMA-262 pra
+      // string só-data), e em qualquer fuso atrás de UTC (Brasil, UTC-3)
+      // isso vira 30/08 21h local: startOfDay/endOfDay operam no dia local
+      // errado, um dia pra trás do que o usuário selecionou no input.
       return {
-        inicio: startOfDay(new Date(personalizado.inicio)),
-        fim: endOfDay(new Date(personalizado.fim)),
+        inicio: startOfDay(new Date(personalizado.inicio + "T00:00:00")),
+        fim: endOfDay(new Date(personalizado.fim + "T00:00:00")),
       };
     }
   }
