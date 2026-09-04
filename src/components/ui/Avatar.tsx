@@ -43,7 +43,7 @@ export function Avatar({ nome, size = "md", statusDot, className }: AvatarProps)
     <div className={cn("relative shrink-0", className)}>
       <div
         className={cn(
-          "flex items-center justify-center rounded-full font-display font-semibold",
+          "flex items-center justify-center rounded-full font-display font-semibold ring-2 ring-sand-surface",
           cor.bg,
           cor.text,
           sizes[size]

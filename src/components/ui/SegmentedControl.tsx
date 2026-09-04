@@ -1,3 +1,5 @@
+import { useId } from "react";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 interface SegmentedControlProps<T extends string> {
@@ -18,6 +20,7 @@ export function SegmentedControl<T extends string>({
   onChange,
   className,
 }: SegmentedControlProps<T>) {
+  const uid = useId();
   return (
     <div
       className={cn(
@@ -30,12 +33,17 @@ export function SegmentedControl<T extends string>({
           key={opt}
           onClick={() => onChange(opt)}
           className={cn(
-            "h-full whitespace-nowrap rounded-md px-3 text-[13px] font-medium transition-colors",
-            value === opt
-              ? "bg-forest-500 text-white"
-              : "text-ink/55 hover:bg-sand-surface/60 hover:text-ink/80"
+            "relative h-full whitespace-nowrap rounded-md px-3 text-[13px] font-medium transition-colors",
+            value === opt ? "text-white" : "text-ink/55 hover:bg-sand-surface/60 hover:text-ink/80"
           )}
         >
+          {value === opt && (
+            <motion.span
+              layoutId={`segmented-pill-${uid}`}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="absolute inset-0 -z-10 rounded-md bg-forest-500"
+            />
+          )}
           {label}
         </button>
       ))}

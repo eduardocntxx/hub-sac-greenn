@@ -38,6 +38,8 @@ import {
   fetchTransferenciasCasos,
   fetchFcrRecontatoResumo,
   fetchRecontatoCasos,
+  fetchRespostaGenericaResumo,
+  fetchRespostaGenericaCasos,
   type ModoTempo,
   type AtendimentoComMetricas,
 } from "@/services/api";
@@ -106,7 +108,7 @@ const CORES_VIVAS = [
   "bg-forest-700",
 ];
 
-type RankingCampo = "total_atendimentos" | "tfr_medio" | "tempo_resolucao_medio" | "csat_medio" | "total_avaliacoes";
+type RankingCampo = "total_atendimentos" | "total_interacoes" | "total_mensagens" | "tfr_medio" | "tempo_resolucao_medio" | "csat_medio" | "total_avaliacoes";
 type MotivoCampo = "chamados" | "tfr_media_seg" | "ttr_media_seg";
 
 export default function Performance() {
@@ -114,7 +116,7 @@ export default function Performance() {
   const { isAdmin } = useAuth();
   const podeVer = isAdmin;
 
-  const [aba, setAba] = usePersistedState<"ranking" | "atendimentos">("overview:aba", "ranking");
+  const [aba, setAba] = usePersistedState<"ranking" | "atendimentos" | "generico">("overview:aba", "ranking");
   const [modoTempo, setModoTempo] = usePersistedState<ModoTempo>("overview:modoTempo", "uteis");
   const [preset, setPreset] = usePersistedState<PeriodoPreset>("overview:preset", "30dias");
   const [personalizado, setPersonalizado] = usePersistedState("overview:personalizado", { inicio: "", fim: "" });
@@ -145,6 +147,7 @@ export default function Performance() {
   const [tipoClienteFiltro, setTipoClienteFiltro] = usePersistedState("overview:tipoClienteFiltro", "");
   const [detalhe, setDetalhe] = useState<AtendimentoComMetricas | null>(null);
   const [explicacaoVelocidadeAberta, setExplicacaoVelocidadeAberta] = useState(false);
+  const [explicacaoRelogiosAberta, setExplicacaoRelogiosAberta] = useState(false);
   const [mostrarTodosMotivos, setMostrarTodosMotivos] = useState(false);
   const [motivoDestaque, setMotivoDestaque] = useState("");
   const [motivoOrdenarPor, setMotivoOrdenarPor] = useState<MotivoCampo | undefined>(undefined);
@@ -154,6 +157,8 @@ export default function Performance() {
   const [reaberturaFiltroReaberto, setReaberturaFiltroReaberto] = useState("");
   const [mostrarTodasTransferencias, setMostrarTodasTransferencias] = useState(false);
   const [mostrarTodosRecontatos, setMostrarTodosRecontatos] = useState(false);
+  const [genericoPage, setGenericoPage] = useState(0);
+  const [genericoSoSemResposta, setGenericoSoSemResposta] = useState(false);
 
   function ordenarPorColuna(campo: OrdenarCampo) {
     if (ordenarPor === campo) {
@@ -267,6 +272,22 @@ export default function Performance() {
     queryKey: ["recontato-casos", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchRecontatoCasos(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
     enabled: !!fcrRecontato && fcrRecontato.total_recontato > 0,
+  });
+
+  // "IA genérica" — achado de uma auditoria qualitativa externa do SAC
+  // (leitura conversa por conversa): o bot responde com um pedido de mais
+  // detalhes mesmo quando o cliente já mandou o contexto todo. Validado
+  // contra este mesmo banco antes de virar aba (33,1% das conversas no
+  // período testado — perto do achado externo de 35%).
+  const { data: genericoResumo, isLoading: loadingGenerico } = useQuery({
+    queryKey: ["resposta-generica-resumo", inicio, fim, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchRespostaGenericaResumo(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
+    enabled: aba === "generico",
+  });
+  const { data: genericoCasos } = useQuery({
+    queryKey: ["resposta-generica-casos", inicio, fim, atendenteNomes, tipoClienteFiltro, genericoSoSemResposta, genericoPage],
+    queryFn: () => fetchRespostaGenericaCasos(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc, genericoSoSemResposta, genericoPage, PAGE_SIZE),
+    enabled: aba === "generico",
   });
 
   const { data: posseDetalheAtendimentos, isLoading: loadingPosseDetalhe } = useQuery({
@@ -641,7 +662,7 @@ export default function Performance() {
             )}
           </div>
           <SegmentedControl
-            options={[["ranking", "Dashboard"], ["atendimentos", "Atendimentos"]] as const}
+            options={[["ranking", "Dashboard"], ["atendimentos", "Atendimentos"], ["generico", "IA genérica"]] as const}
             value={aba}
             onChange={setAba}
           />
@@ -779,7 +800,25 @@ export default function Performance() {
                 <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
                   <tr>
                     <th className="px-4 py-3 text-left font-medium">Atendente</th>
-                    <SortableHeader align="center" field="total_atendimentos" label="Total de atendimentos" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
+                    <SortableHeader align="center" field="total_atendimentos" label="Chamados" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
+                    <SortableHeader
+                      align="center"
+                      field="total_interacoes"
+                      label="Interações"
+                      ordenarPor={rankingOrdenarPor}
+                      direcao={rankingDirecao}
+                      onSort={ordenarRankingPorColuna}
+                      title="Quantos chamados o atendente mandou mensagem no período — inclui chamados que começaram antes do período mas em que ele trabalhou dentro dele. Diferente de 'Chamados', que só conta ciclo novo iniciado no período."
+                    />
+                    <SortableHeader
+                      align="center"
+                      field="total_mensagens"
+                      label="Mensagens"
+                      ordenarPor={rankingOrdenarPor}
+                      direcao={rankingDirecao}
+                      onSort={ordenarRankingPorColuna}
+                      title="Total de mensagens enviadas pelo atendente no período (soma de todas as conversas, não só 1 por chamado)."
+                    />
                     <SortableHeader align="center" field="tfr_medio" label="TFR médio" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
                     <SortableHeader align="center" field="tempo_resolucao_medio" label="Tempo médio de resolução" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
                     <SortableHeader align="center" field="csat_medio" label="CSAT médio" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
@@ -808,6 +847,8 @@ export default function Performance() {
                       >
                         <td className="px-4 py-3 text-left font-medium text-ink">{r.operator_nome}</td>
                         <td className="px-4 py-3 text-ink/70">{r.total_atendimentos}</td>
+                        <td className="px-4 py-3 text-ink/70">{r.total_interacoes}</td>
+                        <td className="px-4 py-3 text-ink/70">{r.total_mensagens}</td>
                         <td className="px-4 py-3 text-ink/70">{formatMin(r.tfr_medio)}</td>
                         <td className="px-4 py-3 text-ink/70">{formatMin(r.tempo_resolucao_medio)}</td>
                         <td className={cn("px-4 py-3 font-semibold", corTextoCsat(r.csat_medio))}>{r.csat_medio?.toFixed(1) ?? "—"}</td>
@@ -846,7 +887,7 @@ export default function Performance() {
             </Card>
           )}
           <p className="text-xs text-ink/40">
-            "Total de atendimentos" conta chamados onde a pessoa é a atendente registrada agora. "Chamados c/ posse"
+            "Chamados" conta onde a pessoa é a atendente registrada agora. "Chamados c/ posse"
             conta de forma diferente — inclui trechos em que a pessoa segurou o chamado mesmo que outra tenha assumido
             depois (handoff), por isso os dois números não precisam bater. Clique numa linha com posse pra ver os
             chamados específicos.
@@ -1348,7 +1389,16 @@ export default function Performance() {
           </div>
 
           <div>
-            <h2 className="mb-3 font-display text-sm font-semibold text-ink">Relógios do atendimento</h2>
+            <div className="mb-3 flex items-center gap-2">
+              <h2 className="font-display text-sm font-semibold text-ink">Relógios do atendimento</h2>
+              <button
+                type="button"
+                onClick={() => setExplicacaoRelogiosAberta(true)}
+                className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-ink/50 hover:bg-sand-bg hover:text-ink"
+              >
+                <Info size={13} /> ver mais
+              </button>
+            </div>
             <Card className="p-4">
               <div className="grid gap-4 border-b border-sand-line pb-4 sm:grid-cols-3">
                 <div>
@@ -1432,10 +1482,54 @@ export default function Performance() {
             </Card>
           </div>
 
+          {explicacaoRelogiosAberta && (
+            <Dialog onClose={() => setExplicacaoRelogiosAberta(false)} className="max-w-lg">
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="font-display text-sm font-semibold text-ink">O que significam esses relógios?</h3>
+                <button type="button" onClick={() => setExplicacaoRelogiosAberta(false)} className="text-ink/40 hover:text-ink">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="mt-3 space-y-3 text-sm text-ink/70">
+                <p>
+                  <span className="font-semibold text-ink">Relógio do cliente</span> — é o mesmo TTR médio do card
+                  "Velocidade" acima (tempo do início do chamado até a resolução), só que apresentado do ponto de vista
+                  de quem esperou: em vez de "quanto tempo o time levou pra resolver", é "quanto tempo o cliente ficou
+                  esperando até o problema dele acabar".
+                </p>
+                <p>
+                  <span className="font-semibold text-ink">Relógio de espera do cliente</span> — tempo médio entre o
+                  cliente mandar uma mensagem e um atendente <em>humano</em> responder (o bot não conta como resposta
+                  aqui). Mede só as janelas de silêncio depois de o cliente falar, não o chamado inteiro. Costuma ter
+                  poucas amostras porque a maioria das mensagens é respondida primeiro pelo bot (triagem automática) —
+                  só entra na conta quando a próxima resposta é mesmo de um humano. Com poucas amostras no período
+                  (ex: conversas de teste, onde quem "espera" já está com a tela aberta), o valor pode ficar bem mais
+                  baixo do que o normal — não é erro, é reflexo direto de quem gerou aquela amostra.
+                </p>
+                <p>
+                  <span className="font-semibold text-ink">Relógio de trabalho ativo</span> — não é sobre chamados, é
+                  sobre agenda: soma quantas horas do período tiveram pelo menos 1 atendente com horário cadastrado
+                  (união, não soma individual — 2 pessoas na mesma hora contam 1h, não 2h). Por isso não respeita o
+                  filtro de tipo de cliente (não existe "expediente do tipo Produtor") nem tem um modo "horas
+                  corridas" (é sempre sobre o calendário cadastrado). É capacidade nominal, não presença real — o Crisp
+                  não expõe se o atendente estava mesmo ativo na tela.
+                </p>
+              </div>
+            </Dialog>
+          )}
+
           {posseDetalhe && (
             <Dialog onClose={() => setPosseDetalhe(null)} className="max-w-6xl">
               <div className="flex items-start justify-between gap-3">
-                <h3 className="font-display text-sm font-semibold text-ink">Chamados de {posseDetalhe}</h3>
+                <div>
+                  <h3 className="font-display text-sm font-semibold text-ink">Conversas de {posseDetalhe}</h3>
+                  <p
+                    className="text-xs text-ink/40"
+                    title="'Chamados' no Ranking soma 1 + reaberturas de cada conversa; aqui é 1 linha por conversa (independente de quantas vezes reabriu) — por isso os dois números podem divergir."
+                  >
+                    1 linha por conversa — pode divergir do total de "chamados" do Ranking se houver reabertura
+                  </p>
+                </div>
                 <button type="button" onClick={() => setPosseDetalhe(null)} className="text-ink/40 hover:text-ink">
                   <X size={16} />
                 </button>
@@ -1444,7 +1538,7 @@ export default function Performance() {
                 {loadingPosseDetalhe ? (
                   <p className="text-sm text-ink/50">Carregando...</p>
                 ) : !posseDetalheAtendimentos || posseDetalheAtendimentos.rows.length === 0 ? (
-                  <p className="text-sm text-ink/50">Nenhum chamado encontrado no período.</p>
+                  <p className="text-sm text-ink/50">Nenhuma conversa encontrada no período.</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -1538,7 +1632,7 @@ export default function Performance() {
               </div>
               {posseDetalheAtendimentos && posseDetalheAtendimentos.count > 0 && (
                 <div className="mt-3 flex items-center justify-between text-sm text-ink/60">
-                  <span>{posseDetalheAtendimentos.count} chamados</span>
+                  <span>{posseDetalheAtendimentos.count} conversas</span>
                   <div className="flex gap-2">
                     <Button variant="secondary" size="sm" disabled={posseDetalhePage === 0} onClick={() => setPosseDetalhePage((p) => p - 1)}>Anterior</Button>
                     <span className="flex items-center px-2 text-xs">
@@ -1690,7 +1784,7 @@ export default function Performance() {
             </p>
           </div>
         </>
-      ) : (
+      ) : aba === "atendimentos" ? (
         <>
           <Card className="flex items-center gap-2 p-3">
             <div className="relative min-w-[220px] flex-1">
@@ -1828,6 +1922,115 @@ export default function Performance() {
                   <Button variant="secondary" size="sm" disabled={page + 1 >= totalPages} onClick={() => setPage((p) => p + 1)}>Próxima</Button>
                 </div>
               </div>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="text-xs text-ink/40">
+            Achado de uma auditoria qualitativa externa do SAC (leitura de conversa por conversa): o bot às vezes responde
+            com um pedido genérico de mais detalhes mesmo quando o cliente já mandou todo o contexto (ex: e-mail com
+            fatura). Aqui embaixo é a mesma medição, ao vivo, sobre o nosso banco.
+          </p>
+          {loadingGenerico ? (
+            <CardSkeleton />
+          ) : !genericoResumo || genericoResumo.total_conversas === 0 ? (
+            <Card className="p-4"><p className="text-sm text-ink/50">Nenhuma conversa no período.</p></Card>
+          ) : (
+            <>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
+                  <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Resposta genérica da IA</p>
+                  <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(100 - (genericoResumo.taxa_pct ?? 0)))}>
+                    {genericoResumo.taxa_pct?.toFixed(1) ?? "0.0"}%
+                  </p>
+                  <p className="mt-1 text-[11px] text-ink/40">{genericoResumo.total_com_generico} de {genericoResumo.total_conversas} conversas</p>
+                </Card>
+                <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
+                  <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Sem resposta depois</p>
+                  <p className="mt-1 font-display text-kpi-lg font-bold text-rust-500">{genericoResumo.generico_sem_resposta_depois}</p>
+                  <p className="mt-1 text-[11px] text-ink/40">a conversa não recebeu mais nada de conteúdo depois do genérico</p>
+                </Card>
+                <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
+                  <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Conversas totais no período</p>
+                  <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{genericoResumo.total_conversas}</p>
+                </Card>
+              </div>
+
+              <label className="mt-4 flex w-fit items-center gap-2 text-sm text-ink/70">
+                <input
+                  type="checkbox"
+                  checked={genericoSoSemResposta}
+                  onChange={(e) => { setGenericoSoSemResposta(e.target.checked); setGenericoPage(0); }}
+                  className="h-3.5 w-3.5 rounded border-sand-line"
+                />
+                Mostrar só as que ficaram sem resposta depois
+              </label>
+
+              {!genericoCasos || genericoCasos.rows.length === 0 ? (
+                <Card className="mt-2 p-4"><p className="text-sm text-ink/50">Nenhum caso com esse filtro.</p></Card>
+              ) : (
+                <Card className="mt-2 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-medium">Cliente</th>
+                        <th className="px-4 py-3 font-medium">Atendente</th>
+                        <th className="px-4 py-3 font-medium">Canal</th>
+                        <th className="px-4 py-3 font-medium">Tópico</th>
+                        <th className="px-4 py-3 font-medium">Quando</th>
+                        <th className="px-4 py-3 font-medium">Sem resposta depois</th>
+                        <th className="px-4 py-3 font-medium">Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {genericoCasos.rows.map((c) => (
+                        <tr key={c.crisp_id} className="border-t border-sand-line text-center align-top">
+                          <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
+                          <td className="px-4 py-3 text-ink/70">{c.atendente ?? "—"}</td>
+                          <td className="px-4 py-3 text-ink/70">{c.canal ?? "—"}</td>
+                          <td className="px-4 py-3 text-ink/70">{c.topico ?? "—"}</td>
+                          <td className="px-4 py-3 text-xs text-ink/60">{new Date(c.primeira_generica_at).toLocaleString("pt-BR")}</td>
+                          <td className="px-4 py-3">
+                            {c.sem_resposta_depois
+                              ? <Badge tone="danger">Sim</Badge>
+                              : <Badge tone="neutral">Não</Badge>}
+                          </td>
+                          <td className="px-4 py-3">
+                            {c.link_chamado ? (
+                              <a href={c.link_chamado} target="_blank" rel="noreferrer">
+                                <Button variant="secondary" size="sm"><ExternalLink size={13} /> Ver</Button>
+                              </a>
+                            ) : (
+                              <span className="text-xs text-ink/30">sem link</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Card>
+              )}
+
+              {genericoCasos && genericoCasos.count > 0 && (
+                <div className="flex items-center justify-between text-sm text-ink/60">
+                  <span>{genericoCasos.count} conversas</span>
+                  <div className="flex gap-2">
+                    <Button variant="secondary" size="sm" disabled={genericoPage === 0} onClick={() => setGenericoPage((p) => p - 1)}>Anterior</Button>
+                    <span className="flex items-center px-2 text-xs">
+                      Página {genericoPage + 1} de {Math.max(Math.ceil(genericoCasos.count / PAGE_SIZE), 1)}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={(genericoPage + 1) * PAGE_SIZE >= genericoCasos.count}
+                      onClick={() => setGenericoPage((p) => p + 1)}
+                    >
+                      Próxima
+                    </Button>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </>

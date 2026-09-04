@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 export interface BarChartDatum {
@@ -8,10 +9,20 @@ export interface BarChartDatum {
 
 // Faixas padrão pra valores 0–100 (%): verde = bom, amber = médio, rust = baixo.
 // Gráficos com outra escala (nota 0–5, 0–10...) devem passar getColorClass próprio.
+// Gradiente em vez de cor sólida — mantém o mesmo semáforo (verde/amber/
+// rust), só com mais profundidade; nunca usar teal aqui, essa cor não
+// carrega o significado "bom/médio/ruim" que o resto da plataforma espera.
 export function corPorFaixa(value: number, alto = 80, medio = 50) {
-  if (value >= alto) return "bg-forest-500";
-  if (value >= medio) return "bg-amber-500";
-  return "bg-rust-500";
+  if (value >= alto) return "bg-gradient-to-r from-forest-600 to-forest-400";
+  if (value >= medio) return "bg-gradient-to-r from-amber-600 to-amber-400";
+  return "bg-gradient-to-r from-rust-600 to-rust-400";
+}
+
+// Delay escalonado por índice, com teto — sem o teto, a última barra de
+// uma série longa (ex: evolução de 30 dias) só começaria a animar depois
+// de mais de 1s.
+function delayEntrada(i: number) {
+  return Math.min(i * 0.03, 0.6);
 }
 
 interface BarChartProps {
@@ -32,9 +43,11 @@ export function BarChart({ data, getColorClass = corPorFaixa, height = 160, clas
             {d.displayValue ?? d.value}
           </span>
           <div className="flex w-full flex-1 flex-col justify-end">
-            <div
-              className={cn("w-full rounded-t-md transition-[height] duration-300", getColorClass(d.value, i))}
-              style={{ height: `${Math.max((Math.abs(d.value) / max) * 100, 4)}%` }}
+            <motion.div
+              initial={{ height: 0 }}
+              animate={{ height: `${Math.max((Math.abs(d.value) / max) * 100, 4)}%` }}
+              transition={{ duration: 0.5, delay: delayEntrada(i), ease: "easeOut" }}
+              className={cn("w-full rounded-t-md", getColorClass(d.value, i))}
             />
           </div>
           <span className="text-[10px] text-ink/40">{d.label}</span>
@@ -87,9 +100,11 @@ export function HorizontalBarChart({
               {d.label}
             </span>
             <div className="h-5 flex-1 overflow-hidden rounded-md bg-sand-bg">
-              <div
-                className={cn("h-full rounded-md transition-[width] duration-300", getColorClass(d.value, i))}
-                style={{ width: `${Math.max((Math.abs(d.value) / max) * 100, 4)}%` }}
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${Math.max((Math.abs(d.value) / max) * 100, 4)}%` }}
+                transition={{ duration: 0.5, delay: delayEntrada(i), ease: "easeOut" }}
+                className={cn("h-full rounded-md", getColorClass(d.value, i))}
               />
             </div>
             <span className="w-16 shrink-0 text-right text-[11px] font-semibold text-ink/70 tabular-nums">

@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft, ChevronRight, CalendarDays, Users, Clock, Palmtree,
-  X, Check, Trash2, Plus, AlertCircle,
+  X, Check, Trash2, Plus, AlertCircle, Pencil,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -15,12 +15,17 @@ import { CardSkeleton } from "@/components/ui/Skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRealtimeCalendario } from "@/hooks/useRealtimeCalendario";
 import {
-  fetchHolidays, fetchNextHoliday, fetchWeekResponsibles, upsertWeekResponsible,
-  fetchSaturdayOncall, upsertSaturdayOncall, fetchLeaveRequests, fetchPendingLeaveRequests,
-  requestLeave, decideLeaveRequest, fetchOncall, createOncall, fetchVacations, createVacation,
-  fetchDayEntries, createDayEntry, limparDia, fetchUsers,
+  fetchHolidays, fetchNextHoliday,
+  fetchSaturdayOncall, upsertSaturdayOncall, deleteSaturdayOncall, fetchAtendenteEscaladoSabado,
+  fetchLeaveRequests, fetchPendingLeaveRequests,
+  requestLeave, decideLeaveRequest, updateLeaveRequest, deleteLeaveRequest,
+  fetchOncall, createOncall, updateOncall, deleteOncall,
+  fetchVacations, createVacation, updateVacation, deleteVacation,
+  fetchDayEntries, createDayEntry, updateDayEntry, deleteDayEntry,
+  limparDia, fetchUsers,
 } from "@/services/api";
-import { buildMonthGrid, toISODate, mondayOf, MESES, DIAS_SEMANA_CURTO, formatDiaCompleto } from "@/lib/calendarUtils";
+import type { DbOncall, DbVacation, DbDayEntry, DbLeaveRequest } from "@/services/api";
+import { buildMonthGrid, toISODate, MESES, DIAS_SEMANA_CURTO, formatDiaCompleto } from "@/lib/calendarUtils";
 
 const leaveSchema = z.object({
   tipo: z.enum(["folga", "banco_horas", "compensacao", "outro"]),
@@ -67,7 +72,14 @@ export default function Calendario() {
   const [dialogSobreaviso, setDialogSobreaviso] = useState(false);
   const [dialogFerias, setDialogFerias] = useState(false);
   const [dialogLancamento, setDialogLancamento] = useState(false);
+  const [folgaEditando, setFolgaEditando] = useState<DbLeaveRequest | null>(null);
+  const [oncallEditando, setOncallEditando] = useState<DbOncall | null>(null);
+  const [feriasEditando, setFeriasEditando] = useState<DbVacation | null>(null);
+  const [lancamentoEditando, setLancamentoEditando] = useState<DbDayEntry | null>(null);
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => setSelecionados(new Set()), [diaSelecionado]);
 
   const grid = useMemo(() => buildMonthGrid(mesRef.getFullYear(), mesRef.getMonth()), [mesRef]);
   const inicioGrid = toISODate(grid[0][0]);
@@ -81,13 +93,28 @@ export default function Calendario() {
     queryKey: ["calendario", "proximo-feriado"],
     queryFn: () => fetchNextHoliday(toISODate(hoje)),
   });
-  const { data: weekResp } = useQuery({
-    queryKey: ["calendario", "week-resp", inicioGrid, fimGrid],
-    queryFn: () => fetchWeekResponsibles(inicioGrid, fimGrid),
-  });
   const { data: satOncall } = useQuery({
     queryKey: ["calendario", "sat-oncall", inicioGrid, fimGrid],
     queryFn: () => fetchSaturdayOncall(inicioGrid, fimGrid),
+  });
+  // Sábado não é mais atribuído manualmente por padrão — usa o rodízio automático
+  // já configurado em Administração → Escalas (mesma fonte usada em outras telas).
+  // calendar_saturday_oncall vira só uma sobrescrita pontual quando o admin
+  // precisa fugir do rodízio pra uma data específica.
+  const sabadosDoGrid = useMemo(() => {
+    const set = new Set<string>();
+    grid.forEach((semana) => semana.forEach((dia) => { if (dia.getDay() === 6) set.add(toISODate(dia)); }));
+    return Array.from(set).sort();
+  }, [grid]);
+  const { data: escaladosAutomaticos } = useQuery({
+    queryKey: ["calendario", "escalados-sabados-auto", sabadosDoGrid],
+    queryFn: async () => {
+      const resultados = await Promise.all(sabadosDoGrid.map((iso) => fetchAtendenteEscaladoSabado(iso)));
+      const map: Record<string, { user_id: string; nome: string } | null> = {};
+      sabadosDoGrid.forEach((iso, i) => { map[iso] = resultados[i]; });
+      return map;
+    },
+    enabled: sabadosDoGrid.length > 0,
   });
   const { data: leaves } = useQuery({
     queryKey: ["calendario", "leaves", inicioGrid, fimGrid],
@@ -117,9 +144,6 @@ export default function Calendario() {
   // todos; aqui filtramos antes de oferecer nos seletores de escala.
   const usuariosAtivos = useMemo(() => (usuarios ?? []).filter((u) => u.ativo), [usuarios]);
 
-  const semanaAtualInicio = toISODate(mondayOf(hoje));
-  const responsavelSemanaAtual = weekResp?.find((w) => w.semana_inicio === semanaAtualInicio);
-
   const folgasNoMes = (leaves ?? []).filter((l) => l.data >= toISODate(new Date(mesRef.getFullYear(), mesRef.getMonth(), 1)));
   const pendentesCount = folgasNoMes.filter((l) => l.status === "pendente").length;
   const feriasNoMes = (ferias ?? []).length;
@@ -129,13 +153,18 @@ export default function Calendario() {
     const holiday = holidays?.find((h) => h.data === iso);
     const isSabado = data.getDay() === 6;
     const isDomingo = data.getDay() === 0;
-    const responsavelSemana = !isSabado && !isDomingo ? weekResp?.find((w) => w.semana_inicio === toISODate(mondayOf(data))) : undefined;
-    const oncallSabado = isSabado ? satOncall?.find((s) => s.data === iso) : undefined;
+    const manualSabado = isSabado ? satOncall?.find((s) => s.data === iso) : undefined;
+    const automaticoSabado = isSabado ? escaladosAutomaticos?.[iso] : undefined;
+    const oncallSabado = manualSabado
+      ?? (automaticoSabado
+        ? { id: "auto", data: iso, user_id: automaticoSabado.user_id, horario_previsto: null, observacao: null, usuario: { nome: automaticoSabado.nome } }
+        : undefined);
+    const sabadoEhAutomatico = isSabado && !manualSabado && !!automaticoSabado;
     const folgasDoDia = (leaves ?? []).filter((l) => l.data === iso);
     const sobreavisoDoDia = (oncalls ?? []).filter((o) => o.data === iso);
     const feriasDoDia = (ferias ?? []).filter((f) => f.data_inicio <= iso && f.data_fim >= iso);
     const lancamentosDoDia = (lancamentos ?? []).filter((l) => l.data === iso);
-    return { iso, holiday, isSabado, isDomingo, responsavelSemana, oncallSabado, folgasDoDia, sobreavisoDoDia, feriasDoDia, lancamentosDoDia };
+    return { iso, holiday, isSabado, isDomingo, manualSabado, oncallSabado, sabadoEhAutomatico, folgasDoDia, sobreavisoDoDia, feriasDoDia, lancamentosDoDia };
   }
 
   function descricaoDoTipo(info: ReturnType<typeof infoDia>) {
@@ -149,11 +178,107 @@ export default function Calendario() {
     if (!diaSelecionado || !user) return;
     setErro(null);
     try {
-      await requestLeave({ user_id: user.id, data: toISODate(diaSelecionado), ...data });
+      if (folgaEditando) {
+        await updateLeaveRequest(folgaEditando.id, data);
+      } else {
+        await requestLeave({ user_id: user.id, data: toISODate(diaSelecionado), ...data });
+      }
       await queryClient.invalidateQueries({ queryKey: ["calendario"] });
       setDialogFolga(false);
+      setFolgaEditando(null);
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível enviar a solicitação.");
+    }
+  }
+
+  function abrirEdicaoFolga(f: DbLeaveRequest) {
+    setFolgaEditando(f);
+    resetFolga({ tipo: f.tipo, motivo: f.motivo ?? "", observacao: f.observacao ?? "" });
+    setDialogFolga(true);
+  }
+
+  async function excluirFolga(id: string) {
+    if (!confirm("Excluir esta solicitação de folga?")) return;
+    try {
+      await deleteLeaveRequest(id);
+      await queryClient.invalidateQueries({ queryKey: ["calendario"] });
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : "Não foi possível excluir a solicitação.");
+    }
+  }
+
+  function abrirEdicaoSobreaviso(o: DbOncall) {
+    setOncallEditando(o);
+    resetOncall({ user_id: o.user_id, horario_inicio: o.horario_inicio.slice(0, 5), horario_fim: o.horario_fim.slice(0, 5), observacao: o.observacao ?? "" });
+    setDialogSobreaviso(true);
+  }
+
+  async function excluirSobreaviso(id: string) {
+    if (!confirm("Excluir este sobreaviso?")) return;
+    try {
+      await deleteOncall(id);
+      await queryClient.invalidateQueries({ queryKey: ["calendario"] });
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : "Não foi possível excluir o sobreaviso.");
+    }
+  }
+
+  function abrirEdicaoFerias(f: DbVacation) {
+    setFeriasEditando(f);
+    setDialogFerias(true);
+  }
+
+  async function excluirFerias(id: string) {
+    if (!confirm("Excluir este período de férias?")) return;
+    try {
+      await deleteVacation(id);
+      await queryClient.invalidateQueries({ queryKey: ["calendario"] });
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : "Não foi possível excluir as férias.");
+    }
+  }
+
+  function abrirEdicaoLancamento(l: DbDayEntry) {
+    setLancamentoEditando(l);
+    setDialogLancamento(true);
+  }
+
+  async function excluirLancamento(id: string) {
+    if (!confirm("Excluir este lançamento?")) return;
+    try {
+      await deleteDayEntry(id);
+      await queryClient.invalidateQueries({ queryKey: ["calendario"] });
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : "Não foi possível excluir o lançamento.");
+    }
+  }
+
+  type TipoEvento = "sobreaviso" | "folga" | "ferias" | "lancamento";
+
+  function toggleSelecionado(tipo: TipoEvento, id: string) {
+    const chave = `${tipo}|${id}`;
+    setSelecionados((prev) => {
+      const next = new Set(prev);
+      if (next.has(chave)) next.delete(chave); else next.add(chave);
+      return next;
+    });
+  }
+
+  async function excluirSelecionados() {
+    if (selecionados.size === 0) return;
+    if (!confirm(`Excluir ${selecionados.size} evento(s) selecionado(s)? Essa ação não pode ser desfeita.`)) return;
+    try {
+      await Promise.all(Array.from(selecionados).map((chave) => {
+        const [tipo, id] = chave.split("|") as [TipoEvento, string];
+        if (tipo === "sobreaviso") return deleteOncall(id);
+        if (tipo === "folga") return deleteLeaveRequest(id);
+        if (tipo === "ferias") return deleteVacation(id);
+        return deleteDayEntry(id);
+      }));
+      await queryClient.invalidateQueries({ queryKey: ["calendario"] });
+      setSelecionados(new Set());
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : "Não foi possível excluir os eventos selecionados.");
     }
   }
 
@@ -167,16 +292,6 @@ export default function Calendario() {
     }
   }
 
-  async function definirResponsavelSemana(userId: string) {
-    if (!diaSelecionado || !user) return;
-    try {
-      await upsertWeekResponsible(toISODate(mondayOf(diaSelecionado)), userId, user.id);
-      await queryClient.invalidateQueries({ queryKey: ["calendario"] });
-    } catch (err) {
-      setErro(err instanceof Error ? err.message : "Não foi possível definir o responsável.");
-    }
-  }
-
   async function definirPlantaoSabado(userId: string) {
     if (!diaSelecionado || !user) return;
     try {
@@ -184,6 +299,15 @@ export default function Calendario() {
       await queryClient.invalidateQueries({ queryKey: ["calendario"] });
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível definir o plantão.");
+    }
+  }
+
+  async function removerOverrideSabado(id: string) {
+    try {
+      await deleteSaturdayOncall(id);
+      await queryClient.invalidateQueries({ queryKey: ["calendario"] });
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : "Não foi possível voltar para o rodízio automático.");
     }
   }
 
@@ -204,9 +328,14 @@ export default function Calendario() {
   async function salvarSobreaviso(data: OncallForm) {
     if (!diaSelecionado || !user) return;
     try {
-      await createOncall({ data: toISODate(diaSelecionado), ...data, created_by: user.id });
+      if (oncallEditando) {
+        await updateOncall(oncallEditando.id, data);
+      } else {
+        await createOncall({ data: toISODate(diaSelecionado), ...data, created_by: user.id });
+      }
       await queryClient.invalidateQueries({ queryKey: ["calendario"] });
       setDialogSobreaviso(false);
+      setOncallEditando(null);
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível salvar o sobreaviso.");
     }
@@ -226,16 +355,18 @@ export default function Calendario() {
 
   const infoSelecionado = diaSelecionado ? infoDia(diaSelecionado) : null;
 
-  // Total de horas previstas do dia, com base na jornada do responsável
+  // Total de horas previstas do dia, com base no plantão de sábado (rodízio
+  // automático ou sobrescrita manual). Dia útil não tem mais um "responsável"
+  // fixo pra basear isso — só entra o que foi lançado manualmente.
   function totalHorasDia(info: ReturnType<typeof infoDia> | null) {
     if (!info) return "0h 00min";
     if (info.holiday || info.isDomingo) return "0h 00min";
-    const responsavelId = info.isSabado ? info.oncallSabado?.user_id : info.responsavelSemana?.user_id;
+    const responsavelId = info.isSabado ? info.oncallSabado?.user_id : undefined;
     const temFolgaAprovada = info.folgasDoDia.some((f) => f.status === "aprovada" && f.user_id === responsavelId);
     const temFeriasAtivas = info.feriasDoDia.some((f) => f.user_id === responsavelId);
     let minutosBase = 0;
     if (responsavelId && !temFolgaAprovada && !temFeriasAtivas) {
-      minutosBase = info.isSabado ? 240 : 480; // 4h plantão sábado, 8h dia útil (aproximação)
+      minutosBase = 240; // 4h plantão sábado (aproximação)
     }
     const minutosExtras = info.lancamentosDoDia.reduce((acc, l) => acc + l.horas * 60, 0);
     const total = minutosBase + minutosExtras;
@@ -261,7 +392,7 @@ export default function Calendario() {
         </Button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-3">
         <Card className="p-4">
           <p className="text-xs text-ink/50">Próximo feriado</p>
           <p className="mt-1 flex items-center gap-1.5 font-display text-sm font-semibold text-ink">
@@ -272,12 +403,6 @@ export default function Calendario() {
             <p className="text-xs text-ink/40">{new Date(proximoFeriado.data + "T00:00:00").toLocaleDateString("pt-BR")}</p>
           )}
         </Card>
-        <Card className={responsavelSemanaAtual ? "p-4" : "border-rust-400/40 bg-rust-500/5 p-4"}>
-          <p className="text-xs text-ink/50">Responsável da semana</p>
-          <p className={"mt-1 font-display text-sm font-semibold " + (responsavelSemanaAtual ? "text-ink" : "text-rust-600")}>
-            {responsavelSemanaAtual?.usuario?.nome ?? "Não definido"}
-          </p>
-        </Card>
         <Card className="p-4">
           <p className="text-xs text-ink/50">Folgas pendentes</p>
           <p className="mt-1 font-display text-sm font-semibold text-ink">{pendentesCount}</p>
@@ -287,19 +412,6 @@ export default function Calendario() {
           <p className="mt-1 font-display text-sm font-semibold text-ink">{feriasNoMes}</p>
         </Card>
       </div>
-
-      {isAdmin && !responsavelSemanaAtual && (
-        <Card className="border-rust-400/40 bg-rust-500/5 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 font-display text-sm font-semibold text-ink">
-              <AlertCircle size={16} className="text-rust-500" /> Nenhum responsável definido para a semana atual
-            </h2>
-            <Button size="sm" variant="secondary" onClick={() => setDiaSelecionado(hoje)}>
-              Definir agora
-            </Button>
-          </div>
-        </Card>
-      )}
 
       {isAdmin && pendentes && pendentes.length > 0 && (
         <Card className="border-amber-400/40 bg-amber-500/5 p-4">
@@ -324,6 +436,14 @@ export default function Calendario() {
       )}
 
       {erro && <p className="text-sm text-rust-500">{erro}</p>}
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink/60">
+        <span className="font-medium text-ink/50">Legenda:</span>
+        <span className="flex items-center gap-1"><span>🟢</span> Plantão de sábado</span>
+        <span className="flex items-center gap-1"><span>🟡</span> Folga</span>
+        <span className="flex items-center gap-1"><span>🔴</span> Férias</span>
+        <span className="flex items-center gap-1"><span>🔵</span> Sobreaviso</span>
+      </div>
 
       {loadingHolidays ? (
         <CardSkeleton />
@@ -359,7 +479,7 @@ export default function Calendario() {
                     </span>
                     <div className="flex flex-wrap gap-1">
                       {info.holiday && <span title={info.holiday.nome} className="text-xs">{emojiFeriado(info.holiday.nome)}</span>}
-                      {(info.responsavelSemana?.user_id || info.oncallSabado?.user_id) && <span title="Responsável" className="text-[10px]">🟢</span>}
+                      {info.oncallSabado?.user_id && <span title="Plantão de sábado" className="text-[10px]">🟢</span>}
                       {info.folgasDoDia.length > 0 && <span title="Folga" className="text-[10px]">🟡</span>}
                       {info.feriasDoDia.length > 0 && <span title="Férias" className="text-[10px]">🔴</span>}
                       {info.sobreavisoDoDia.length > 0 && <span title="Sobreaviso" className="text-[10px]">🔵</span>}
@@ -390,52 +510,65 @@ export default function Calendario() {
                 <h3 className="mb-2 flex items-center gap-2 font-display text-sm font-semibold text-ink">
                   <Users size={14} /> Registro do dia
                 </h3>
-                <p className="text-sm text-ink/70">
-                  Responsável do dia:{" "}
-                  <strong className="text-ink">
-                    {infoSelecionado.isSabado
-                      ? infoSelecionado.oncallSabado?.usuario?.nome ?? "Não definido"
-                      : infoSelecionado.isDomingo
-                        ? "—"
-                        : infoSelecionado.responsavelSemana?.usuario?.nome ?? "Não definido"}
-                  </strong>
-                </p>
+                {infoSelecionado.isSabado && (
+                  <p className="text-sm text-ink/70">
+                    Plantão de sábado:{" "}
+                    <strong className="text-ink">{infoSelecionado.oncallSabado?.usuario?.nome ?? "Não definido"}</strong>
+                    {infoSelecionado.sabadoEhAutomatico && (
+                      <span className="ml-1.5 text-xs text-ink/40">(automático — rodízio)</span>
+                    )}
+                  </p>
+                )}
 
-                {isAdmin && !infoSelecionado.isDomingo && (
+                {isAdmin && infoSelecionado.isSabado && (
                   <div className="mt-3">
                     <label className="mb-1 block text-xs font-medium text-ink/70">
-                      {infoSelecionado.isSabado ? "Definir plantão de sábado" : "Definir responsável da semana"}
+                      {infoSelecionado.sabadoEhAutomatico ? "Sobrescrever plantão de sábado" : "Definir plantão de sábado"}
                     </label>
                     <select
                       defaultValue=""
-                      onChange={(e) => e.target.value && (infoSelecionado.isSabado ? definirPlantaoSabado(e.target.value) : definirResponsavelSemana(e.target.value))}
+                      onChange={(e) => e.target.value && definirPlantaoSabado(e.target.value)}
                       className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm"
                     >
                       <option value="">Selecionar colaborador...</option>
                       {usuariosAtivos.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
                     </select>
+                    {infoSelecionado.manualSabado && (
+                      <button
+                        type="button"
+                        onClick={() => removerOverrideSabado(infoSelecionado.manualSabado!.id)}
+                        className="mt-1 text-xs text-ink/50 hover:text-ink hover:underline"
+                      >
+                        Voltar para o rodízio automático
+                      </button>
+                    )}
                   </div>
                 )}
 
                 <div className="mt-4">
-                  <Button size="sm" onClick={() => { resetFolga({ tipo: "folga", motivo: "", observacao: "" }); setDialogFolga(true); }}>
+                  <Button size="sm" onClick={() => { setFolgaEditando(null); resetFolga({ tipo: "folga", motivo: "", observacao: "" }); setDialogFolga(true); }}>
                     <Plus size={13} /> Solicitar Folga
                   </Button>
                 </div>
 
                 {isAdmin && (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <Button size="sm" variant="secondary" onClick={() => { resetOncall({ user_id: "", horario_inicio: "", horario_fim: "", observacao: "" }); setDialogSobreaviso(true); }}>
+                    <Button size="sm" variant="secondary" onClick={() => { setOncallEditando(null); resetOncall({ user_id: "", horario_inicio: "", horario_fim: "", observacao: "" }); setDialogSobreaviso(true); }}>
                       <Clock size={13} /> Adicionar Sobreaviso
                     </Button>
-                    <Button size="sm" variant="secondary" onClick={() => setDialogFerias(true)}>
+                    <Button size="sm" variant="secondary" onClick={() => { setFeriasEditando(null); setDialogFerias(true); }}>
                       <Palmtree size={13} /> Cadastrar Férias
                     </Button>
-                    <Button size="sm" variant="secondary" onClick={() => setDialogLancamento(true)}>
+                    <Button size="sm" variant="secondary" onClick={() => { setLancamentoEditando(null); setDialogLancamento(true); }}>
                       <Plus size={13} /> Lançamento extra
                     </Button>
                   </div>
                 )}
+
+                <div className="mt-4 rounded-lg bg-sand-bg p-3 text-sm">
+                  <span className="text-ink/60">Total do dia</span>
+                  <p className="font-display text-lg font-semibold text-ink">{totalHorasDia(infoSelecionado)}</p>
+                </div>
 
                 {isAdmin && (
                   <div className="mt-4 border-t border-sand-line pt-3">
@@ -448,51 +581,156 @@ export default function Calendario() {
                     </button>
                   </div>
                 )}
-
-                <div className="mt-4">
-                  <p className="text-xs font-medium text-ink/70">Lançamentos extras</p>
-                  {infoSelecionado.lancamentosDoDia.length === 0 ? (
-                    <p className="mt-1 text-sm text-ink/50">Nenhum lançamento extra.</p>
-                  ) : (
-                    <ul className="mt-1 space-y-1">
-                      {infoSelecionado.lancamentosDoDia.map((l) => (
-                        <li key={l.id} className="text-sm text-ink/70">{l.titulo} — {l.horas}h</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-
-                <div className="mt-4 rounded-lg bg-sand-bg p-3 text-sm">
-                  <span className="text-ink/60">Total do dia</span>
-                  <p className="font-display text-lg font-semibold text-ink">{totalHorasDia(infoSelecionado)}</p>
-                </div>
               </Card>
 
               <Card className="p-4">
-                <h3 className="mb-2 flex items-center gap-2 font-display text-sm font-semibold text-ink">
-                  <CalendarDays size={14} /> Resumo
-                </h3>
-                <div className="space-y-2 text-sm">
-                  {infoSelecionado.sobreavisoDoDia.map((s) => (
-                    <p key={s.id} className="text-ink/70">
-                      Sobreaviso: <strong className="text-ink">{s.usuario?.nome}</strong> ({s.horario_inicio.slice(0, 5)}–{s.horario_fim.slice(0, 5)})
-                    </p>
-                  ))}
-                  {infoSelecionado.folgasDoDia.length === 0 ? (
-                    <p className="text-ink/60">Nenhuma solicitação de folga para este dia.</p>
-                  ) : (
-                    infoSelecionado.folgasDoDia.map((f) => (
-                      <p key={f.id} className="text-ink/70">
-                        {f.usuario?.nome} solicitou <strong>{f.tipo}</strong> —{" "}
-                        <Badge tone={f.status === "aprovada" ? "success" : f.status === "reprovada" ? "danger" : "warning"}>{f.status}</Badge>
-                      </p>
-                    ))
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="flex items-center gap-2 font-display text-sm font-semibold text-ink">
+                    <CalendarDays size={14} /> Eventos do dia
+                  </h3>
+                  {isAdmin && selecionados.size > 0 && (
+                    <Button size="sm" variant="danger" onClick={excluirSelecionados}>
+                      <Trash2 size={13} /> Excluir selecionados ({selecionados.size})
+                    </Button>
                   )}
-                  <p className="text-ink/60">
-                    Férias:{" "}
-                    {infoSelecionado.feriasDoDia.length === 0 ? "Nenhuma." : infoSelecionado.feriasDoDia.map((f) => f.usuario?.nome).join(", ")}
-                  </p>
                 </div>
+                {infoSelecionado.sobreavisoDoDia.length === 0
+                  && infoSelecionado.folgasDoDia.length === 0
+                  && infoSelecionado.feriasDoDia.length === 0
+                  && infoSelecionado.lancamentosDoDia.length === 0 ? (
+                  <p className="text-sm text-ink/50">Nenhum evento registrado para este dia.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {infoSelecionado.sobreavisoDoDia.map((s) => (
+                      <li key={s.id} className="flex items-start justify-between gap-2 rounded-lg bg-sand-bg p-2.5 text-sm">
+                        <div className="flex items-start gap-2">
+                          {isAdmin && (
+                            <input
+                              type="checkbox"
+                              checked={selecionados.has(`sobreaviso|${s.id}`)}
+                              onChange={() => toggleSelecionado("sobreaviso", s.id)}
+                              className="mt-1 h-3.5 w-3.5 rounded border-sand-line"
+                            />
+                          )}
+                          <div>
+                          <Badge tone="info">Sobreaviso</Badge>
+                          <p className="mt-1 text-ink/80">
+                            <strong className="text-ink">{s.usuario?.nome}</strong> · {s.horario_inicio.slice(0, 5)}–{s.horario_fim.slice(0, 5)}
+                          </p>
+                          {s.observacao && <p className="mt-0.5 text-xs text-ink/50">{s.observacao}</p>}
+                          </div>
+                        </div>
+                        {isAdmin && (
+                          <div className="flex shrink-0 gap-1">
+                            <button type="button" onClick={() => abrirEdicaoSobreaviso(s)} title="Editar" className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-surface hover:text-ink">
+                              <Pencil size={13} />
+                            </button>
+                            <button type="button" onClick={() => excluirSobreaviso(s.id)} title="Excluir" className="flex h-7 w-7 items-center justify-center rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-500/10">
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+
+                    {infoSelecionado.folgasDoDia.map((f) => (
+                      <li key={f.id} className="flex items-start justify-between gap-2 rounded-lg bg-sand-bg p-2.5 text-sm">
+                        <div className="flex items-start gap-2">
+                          {isAdmin && (
+                            <input
+                              type="checkbox"
+                              checked={selecionados.has(`folga|${f.id}`)}
+                              onChange={() => toggleSelecionado("folga", f.id)}
+                              className="mt-1 h-3.5 w-3.5 rounded border-sand-line"
+                            />
+                          )}
+                          <div>
+                          <div className="flex items-center gap-1.5">
+                            <Badge tone="neutral">Folga</Badge>
+                            <Badge tone={f.status === "aprovada" ? "success" : f.status === "reprovada" ? "danger" : "warning"}>{f.status}</Badge>
+                          </div>
+                          <p className="mt-1 text-ink/80">
+                            <strong className="text-ink">{f.usuario?.nome}</strong> · {f.tipo}
+                          </p>
+                          {f.motivo && <p className="mt-0.5 text-xs text-ink/50">{f.motivo}</p>}
+                          </div>
+                        </div>
+                        {isAdmin && (
+                          <div className="flex shrink-0 gap-1">
+                            <button type="button" onClick={() => abrirEdicaoFolga(f)} title="Editar" className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-surface hover:text-ink">
+                              <Pencil size={13} />
+                            </button>
+                            <button type="button" onClick={() => excluirFolga(f.id)} title="Excluir" className="flex h-7 w-7 items-center justify-center rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-500/10">
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+
+                    {infoSelecionado.feriasDoDia.map((f) => (
+                      <li key={f.id} className="flex items-start justify-between gap-2 rounded-lg bg-sand-bg p-2.5 text-sm">
+                        <div className="flex items-start gap-2">
+                          {isAdmin && (
+                            <input
+                              type="checkbox"
+                              checked={selecionados.has(`ferias|${f.id}`)}
+                              onChange={() => toggleSelecionado("ferias", f.id)}
+                              className="mt-1 h-3.5 w-3.5 rounded border-sand-line"
+                            />
+                          )}
+                          <div>
+                          <Badge tone="ausencia">Férias</Badge>
+                          <p className="mt-1 text-ink/80">
+                            <strong className="text-ink">{f.usuario?.nome}</strong> ·{" "}
+                            {new Date(f.data_inicio + "T00:00:00").toLocaleDateString("pt-BR")}–{new Date(f.data_fim + "T00:00:00").toLocaleDateString("pt-BR")}
+                          </p>
+                          </div>
+                        </div>
+                        {isAdmin && (
+                          <div className="flex shrink-0 gap-1">
+                            <button type="button" onClick={() => abrirEdicaoFerias(f)} title="Editar" className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-surface hover:text-ink">
+                              <Pencil size={13} />
+                            </button>
+                            <button type="button" onClick={() => excluirFerias(f.id)} title="Excluir" className="flex h-7 w-7 items-center justify-center rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-500/10">
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+
+                    {infoSelecionado.lancamentosDoDia.map((l) => (
+                      <li key={l.id} className="flex items-start justify-between gap-2 rounded-lg bg-sand-bg p-2.5 text-sm">
+                        <div className="flex items-start gap-2">
+                          {isAdmin && (
+                            <input
+                              type="checkbox"
+                              checked={selecionados.has(`lancamento|${l.id}`)}
+                              onChange={() => toggleSelecionado("lancamento", l.id)}
+                              className="mt-1 h-3.5 w-3.5 rounded border-sand-line"
+                            />
+                          )}
+                          <div>
+                          <Badge tone="brand">Lançamento</Badge>
+                          <p className="mt-1 text-ink/80"><strong className="text-ink">{l.titulo}</strong> · {l.horas}h</p>
+                          {l.observacao && <p className="mt-0.5 text-xs text-ink/50">{l.observacao}</p>}
+                          </div>
+                        </div>
+                        {isAdmin && (
+                          <div className="flex shrink-0 gap-1">
+                            <button type="button" onClick={() => abrirEdicaoLancamento(l)} title="Editar" className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-surface hover:text-ink">
+                              <Pencil size={13} />
+                            </button>
+                            <button type="button" onClick={() => excluirLancamento(l.id)} title="Excluir" className="flex h-7 w-7 items-center justify-center rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-500/10">
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </Card>
             </div>
           </div>
@@ -500,8 +738,8 @@ export default function Calendario() {
       )}
 
       {dialogFolga && (
-        <Dialog onClose={() => setDialogFolga(false)}>
-          <h2 className="font-display text-base font-semibold text-ink">Solicitar Folga</h2>
+        <Dialog onClose={() => { setDialogFolga(false); setFolgaEditando(null); }}>
+          <h2 className="font-display text-base font-semibold text-ink">{folgaEditando ? "Editar Folga" : "Solicitar Folga"}</h2>
           <p className="mt-1 text-xs text-ink/50">{diaSelecionado && formatDiaCompleto(diaSelecionado)}</p>
           <form onSubmit={handleSubmitFolga(solicitarFolga)} className="mt-4 space-y-3">
             <div>
@@ -523,16 +761,18 @@ export default function Calendario() {
               <textarea {...registerFolga("observacao")} rows={2} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setDialogFolga(false)} disabled={enviandoFolga}>Cancelar</Button>
-              <Button type="submit" disabled={enviandoFolga}>{enviandoFolga ? "Enviando..." : "Enviar solicitação"}</Button>
+              <Button type="button" variant="secondary" onClick={() => { setDialogFolga(false); setFolgaEditando(null); }} disabled={enviandoFolga}>Cancelar</Button>
+              <Button type="submit" disabled={enviandoFolga}>
+                {enviandoFolga ? "Salvando..." : folgaEditando ? "Salvar alterações" : "Enviar solicitação"}
+              </Button>
             </div>
           </form>
         </Dialog>
       )}
 
       {dialogSobreaviso && (
-        <Dialog onClose={() => setDialogSobreaviso(false)}>
-          <h2 className="font-display text-base font-semibold text-ink">Adicionar Sobreaviso</h2>
+        <Dialog onClose={() => { setDialogSobreaviso(false); setOncallEditando(null); }}>
+          <h2 className="font-display text-base font-semibold text-ink">{oncallEditando ? "Editar Sobreaviso" : "Adicionar Sobreaviso"}</h2>
           <form onSubmit={handleSubmitOncall(salvarSobreaviso)} className="mt-4 space-y-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-ink/70">Responsável</label>
@@ -557,8 +797,10 @@ export default function Calendario() {
               <textarea {...registerOncall("observacao")} rows={2} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setDialogSobreaviso(false)} disabled={enviandoOncall}>Cancelar</Button>
-              <Button type="submit" disabled={enviandoOncall}>{enviandoOncall ? "Salvando..." : "Salvar"}</Button>
+              <Button type="button" variant="secondary" onClick={() => { setDialogSobreaviso(false); setOncallEditando(null); }} disabled={enviandoOncall}>Cancelar</Button>
+              <Button type="submit" disabled={enviandoOncall}>
+                {enviandoOncall ? "Salvando..." : oncallEditando ? "Salvar alterações" : "Salvar"}
+              </Button>
             </div>
           </form>
         </Dialog>
@@ -568,7 +810,8 @@ export default function Calendario() {
         <FeriasDialog
           dataInicial={toISODate(diaSelecionado)}
           usuarios={usuariosAtivos}
-          onClose={() => setDialogFerias(false)}
+          editando={feriasEditando}
+          onClose={() => { setDialogFerias(false); setFeriasEditando(null); }}
           onSaved={() => queryClient.invalidateQueries({ queryKey: ["calendario"] })}
           criadoPor={user?.id ?? ""}
         />
@@ -577,7 +820,8 @@ export default function Calendario() {
       {dialogLancamento && diaSelecionado && (
         <LancamentoDialog
           data={toISODate(diaSelecionado)}
-          onClose={() => setDialogLancamento(false)}
+          editando={lancamentoEditando}
+          onClose={() => { setDialogLancamento(false); setLancamentoEditando(null); }}
           onSaved={() => queryClient.invalidateQueries({ queryKey: ["calendario"] })}
           criadoPor={user?.id ?? ""}
         />
@@ -587,17 +831,19 @@ export default function Calendario() {
 }
 
 function FeriasDialog({
-  dataInicial, usuarios, onClose, onSaved, criadoPor,
+  dataInicial, usuarios, onClose, onSaved, criadoPor, editando,
 }: {
   dataInicial: string;
   usuarios: { id: string; nome: string }[];
   onClose: () => void;
   onSaved: () => void;
   criadoPor: string;
+  editando?: DbVacation | null;
 }) {
-  const [userId, setUserId] = useState("");
-  const [dataFim, setDataFim] = useState(dataInicial);
-  const [obs, setObs] = useState("");
+  const [userId, setUserId] = useState(editando?.user_id ?? "");
+  const [dataInicio, setDataInicio] = useState(editando?.data_inicio ?? dataInicial);
+  const [dataFim, setDataFim] = useState(editando?.data_fim ?? dataInicial);
+  const [obs, setObs] = useState(editando?.observacao ?? "");
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -605,7 +851,11 @@ function FeriasDialog({
     if (!userId) { setErro("Selecione um colaborador."); return; }
     setSalvando(true);
     try {
-      await createVacation({ user_id: userId, data_inicio: dataInicial, data_fim: dataFim, observacao: obs, created_by: criadoPor });
+      if (editando) {
+        await updateVacation(editando.id, { user_id: userId, data_inicio: dataInicio, data_fim: dataFim, observacao: obs });
+      } else {
+        await createVacation({ user_id: userId, data_inicio: dataInicio, data_fim: dataFim, observacao: obs, created_by: criadoPor });
+      }
       onSaved();
       onClose();
     } catch (err) {
@@ -617,7 +867,7 @@ function FeriasDialog({
 
   return (
     <Dialog onClose={onClose}>
-      <h2 className="font-display text-base font-semibold text-ink">Cadastrar Férias</h2>
+      <h2 className="font-display text-base font-semibold text-ink">{editando ? "Editar Férias" : "Cadastrar Férias"}</h2>
       <div className="mt-4 space-y-3">
         <div>
           <label className="mb-1 block text-xs font-medium text-ink/70">Colaborador</label>
@@ -629,7 +879,7 @@ function FeriasDialog({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs font-medium text-ink/70">Data inicial</label>
-            <input type="date" value={dataInicial} disabled className="w-full rounded-lg border border-sand-line bg-sand-bg px-3 py-2 text-sm" />
+            <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm" />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-ink/70">Data final</label>
@@ -643,7 +893,7 @@ function FeriasDialog({
         {erro && <p className="text-sm text-rust-500">{erro}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={salvando}>Cancelar</Button>
-          <Button onClick={salvar} disabled={salvando}>{salvando ? "Salvando..." : "Salvar"}</Button>
+          <Button onClick={salvar} disabled={salvando}>{salvando ? "Salvando..." : editando ? "Salvar alterações" : "Salvar"}</Button>
         </div>
       </div>
     </Dialog>
@@ -651,16 +901,17 @@ function FeriasDialog({
 }
 
 function LancamentoDialog({
-  data, onClose, onSaved, criadoPor,
+  data, onClose, onSaved, criadoPor, editando,
 }: {
   data: string;
   onClose: () => void;
   onSaved: () => void;
   criadoPor: string;
+  editando?: DbDayEntry | null;
 }) {
-  const [titulo, setTitulo] = useState("");
-  const [horas, setHoras] = useState(1);
-  const [obs, setObs] = useState("");
+  const [titulo, setTitulo] = useState(editando?.titulo ?? "");
+  const [horas, setHoras] = useState(editando?.horas ?? 1);
+  const [obs, setObs] = useState(editando?.observacao ?? "");
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -668,7 +919,11 @@ function LancamentoDialog({
     if (!titulo) { setErro("Informe um título."); return; }
     setSalvando(true);
     try {
-      await createDayEntry({ data, titulo, horas, observacao: obs, created_by: criadoPor });
+      if (editando) {
+        await updateDayEntry(editando.id, { titulo, horas, observacao: obs });
+      } else {
+        await createDayEntry({ data, titulo, horas, observacao: obs, created_by: criadoPor });
+      }
       onSaved();
       onClose();
     } catch (err) {
@@ -680,7 +935,7 @@ function LancamentoDialog({
 
   return (
     <Dialog onClose={onClose}>
-      <h2 className="font-display text-base font-semibold text-ink">Lançamento extra</h2>
+      <h2 className="font-display text-base font-semibold text-ink">{editando ? "Editar lançamento" : "Lançamento extra"}</h2>
       <div className="mt-4 space-y-3">
         <div>
           <label className="mb-1 block text-xs font-medium text-ink/70">Título</label>
@@ -697,7 +952,7 @@ function LancamentoDialog({
         {erro && <p className="text-sm text-rust-500">{erro}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={salvando}>Cancelar</Button>
-          <Button onClick={salvar} disabled={salvando}>{salvando ? "Salvando..." : "Salvar"}</Button>
+          <Button onClick={salvar} disabled={salvando}>{salvando ? "Salvando..." : editando ? "Salvar alterações" : "Salvar"}</Button>
         </div>
       </div>
     </Dialog>

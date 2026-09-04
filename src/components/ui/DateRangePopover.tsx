@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { CalendarDays, Check } from "lucide-react";
 import { PERIODO_LABELS, resolvePeriodo, type PeriodoPreset } from "@/lib/dateRanges";
 import { cn } from "@/lib/utils";
@@ -28,7 +29,10 @@ export function DateRangePopover({
 
   const rotulo =
     preset === "personalizado" && personalizado.inicio && personalizado.fim
-      ? `${new Date(personalizado.inicio).toLocaleDateString("pt-BR")} - ${new Date(personalizado.fim).toLocaleDateString("pt-BR")}`
+      ? // "+T00:00:00" pelo mesmo motivo de dateRanges.ts: sem isso o rótulo
+        // mostra um dia a menos do que o usuário escolheu no input, em
+        // qualquer fuso atrás de UTC.
+        `${new Date(personalizado.inicio + "T00:00:00").toLocaleDateString("pt-BR")} - ${new Date(personalizado.fim + "T00:00:00").toLocaleDateString("pt-BR")}`
       : preset === "personalizado"
         ? "Personalizado"
         : `${inicio.toLocaleDateString("pt-BR")} - ${fim.toLocaleDateString("pt-BR")}`;
@@ -44,8 +48,15 @@ export function DateRangePopover({
         {rotulo}
       </button>
 
+      <AnimatePresence>
       {aberto && (
-        <div className="absolute right-0 top-full z-20 mt-1.5 w-56 overflow-hidden rounded-xl border border-sand-line bg-sand-surface p-1.5 shadow-float">
+        <motion.div
+          initial={{ opacity: 0, y: -4, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -4, scale: 0.98 }}
+          transition={{ duration: 0.15, ease: "easeOut" }}
+          className="absolute right-0 top-full z-20 mt-1.5 w-56 origin-top-right overflow-hidden rounded-xl border border-sand-line bg-sand-surface p-1.5 shadow-float"
+        >
           {(Object.entries(PERIODO_LABELS) as [PeriodoPreset, string][]).map(([valor, label]) => (
             <button
               key={valor}
@@ -91,8 +102,9 @@ export function DateRangePopover({
               </button>
             </div>
           )}
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 }

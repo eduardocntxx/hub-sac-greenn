@@ -1,4 +1,4 @@
-import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { ChevronDown, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SortableHeaderProps<T extends string> {
@@ -9,6 +9,7 @@ interface SortableHeaderProps<T extends string> {
   onSort: (field: T) => void;
   className?: string;
   align?: "left" | "center";
+  title?: string;
 }
 
 // <th> clicável pra ordenar tabelas — clique alterna asc/desc no mesmo
@@ -21,10 +22,11 @@ export function SortableHeader<T extends string>({
   onSort,
   className,
   align = "left",
+  title,
 }: SortableHeaderProps<T>) {
   const ativo = ordenarPor === field;
   return (
-    <th className={cn("px-4 py-3 font-medium", align === "center" && "text-center", className)}>
+    <th className={cn("px-4 py-3 font-medium", align === "center" && "text-center", className)} title={title}>
       <button
         type="button"
         onClick={() => onSort(field)}
@@ -36,7 +38,10 @@ export function SortableHeader<T extends string>({
       >
         {label}
         {ativo ? (
-          direcao === "asc" ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+          <ChevronDown
+            size={12}
+            className={cn("transition-transform duration-200", direcao === "asc" && "rotate-180")}
+          />
         ) : (
           <ChevronsUpDown size={12} className="opacity-40" />
         )}

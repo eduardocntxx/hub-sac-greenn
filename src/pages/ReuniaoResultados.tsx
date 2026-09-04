@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useIsFetching } from "@tanstack/react-query";
 import { Pencil, Download, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Kpi } from "@/components/ui/Kpi";
@@ -27,11 +27,17 @@ import {
   fetchReaberturaResumo,
   fetchTransferenciasResumo,
   fetchFcrRecontatoResumo,
+  fetchRelogioEsperaCliente,
+  fetchHorasExpedientePeriodo,
+  fetchTempoRespostaBot,
+  fetchBacklogPorIdade,
   type AtendentePerformanceRow,
 } from "@/services/api";
 import { formatDuration } from "@/lib/formatDuration";
 import { exportRRHistoricoToPdf, exportRRUnicaToPdf } from "@/lib/exportPdf";
-import type { ResultadosSacData } from "@/lib/resultadosSac";
+import { exportResultadosSacToPptx } from "@/lib/exportPptx";
+import { manualDataVazia, type ResultadosSacData, type ManualData } from "@/lib/resultadosSac";
+import { usePersistedState } from "@/hooks/usePersistedState";
 import { RelatorioResultadosSac } from "@/components/RelatorioResultadosSac";
 
 const NOME_BOT = "IA Greenn";
@@ -48,11 +54,14 @@ function toISODate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-// Segunda-feira da semana de referência (semana de trabalho do SAC: seg–dom).
-function mondayOf(d: Date) {
+// Sexta-feira da semana de referência — a Reunião de Resultados roda toda
+// sexta, então a semana do relatório é sexta a sexta (sex–qui, 7 dias),
+// não segunda a domingo. Sempre volta pra sexta-feira mais recente
+// (ou fica no lugar, se `d` já for sexta).
+function fridayOf(d: Date) {
   const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const dia = date.getDay();
-  date.setDate(date.getDate() + (dia === 0 ? -6 : 1 - dia));
+  date.setDate(date.getDate() - ((dia + 2) % 7));
   return date;
 }
 
@@ -94,14 +103,14 @@ function ultimosPeriodos(granularidade: Granularidade, n: number) {
       return { id, label: label.charAt(0).toUpperCase() + label.slice(1) };
     });
   }
-  const segundaAtual = mondayOf(new Date());
+  const sextaAtual = fridayOf(new Date());
   return Array.from({ length: n }).map((_, i) => {
-    const seg = new Date(segundaAtual);
-    seg.setDate(seg.getDate() - i * 7);
-    const dom = new Date(seg);
-    dom.setDate(dom.getDate() + 6);
-    const id = toISODate(seg);
-    const label = `${String(seg.getDate()).padStart(2, "0")}/${String(seg.getMonth() + 1).padStart(2, "0")} a ${String(dom.getDate()).padStart(2, "0")}/${String(dom.getMonth() + 1).padStart(2, "0")}`;
+    const sex = new Date(sextaAtual);
+    sex.setDate(sex.getDate() - i * 7);
+    const qui = new Date(sex);
+    qui.setDate(qui.getDate() + 6);
+    const id = toISODate(sex);
+    const label = `${String(sex.getDate()).padStart(2, "0")}/${String(sex.getMonth() + 1).padStart(2, "0")} a ${String(qui.getDate()).padStart(2, "0")}/${String(qui.getMonth() + 1).padStart(2, "0")}`;
     return { id, label };
   });
 }
@@ -142,6 +151,36 @@ const CAMPOS_RR = [
 ] as const;
 
 type RRForm = z.infer<typeof rrSchema>;
+
+function CampoManual({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <label className="block text-xs text-ink-soft">
+      {label}
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder ? `Ex: ${placeholder}` : undefined}
+        className="mt-1 h-9 w-full rounded-lg border border-sand-line bg-sand-surface px-3 text-sm text-ink placeholder:text-ink-soft/50"
+      />
+    </label>
+  );
+}
+
+function CampoManualArea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <label className="mt-3 block text-xs text-ink-soft">
+      {label}
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        rows={3}
+        className="mt-1 w-full rounded-lg border border-sand-line bg-sand-surface px-3 py-2 text-sm text-ink"
+      />
+    </label>
+  );
+}
 
 export default function ReuniaoResultados() {
   const { user, isAdmin } = useAuth();
@@ -379,7 +418,74 @@ export default function ReuniaoResultados() {
     enabled: isAdmin,
   });
 
+  const { data: relogioEsperaAtual } = useQuery({
+    queryKey: ["relogio-espera-cliente", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchRelogioEsperaCliente(inicioPeriodo, fimPeriodo),
+    enabled: isAdmin,
+  });
+  const { data: relogioEsperaAnterior } = useQuery({
+    queryKey: ["relogio-espera-cliente", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchRelogioEsperaCliente(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: isAdmin,
+  });
+
+  const { data: horasExpedienteAtual } = useQuery({
+    queryKey: ["horas-expediente-periodo", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchHorasExpedientePeriodo(inicioPeriodo, fimPeriodo),
+    enabled: isAdmin,
+  });
+  const { data: horasExpedienteAnterior } = useQuery({
+    queryKey: ["horas-expediente-periodo", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchHorasExpedientePeriodo(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: isAdmin,
+  });
+
+  const { data: tempoBotAtual } = useQuery({
+    queryKey: ["tempo-resposta-bot", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchTempoRespostaBot(inicioPeriodo, fimPeriodo),
+    enabled: isAdmin,
+  });
+  const { data: tempoBotAnterior } = useQuery({
+    queryKey: ["tempo-resposta-bot", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchTempoRespostaBot(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: isAdmin,
+  });
+
+  // Backlog não tem filtro de período — é sempre "o que está aberto agora",
+  // não faz sentido "backlog do mês passado". Uma busca só, sem comparação.
+  const { data: backlogAtual } = useQuery({
+    queryKey: ["backlog-por-idade"],
+    queryFn: () => fetchBacklogPorIdade(),
+    enabled: isAdmin,
+  });
+
+  // Todas as queries que alimentam `dadosRelatorio` (PDF/PPTX) — nenhuma
+  // delas aparece em outro KPI da tela, então trocar de período/granularidade
+  // não dá nenhum sinal visual de que elas ainda estão em voo. Sem esse
+  // gate, clicar em "Baixar PDF/PPTX" logo depois de trocar o período gera
+  // um arquivo com os campos em branco (achado real: exportação da semana
+  // atual saiu com "Total de chamados/conversas/mensagens" todos "—",
+  // porque os `useQuery` de `contagemAtual` etc. ainda não tinham resolvido
+  // no momento do clique).
+  const RELATORIO_QUERY_KEYS = [
+    "contagem-periodo", "tfr-ttr-percentis", "metricas-tipo-cliente", "csat-distribuicao",
+    "reabertura-resumo", "transferencias-resumo", "fcr-recontato-resumo",
+    "relogio-espera-cliente", "horas-expediente-periodo", "tempo-resposta-bot",
+    "backlog-por-idade", "atendente-performance",
+  ];
+  const relatorioCarregando = useIsFetching({
+    predicate: (q) => RELATORIO_QUERY_KEYS.includes(q.queryKey[0] as string),
+  }) > 0;
+
   const [mostrarRelatorio, setMostrarRelatorio] = useState(false);
+  const [exportandoPptx, setExportandoPptx] = useState(false);
+
+  // Dado que o Hub não captura (Reclame Aqui, RA XGROW, Migrações, NPS
+  // qualitativo) — preenchido à mão, persistido pra não perder toda semana.
+  // Estado de UI (mostrarDadosManuais) fica de fora do persistido de
+  // propósito — não faz sentido reabrir a tela já com o painel expandido.
+  const [dadosManuais, setDadosManuais] = usePersistedState<ManualData>("rr:dadosManuais", manualDataVazia());
+  const [mostrarDadosManuais, setMostrarDadosManuais] = useState(false);
 
   const dadosRelatorio: ResultadosSacData = useMemo(
     () => ({
@@ -394,6 +500,9 @@ export default function ReuniaoResultados() {
         reabertura: reaberturaAtual ?? null,
         transferencias: transferenciasAtual ?? null,
         fcr: fcrAtual ?? null,
+        relogioEspera: relogioEsperaAtual ?? null,
+        horasExpedienteMin: horasExpedienteAtual ?? null,
+        tempoRespostaBot: tempoBotAtual ?? null,
       },
       anterior: {
         contagem: contagemAnterior ?? null,
@@ -404,8 +513,13 @@ export default function ReuniaoResultados() {
         reabertura: reaberturaAnterior ?? null,
         transferencias: transferenciasAnterior ?? null,
         fcr: fcrAnterior ?? null,
+        relogioEspera: relogioEsperaAnterior ?? null,
+        horasExpedienteMin: horasExpedienteAnterior ?? null,
+        tempoRespostaBot: tempoBotAnterior ?? null,
       },
       csatPorAtendente: perfAtual ?? [],
+      backlog: backlogAtual ?? [],
+      manual: dadosManuais,
     }),
     [
       granularidade,
@@ -429,7 +543,15 @@ export default function ReuniaoResultados() {
       transferenciasAnterior,
       fcrAtual,
       fcrAnterior,
+      relogioEsperaAtual,
+      relogioEsperaAnterior,
+      horasExpedienteAtual,
+      horasExpedienteAnterior,
+      tempoBotAtual,
+      tempoBotAnterior,
       perfAtual,
+      backlogAtual,
+      dadosManuais,
     ]
   );
 
@@ -451,6 +573,14 @@ export default function ReuniaoResultados() {
   // motivo (achado real: usuário reportou "botão de excluir não funciona",
   // e a falha ficava silenciosa mesmo quando de fato falhava).
   const [erroExclusao, setErroExclusao] = useState<string | null>(null);
+  // Confirmação própria em vez de window.confirm(): nativo pode ficar
+  // silenciosamente bloqueado pelo navegador depois de várias chamadas na
+  // mesma página ("impedir que esta página crie mais diálogos") — nesse
+  // caso confirm() retorna false na hora, sem mostrar nada, e o botão
+  // parece simplesmente não fazer nada (achado real, reportado pelo
+  // usuário mesmo com o delete em si funcionando via chamada direta).
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState<DbRRHistory | null>(null);
+  const [excluindo, setExcluindo] = useState(false);
   const {
     register: registerEdicao,
     handleSubmit: handleSubmitEdicao,
@@ -471,14 +601,17 @@ export default function ReuniaoResultados() {
 
   async function excluirRR(rr: DbRRHistory) {
     if (!user) return;
-    if (!confirm(`Excluir a RR de "${rr.periodo}"? Essa ação não pode ser desfeita.`)) return;
     setErroExclusao(null);
+    setExcluindo(true);
     try {
       await deleteRRHistory(rr.id);
       await queryClient.invalidateQueries({ queryKey: ["rr-history", user.id] });
       setVisualizando(null);
+      setConfirmandoExclusao(null);
     } catch (err) {
       setErroExclusao(err instanceof Error ? err.message : "Não foi possível excluir.");
+    } finally {
+      setExcluindo(false);
     }
   }
 
@@ -573,12 +706,84 @@ export default function ReuniaoResultados() {
             ))}
           </select>
           {isAdmin && (
-            <Button variant="secondary" onClick={() => setMostrarRelatorio(true)}>
-              <Download size={14} /> Baixar PDF
+            <Button variant="secondary" disabled={relatorioCarregando} onClick={() => setMostrarRelatorio(true)}>
+              <Download size={14} /> {relatorioCarregando ? "Carregando dados..." : "Baixar PDF"}
+            </Button>
+          )}
+          {isAdmin && (
+            <Button
+              variant="secondary"
+              disabled={exportandoPptx || relatorioCarregando}
+              onClick={async () => {
+                setExportandoPptx(true);
+                try {
+                  await exportResultadosSacToPptx(dadosRelatorio);
+                } finally {
+                  setExportandoPptx(false);
+                }
+              }}
+            >
+              <Download size={14} /> {exportandoPptx ? "Gerando..." : relatorioCarregando ? "Carregando dados..." : "Baixar PPTX"}
+            </Button>
+          )}
+          {isAdmin && (
+            <Button variant="secondary" onClick={() => setMostrarDadosManuais((v) => !v)}>
+              {mostrarDadosManuais ? "Fechar dados manuais" : "Dados manuais (RA, NPS...)"}
             </Button>
           )}
         </div>
       </div>
+
+      {isAdmin && mostrarDadosManuais && (
+        <Card>
+          <CardContent className="space-y-6 py-5">
+            <p className="text-sm text-ink-soft">
+              Preenchido aqui uma vez, fica salvo pras próximas exportações — só precisa mudar o que
+              mudou na semana. Campo vazio aparece como "—" no PDF/PPTX, nunca é inventado.
+            </p>
+
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-ink">Reclame Aqui</h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <CampoManual label="Nota" value={dadosManuais.reclameAqui.nota} onChange={(v) => setDadosManuais((d) => ({ ...d, reclameAqui: { ...d.reclameAqui, nota: v } }))} placeholder="9,1" />
+                <CampoManual label="Total de reclamações" value={dadosManuais.reclameAqui.totalReclamacoes} onChange={(v) => setDadosManuais((d) => ({ ...d, reclameAqui: { ...d.reclameAqui, totalReclamacoes: v } }))} placeholder="39" />
+                <CampoManual label="Variação vs. semana anterior" value={dadosManuais.reclameAqui.deltaPct} onChange={(v) => setDadosManuais((d) => ({ ...d, reclameAqui: { ...d.reclameAqui, deltaPct: v } }))} placeholder="-10,26%" />
+              </div>
+              <CampoManualArea label="Produtor destaque (uma linha por item)" value={dadosManuais.reclameAqui.produtorDestaque} onChange={(v) => setDadosManuais((d) => ({ ...d, reclameAqui: { ...d.reclameAqui, produtorDestaque: v } }))} placeholder={"equipehayanesilva@gmail.com - 23,08%\nsan.chagasandrade@gmail.com - 5,13%"} />
+            </div>
+
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-ink">RA XGROW</h3>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <CampoManual label="Total de reclamações" value={dadosManuais.raXgrow.totalReclamacoes} onChange={(v) => setDadosManuais((d) => ({ ...d, raXgrow: { ...d.raXgrow, totalReclamacoes: v } }))} placeholder="15" />
+                <CampoManual label="Nota" value={dadosManuais.raXgrow.nota} onChange={(v) => setDadosManuais((d) => ({ ...d, raXgrow: { ...d.raXgrow, nota: v } }))} placeholder="8,4" />
+                <CampoManual label="Nota anterior" value={dadosManuais.raXgrow.notaAnterior} onChange={(v) => setDadosManuais((d) => ({ ...d, raXgrow: { ...d.raXgrow, notaAnterior: v } }))} placeholder="7,8" />
+              </div>
+            </div>
+
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-ink">SAC — Migrações</h3>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <CampoManual label="Finalizadas" value={dadosManuais.migracoes.finalizadas} onChange={(v) => setDadosManuais((d) => ({ ...d, migracoes: { ...d.migracoes, finalizadas: v } }))} placeholder="5" />
+                <CampoManual label="Em progresso" value={dadosManuais.migracoes.emProgresso} onChange={(v) => setDadosManuais((d) => ({ ...d, migracoes: { ...d.migracoes, emProgresso: v } }))} placeholder="3" />
+                <CampoManual label="Aguardando" value={dadosManuais.migracoes.aguardando} onChange={(v) => setDadosManuais((d) => ({ ...d, migracoes: { ...d.migracoes, aguardando: v } }))} placeholder="3" />
+              </div>
+              <CampoManualArea label="Por plataforma (uma linha por item)" value={dadosManuais.migracoes.plataformas} onChange={(v) => setDadosManuais((d) => ({ ...d, migracoes: { ...d.migracoes, plataformas: v } }))} placeholder={"Migrações Internas - 3\nHotmart - 1\nAppsell - 1"} />
+            </div>
+
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-ink">Dados NPS</h3>
+              <div className="grid gap-3 sm:grid-cols-4">
+                <CampoManual label="Contatados" value={dadosManuais.nps.contatados} onChange={(v) => setDadosManuais((d) => ({ ...d, nps: { ...d.nps, contatados: v } }))} placeholder="2/2" />
+                <CampoManual label="Detratores" value={dadosManuais.nps.detratores} onChange={(v) => setDadosManuais((d) => ({ ...d, nps: { ...d.nps, detratores: v } }))} placeholder="1" />
+                <CampoManual label="Neutros" value={dadosManuais.nps.neutros} onChange={(v) => setDadosManuais((d) => ({ ...d, nps: { ...d.nps, neutros: v } }))} placeholder="0" />
+                <CampoManual label="Promotores" value={dadosManuais.nps.promotores} onChange={(v) => setDadosManuais((d) => ({ ...d, nps: { ...d.nps, promotores: v } }))} placeholder="5" />
+              </div>
+              <CampoManualArea label="Temas mais abordados" value={dadosManuais.nps.temas} onChange={(v) => setDadosManuais((d) => ({ ...d, nps: { ...d.nps, temas: v } }))} placeholder="[Checkout] Cliente relata demora de 6 a 10s no Pix/cartão..." />
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Kpi
@@ -744,7 +949,12 @@ export default function ReuniaoResultados() {
                 }}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-ink">{rr.periodo}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-ink">{rr.periodo}</span>
+                    <Badge tone={rr.meta_batida ? "success" : "danger"}>
+                      {rr.meta_batida ? "Meta batida" : "Meta não atingida"}
+                    </Badge>
+                  </div>
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-ink/50">
                       CSAT {rr.csat ?? "—"} · {rr.atendimentos ?? 0} atendimentos
@@ -758,7 +968,7 @@ export default function ReuniaoResultados() {
                     </button>
                     {isAdmin && (
                       <button
-                        onClick={(e) => { e.stopPropagation(); excluirRR(rr); }}
+                        onClick={(e) => { e.stopPropagation(); setErroExclusao(null); setConfirmandoExclusao(rr); }}
                         title="Excluir esta RR"
                         className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/40 hover:bg-rust-500/10 hover:text-rust-500"
                       >
@@ -816,7 +1026,7 @@ export default function ReuniaoResultados() {
           {erroExclusao && <p className="mt-4 text-sm text-rust-500">{erroExclusao}</p>}
           <div className="mt-5 flex justify-end gap-2">
             {isAdmin && (
-              <Button variant="danger" onClick={() => excluirRR(visualizando)}>
+              <Button variant="danger" onClick={() => { setErroExclusao(null); setConfirmandoExclusao(visualizando); }}>
                 <Trash2 size={14} /> Excluir
               </Button>
             )}
@@ -861,6 +1071,23 @@ export default function ReuniaoResultados() {
               <Button type="submit" disabled={salvandoEdicao}>{salvandoEdicao ? "Salvando..." : "Salvar"}</Button>
             </div>
           </form>
+        </Dialog>
+      )}
+
+      {confirmandoExclusao && (
+        <Dialog onClose={() => !excluindo && setConfirmandoExclusao(null)} className="max-w-sm">
+          <h2 className="font-display text-base font-semibold text-ink">Excluir RR</h2>
+          <p className="mt-2 text-sm text-ink/70">
+            Excluir a RR de <strong className="text-ink">"{confirmandoExclusao.periodo}"</strong>? Essa ação não pode ser desfeita.
+          </p>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={() => setConfirmandoExclusao(null)} disabled={excluindo}>
+              Cancelar
+            </Button>
+            <Button variant="danger" onClick={() => excluirRR(confirmandoExclusao)} disabled={excluindo}>
+              {excluindo ? "Excluindo..." : "Excluir"}
+            </Button>
+          </div>
         </Dialog>
       )}
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Search, Home, LayoutDashboard, Target, BarChart3, ClipboardList,
   GraduationCap, BookOpen, Megaphone, Wrench, CalendarDays, Link2,
@@ -103,12 +104,21 @@ export function GlobalSearch() {
         </kbd>
       </button>
 
+      <AnimatePresence>
       {open && (
-        <div
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15, ease: "easeOut" }}
           className="fixed inset-0 z-[100] flex items-start justify-center bg-black/50 pt-[15vh]"
           onClick={() => setOpen(false)}
         >
-          <div
+          <motion.div
+            initial={{ opacity: 0, y: -8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
             className="w-full max-w-lg overflow-hidden rounded-2xl bg-sand-surface shadow-float"
             onClick={(e) => e.stopPropagation()}
           >
@@ -152,9 +162,10 @@ export function GlobalSearch() {
                 })
               )}
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </>
   );
 }

@@ -7,6 +7,12 @@ import { formatDuration } from "@/lib/formatDuration";
 import { cn } from "@/lib/utils";
 import { fetchAtendimentoTimeline, type AtendimentoComMetricas, type AtendimentoTimelineEntry } from "@/services/api";
 
+// Mesmo limiar de 60s usado na contagem de reabertura (ver CLAUDE.md,
+// v_reopened_count_real/marcar_conversa_estado) — um gap "resolvido" mais
+// curto que isso é artefato de automação (ex: fluxo de CSAT), não uma
+// pausa real, então nem faz sentido poluir a timeline com ele.
+const LIMIAR_GAP_RESOLVIDO_SEG = 60;
+
 const GAP_LABEL: Record<"fila" | "resolvido", string> = {
   fila: "Sem atendente (fila)",
   resolvido: "Sem atendente (resolvido, aguardando reabertura)",
@@ -22,6 +28,35 @@ function labelDoTrecho(t: AtendimentoTimelineEntry) {
 
 function aindaAtivoDoTrecho(t: AtendimentoTimelineEntry) {
   return t.tipo === "atendente" ? "agora (ainda com o chamado)" : GAP_AINDA_ATIVO[t.tipo];
+}
+
+interface TrechoExibicao extends AtendimentoTimelineEntry {
+  csatNoMeio?: boolean;
+}
+
+// O fluxo automático de pesquisa de CSAT resolve e reabre o chamado em
+// segundos, sem trocar de atendente — sem isso, o MESMO atendente aparecia
+// 2-3x seguidas na lista, uma linha por interrupção do bot. Aqui a gente
+// esconde o gap "resolvido" curto (já filtrado abaixo) e funde os trechos
+// do mesmo atendente que ficaram separados só por causa dele, num campo só.
+function mesclarTrechosDeCsat(timeline: AtendimentoTimelineEntry[]): TrechoExibicao[] {
+  const resultado: TrechoExibicao[] = [];
+  for (const t of timeline) {
+    const ehGapResolvidoCurto = t.tipo === "resolvido" && t.minutos_posse * 60 < LIMIAR_GAP_RESOLVIDO_SEG;
+    if (ehGapResolvidoCurto) {
+      if (resultado.length > 0) resultado[resultado.length - 1].csatNoMeio = true;
+      continue;
+    }
+    const anterior = resultado[resultado.length - 1];
+    if (anterior?.csatNoMeio && anterior.tipo === "atendente" && t.tipo === "atendente" && anterior.atendente === t.atendente) {
+      anterior.liberado_em = t.liberado_em;
+      anterior.ainda_ativo = t.ainda_ativo;
+      anterior.minutos_posse += t.minutos_posse;
+      continue;
+    }
+    resultado.push({ ...t, csatNoMeio: false });
+  }
+  return resultado;
 }
 
 // Valores reais de crisp_conversations.status são "pending"/"resolved".
@@ -166,7 +201,7 @@ export function AtendimentoDetalheDialog({ atendimento: c, onClose }: Atendiment
           <p className="mt-1 text-sm text-ink/50">Sem histórico de atribuição registrado.</p>
         ) : (
           <ul className="mt-2 space-y-2">
-            {timeline.map((t, i) => {
+            {mesclarTrechosDeCsat(timeline).map((t, i) => {
               const isGap = t.tipo !== "atendente";
               return (
                 <li
@@ -177,7 +212,23 @@ export function AtendimentoDetalheDialog({ atendimento: c, onClose }: Atendiment
                   )}
                 >
                   <div className="min-w-0">
-                    <p className={cn("truncate", isGap ? "italic text-ink/40" : "font-medium text-ink")}>{labelDoTrecho(t)}</p>
+                    <div className="flex items-center gap-2">
+                      <p className={cn("truncate", isGap ? "italic text-ink/40" : "font-medium text-ink")}>{labelDoTrecho(t)}</p>
+                      {t.csatNoMeio && t.tipo === "atendente" && (
+                        <Badge
+                          tone="info"
+                          className="shrink-0"
+                          title="Esse trecho passou por uma pausa curta de resolvido→reaberto no meio (fluxo automático da pesquisa de CSAT), sem trocar de atendente — juntado num campo só em vez de listar de novo."
+                        >
+                          CSAT
+                        </Badge>
+                      )}
+                      {t.tipo === "resolvido" && (
+                        <Badge tone="success" className="shrink-0" title="A conversa estava marcada como resolvida durante esse trecho — ninguém estava com o chamado.">
+                          Resolvido
+                        </Badge>
+                      )}
+                    </div>
                     <p className="truncate text-xs text-ink/50">
                       {new Date(t.atribuido_em).toLocaleString("pt-BR")}
                       {" → "}

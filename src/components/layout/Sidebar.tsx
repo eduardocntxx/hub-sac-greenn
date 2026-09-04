@@ -66,7 +66,7 @@ function NavItem({
           isActive
             ? highlight
               ? "bg-amber-500/90 text-ink"
-              : "bg-forest-500/10 text-forest-100"
+              : "relative bg-gradient-to-r from-teal-500/15 to-forest-500/10 text-forest-100 before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-teal-400"
             : "text-white/60 hover:bg-white/5 hover:text-white/90"
         )
       }
@@ -106,7 +106,7 @@ export function Sidebar() {
       )}
     >
       <div className="flex h-16 items-center gap-2 px-4">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-forest-500 text-white">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-forest-500 text-white ring-2 ring-white/10">
           <Leaf size={18} />
         </div>
         <span
@@ -158,7 +158,7 @@ export function Sidebar() {
           });
         }}
         title={fixado ? "Desafixar sidebar" : "Fixar sidebar expandida"}
-        className="m-2 flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs text-white/60 transition-colors hover:bg-white/5 hover:text-white"
+        className="m-2 flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs text-white/60 transition-[background-color,color,transform] active:scale-[0.97] hover:bg-white/5 hover:text-white"
       >
         {fixado ? <ChevronsLeft size={16} /> : <ChevronsRight size={16} />}
         <span className={cn("transition-opacity duration-200", collapsed ? "opacity-0" : "opacity-100")}>

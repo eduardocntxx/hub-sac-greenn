@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 interface DialogProps {
@@ -27,23 +28,29 @@ export function Dialog({ onClose, children, className }: DialogProps) {
   }, [onClose]);
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.15, ease: "easeOut" }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
     >
-      <div
+      <motion.div
         ref={ref}
+        initial={{ opacity: 0, scale: 0.96, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          "w-full max-w-xl rounded-2xl border border-sand-line bg-sand-surface p-5 shadow-float outline-none",
+          "w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl border border-sand-line bg-sand-surface p-5 shadow-float outline-none",
           className
         )}
       >
         {children}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

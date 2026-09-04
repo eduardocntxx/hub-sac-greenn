@@ -142,9 +142,9 @@ export default function Login() {
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-sand-bg to-forest-500/10 px-4">
       <BlobsFundo />
-      <Card className="relative w-full max-w-md p-6 shadow-float">
+      <Card className="relative w-full max-w-md p-6 shadow-float" accent>
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-forest-500 text-white">
+          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-forest-600 text-white shadow-glow">
             <Leaf size={22} />
           </div>
           <h1 className="font-display text-lg font-semibold text-ink">Hub SAC Greenn</h1>
@@ -194,7 +194,7 @@ export default function Login() {
                   required
                   value={recEmail}
                   onChange={(e) => setRecEmail(e.target.value)}
-                  className="w-full rounded-lg border border-sand-line bg-sand-surface px-3 py-2 text-sm outline-none focus:border-forest-500"
+                  className="w-full rounded-lg border border-sand-line bg-sand-surface px-3 py-2 text-sm outline-none transition-shadow focus:border-forest-500 focus:ring-2 focus:ring-forest-500/20"
                   placeholder="voce@greenn.com.br"
                 />
               </div>
@@ -300,7 +300,7 @@ export default function Login() {
                   <label className="mb-1 block text-sm font-medium text-ink">Nome</label>
                   <input
                     {...registerSignUp("nome")}
-                    className="w-full rounded-lg border border-sand-line bg-sand-surface px-3 py-2 text-sm outline-none focus:border-forest-500"
+                    className="w-full rounded-lg border border-sand-line bg-sand-surface px-3 py-2 text-sm outline-none transition-shadow focus:border-forest-500 focus:ring-2 focus:ring-forest-500/20"
                     placeholder="Seu nome completo"
                   />
                   {errorsSignUp.nome && <p className="mt-1 text-xs text-rust-500">{errorsSignUp.nome.message}</p>}
@@ -309,7 +309,7 @@ export default function Login() {
                   <label className="mb-1 block text-sm font-medium text-ink">E-mail</label>
                   <input
                     {...registerSignUp("email")}
-                    className="w-full rounded-lg border border-sand-line bg-sand-surface px-3 py-2 text-sm outline-none focus:border-forest-500"
+                    className="w-full rounded-lg border border-sand-line bg-sand-surface px-3 py-2 text-sm outline-none transition-shadow focus:border-forest-500 focus:ring-2 focus:ring-forest-500/20"
                     placeholder={`voce${DOMINIO_PERMITIDO}`}
                   />
                   {errorsSignUp.email && <p className="mt-1 text-xs text-rust-500">{errorsSignUp.email.message}</p>}
