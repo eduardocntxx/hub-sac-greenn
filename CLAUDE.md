@@ -5035,6 +5035,65 @@ aba nova — reforça que testar numa aba já aberta durante edição
 multi-passo não é confiável neste projeto, sempre abrir uma nova antes
 de reportar como validado.
 
+**Preparação de deploy em 2026-09-04 (mesmo dia, mais tarde) — primeira
+vez que este projeto sai do localhost, indo pra Vercel:** usuário pediu
+deploy explicitamente com um pedido de cuidado com segurança. Auditoria
+antes de mexer em qualquer coisa:
+- **Achado real, corrigido**: um export de workflow do n8n
+  (`Widget CSAT _ Edu (1).json`, 74KB) estava solto na raiz do projeto,
+  não rastreado pelo git, com um token real embutido (`bearer_cx`, um
+  UUID). Nunca foi commitado (confirmado via `git log --diff-filter=A`
+  no histórico inteiro), mas ficaria exposto no primeiro `git add .`/`-A`
+  sem `--` explícito de arquivo. Adicionado ao `.gitignore`
+  (`Widget CSAT _ Edu*.json`) — arquivo continua no disco do usuário
+  (decisão dele apagar ou não), só não entra mais em nenhum commit futuro
+  por acidente.
+- **Confirmado limpo**: `.env` nunca foi commitado (mesmo tipo de
+  checagem no histórico), nenhuma chave/URL do Supabase hardcoded em
+  `src/` (só via `import.meta.env.VITE_SUPABASE_*`, como já documentado).
+- **Risco real de build na Vercel, corrigido**: o conflito de peer
+  dependency já documentado (vite 8 vs. `@vitejs/plugin-react`, que não
+  declara suporte a vite 8) faz `npm install` puro falhar com `ERESOLVE`
+  — hoje só instala com `--legacy-peer-deps`. Sem tratar isso, o build na
+  Vercel quebraria na instalação. Criado `vercel.json` na raiz:
+  `installCommand: "npm install --legacy-peer-deps"` +
+  `buildCommand`/`outputDirectory` explícitos + `rewrites` pra servir
+  `index.html` em qualquer rota (obrigatório pra SPA com React Router —
+  sem isso, recarregar a página em `/csat` daria 404 na Vercel). Também
+  adicionado `engines.node: ">=18"` no `package.json`, pelo mesmo motivo
+  já documentado na seção 3 sobre Node antigo quebrar o `??` do `tsc`.
+- **Pendências que só o usuário consegue resolver** (fora do alcance
+  desta sessão, sem acesso a credenciais externas): (1) criar/conectar o
+  projeto na Vercel (dashboard ou CLI autenticada — nenhuma das duas
+  disponível nesta sessão) e configurar `VITE_SUPABASE_URL`/
+  `VITE_SUPABASE_ANON_KEY` nas variáveis de ambiente do projeto Vercel
+  (mesmos valores do `.env` local — são a anon key pública, seguro expor
+  no client por design, RLS é a barreira real, ver seção 21); (2) depois
+  de ter o domínio real da Vercel, adicionar esse domínio em Supabase
+  Dashboard → Authentication → URL Configuration → Redirect URLs, senão
+  "Esqueci minha senha"/login Google (que usam
+  `redirectTo: window.location.origin + ...`, `src/pages/Login.tsx`)
+  falham silenciosamente em produção; (3) login com Google continua
+  precisando da configuração externa já documentada na seção 10
+  (2026-08-31) — client ID/secret no Google Cloud + painel do Supabase.
+- **Reconciliação de git**: branch `att/listagem-e-paginacao` tinha a
+  sessão inteira não commitada. Descoberto no processo que `main` remoto
+  já é o branch de integração ativo do projeto (4 PRs reais já
+  mergeadas, a mais recente idêntica à ponta do branch de trabalho) — não
+  um branch abandonado como cheguei a supor a princípio. Usuário pediu
+  pra apagar o `main` e criar um branch "prod" novo; expliquei que
+  "produção" na Vercel é uma configuração (qual branch apontar), não
+  depende do nome do branch, e que apagar o branch default do GitHub tem
+  mais fricção (GitHub não deixa sem trocar o default primeiro) sem
+  nenhum ganho real — usuário concordou em usar `main` como está.
+  Commitado tudo (`60e953b`), enviado pro branch de trabalho, `main`
+  local avançado até bater com o remoto (`git merge --ff-only`), branch
+  de trabalho mesclado em `main` (`git merge --no-ff`, sem conflito — a
+  ponta do branch de trabalho já descendia do que tinha acabado de virar
+  a ponta do `main`), build de produção conferido de novo depois do
+  merge, `main` enviado (`069f8ec`). Nenhum branch apagado, nenhum
+  force-push usado.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
