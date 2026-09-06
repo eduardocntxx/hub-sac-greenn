@@ -222,7 +222,7 @@ export default function Home() {
               </div>
               <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-sand-bg">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-teal-500 to-forest-500 transition-[width] duration-500 ease-out"
+                  className="h-full rounded-full bg-forest-500 transition-[width] duration-500 ease-out"
                   style={{ width: `${progresso}%` }}
                 />
               </div>

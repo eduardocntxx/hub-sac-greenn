@@ -3,6 +3,8 @@ dist
 .env
 .env.local
 *.tsbuildinfo
+.vercel
+.design-sync
 
 # Exports de workflow do n8n (fora deste repo por convenção — contêm token
 # real de webhook) e outros arquivos avulsos que às vezes caem na raiz do

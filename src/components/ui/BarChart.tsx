@@ -9,13 +9,12 @@ export interface BarChartDatum {
 
 // Faixas padrão pra valores 0–100 (%): verde = bom, amber = médio, rust = baixo.
 // Gráficos com outra escala (nota 0–5, 0–10...) devem passar getColorClass próprio.
-// Gradiente em vez de cor sólida — mantém o mesmo semáforo (verde/amber/
-// rust), só com mais profundidade; nunca usar teal aqui, essa cor não
-// carrega o significado "bom/médio/ruim" que o resto da plataforma espera.
+// Cor sólida (redesign 2026-09-05, antes gradiente) — mais plano/minimalista;
+// mantém o mesmo semáforo (verde/amber/rust).
 export function corPorFaixa(value: number, alto = 80, medio = 50) {
-  if (value >= alto) return "bg-gradient-to-r from-forest-600 to-forest-400";
-  if (value >= medio) return "bg-gradient-to-r from-amber-600 to-amber-400";
-  return "bg-gradient-to-r from-rust-600 to-rust-400";
+  if (value >= alto) return "bg-forest-500";
+  if (value >= medio) return "bg-amber-500";
+  return "bg-rust-500";
 }
 
 // Delay escalonado por índice, com teto — sem o teto, a última barra de

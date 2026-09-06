@@ -3,15 +3,20 @@
 @tailwind utilities;
 
 @layer base {
+  /* Paleta neutra fria (redesign 2026-09-05) — antes um cinza levemente
+     quente ("sand"/areia); trocado por uma escala neutra fria (família
+     zinc), mais alinhada ao tom minimalista/refinado escolhido. Os nomes
+     de classe (ink/sand) foram mantidos — só os valores mudaram — porque
+     estão espalhados por centenas de usos no código. */
   :root {
-    --color-ink: 34 34 34;
-    --color-ink-soft: 125 125 125;
-    --color-ink-tertiary: 154 154 154;
-    --color-sand-bg: 247 248 246;
+    --color-ink: 24 24 27;
+    --color-ink-soft: 113 113 122;
+    --color-ink-tertiary: 161 161 170;
+    --color-sand-bg: 250 250 250;
     --color-sand-surface: 255 255 255;
-    --color-sand-subtle: 241 242 239;
-    --color-sand-line: 232 232 232;
-    --color-sand-line-strong: 216 216 216;
+    --color-sand-subtle: 244 244 245;
+    --color-sand-line: 228 228 231;
+    --color-sand-line-strong: 212 212 216;
     color-scheme: light;
   }
 
@@ -20,14 +25,14 @@
      errado) — resolve "seguir o sistema" em JS, então o CSS só precisa
      saber sobre a classe, nunca de prefers-color-scheme diretamente. */
   .dark {
-    --color-ink: 238 240 242;
-    --color-ink-soft: 156 163 175;
-    --color-ink-tertiary: 107 114 128;
-    --color-sand-bg: 20 22 26;
-    --color-sand-surface: 28 31 36;
-    --color-sand-subtle: 36 40 48;
-    --color-sand-line: 50 55 63;
-    --color-sand-line-strong: 69 76 86;
+    --color-ink: 244 244 245;
+    --color-ink-soft: 161 161 170;
+    --color-ink-tertiary: 113 113 122;
+    --color-sand-bg: 9 9 11;
+    --color-sand-surface: 20 20 23;
+    --color-sand-subtle: 30 30 34;
+    --color-sand-line: 39 39 42;
+    --color-sand-line-strong: 63 63 70;
     color-scheme: dark;
   }
 
@@ -66,17 +71,6 @@
     background-color: rgb(255 255 255 / 0.32);
   }
 
-  /* Blobs de fundo da tela de login — flutuação sutil, desativada quando o
-     usuário pede menos movimento. */
-  @keyframes blob-float {
-    0%, 100% { transform: translate(0, 0) scale(1); }
-    33% { transform: translate(30px, -35px) scale(1.08); }
-    66% { transform: translate(-25px, 20px) scale(0.94); }
-  }
-  .animate-blob-float {
-    animation: blob-float 20s ease-in-out infinite;
-  }
-
   /* Sweep de brilho nos esqueletos de carregamento (substitui o pulse plano). */
   @keyframes shimmer {
     0% { transform: translateX(-100%); }
@@ -87,9 +81,6 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .animate-blob-float {
-      animation: none;
-    }
     .animate-shimmer {
       animation: none;
     }

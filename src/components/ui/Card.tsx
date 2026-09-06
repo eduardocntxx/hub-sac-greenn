@@ -2,8 +2,7 @@ import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
-  // Barra de destaque (gradiente teal→forest) no topo do card — mesmo
-  // motivo visual do metricCard() do relatório PPTX. Uso pontual em
+  // Barra de destaque sólida (forest) no topo do card — uso pontual em
   // cards de destaque (Login, gráfico de evolução da Home), não em
   // todo card — por isso opcional e default false.
   accent?: boolean;
@@ -22,7 +21,7 @@ export function Card({ className, accent, children, ...props }: CardProps) {
       {accent && (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-teal-400 to-forest-500"
+          className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-forest-500"
         />
       )}
       {children}

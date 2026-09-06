@@ -5094,6 +5094,73 @@ antes de mexer em qualquer coisa:
   merge, `main` enviado (`069f8ec`). Nenhum branch apagado, nenhum
   force-push usado.
 
+**Redesign visual completo em 2026-09-05 — identidade "do zero",
+minimalista/refinada, substituindo o upgrade teal+Poppins de
+2026-09-04:** pedido explícito do usuário ("repaginação visual... tudo").
+Decisão confirmada com o usuário antes de mexer: manter `forest` (verde)
+como cor de marca — é a identidade da própria empresa ("Greenn"), não um
+acréscimo estilístico como o teal tinha sido — e reconstruir o resto
+(tipografia, neutros, sombras, gradientes decorativos) do zero. Mudança
+concentrada nos tokens de design + componentes compartilhados
+(`tailwind.config.ts`, `src/index.css`, `index.html`, `src/components/ui/*`)
+porque é isso que cascateia pra quase todas as ~40 páginas sem precisar
+editar cada uma — só `Sidebar.tsx`/`Home.tsx`/`Login.tsx` (as "portas de
+entrada" mais visíveis, mesmo critério já usado no upgrade anterior)
+tiveram edição própria.
+
+- **Tipografia**: Poppins (display) + Inter (body) → **Sora única** para
+  as duas classes (`font-display`/`font-body`), pesos 400–800. Uma só voz
+  tipográfica, mais alinhado ao tom minimalista escolhido do que duas
+  fontes competindo.
+- **Neutros (ink/sand)**: reescala de um cinza levemente quente (`247 248
+  246`) pra uma escala fria/neutra (família "zinc"), nos dois temas —
+  claro e escuro. Nomes de classe (`sand-bg`, `sand-surface` etc.)
+  mantidos, só os valores RGB das variáveis CSS mudaram.
+- **Cor removida**: `teal` (o acento secundário de 2026-09-04, `#2FE0C8`)
+  foi completamente removida do app ao vivo — decisão consciente de
+  "começar do zero" na identidade. Achados via varredura (`grep -rn
+  teal`): usada em 5 lugares (`Card` accent bar, `Sidebar` nav ativo,
+  `Home` barra de progresso de Missões, `Login` badge do logo, `Badge`
+  tone `"accent"` — removida do tipo `Tone`, não tinha nenhum uso real em
+  nenhuma tela). **Não tocado de propósito**: `src/lib/exportPptx.ts` e
+  `RelatorioResultadosSac.tsx` (relatório PPTX/PDF da Reunião de
+  Resultados) continuam com Poppins+teal — é uma identidade de impressão
+  já aprovada separadamente (ver 2026-09-04 acima), fora do escopo do
+  redesign do app.
+- **Gradientes decorativos → cor sólida**: princípio geral do tom
+  minimalista/refinado escolhido (vs. "moderno com mais personalidade").
+  Trocados por sólido: barra de destaque de `Card accent` (era
+  teal→forest), semáforo `corPorFaixa()` do `BarChart`/`HorizontalBarChart`
+  (era gradiente 600→400 por faixa, agora um tom 500 sólido — afeta todo
+  gráfico que usa esse helper, sem precisar editar cada tela), item ativo
+  da `Sidebar` (era gradiente + barra lateral de 3px, um padrão
+  identificado como "trope" de design genérico — virou preenchimento
+  sólido `forest-500/90`), fundo do Login (era gradiente sand→forest,
+  virou `bg-sand-bg` chapado) e a barra de progresso de Missões na Home.
+  O único gradiente que sobrou no app é funcional, não decorativo: o
+  sweep do `Skeleton` (shimmer de carregamento).
+- **Login sem blobs animados**: os 6 blobs coloridos com `blur-3xl` +
+  animação `blob-float` (adicionados como flourish em 2026-08-31) foram
+  removidos por completo — `BLOBS`/`BlobsFundo()` apagados de
+  `Login.tsx`, `@keyframes blob-float`/`.animate-blob-float` apagados de
+  `index.css` (inclusive do bloco `prefers-reduced-motion`, que não
+  precisa mais desativar algo que não existe). Logo do topo do card
+  também perdeu o `shadow-glow` (halo) — token removido inteiro de
+  `tailwind.config.ts`, não tinha nenhum outro uso.
+- **Sombras mais rasas**: `shadow-card`/`shadow-card-hover`/`shadow-soft`/
+  `shadow-float` recalculadas com opacidade/blur menores e tinta neutra
+  (antes usavam verde `rgba(15,45,35,...)` forte) — efeito mais "flat",
+  menos "elevado", consistente com o tom minimalista.
+- **Validado**: `npx tsc -b --noEmit` limpo, `npm run build` sem erro,
+  CSS final conferido (0 ocorrências de `teal`, `Sora` presente, valores
+  novos de `--color-sand-bg` nos dois temas), servidor de dev sobe e
+  responde `200`. **Não validado visualmente em navegador** — esta sessão
+  não tinha ferramenta de captura de tela/browser disponível; a
+  verificação foi por build limpo + CSS gerado, não por inspeção visual
+  pixel a pixel. Recomendado abrir o app localmente e conferir Login/Home/
+  Overview/CSAT nos dois temas antes de considerar o redesign
+  definitivamente fechado.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
@@ -5166,14 +5233,19 @@ antes de mexer em qualquer coisa:
 ## 13. Convenções de UI/UX
 
 - **Paleta**: `forest` (verde, cor de marca — ações primárias, destaque de
-  sucesso), `sand` (fundo/superfície neutros), `amber` (alerta/atenção),
-  `rust` (erro/perigo), `sky` (informação), `violet` (ausência/férias/
-  folga), `teal` (acento secundário, desde 2026-09-04 — mesmo `#2FE0C8`
-  aprovado na identidade do relatório PPTX/PDF; uso pontual — logo do
-  Login, barra de destaque de `Card accent`, pílula do Ranking/gráficos
-  nunca — "selecionado/ativo" continua sendo semântica do forest em toda
-  a plataforma). Definidas em `tailwind.config.ts`, nunca usar cores hex
-  soltas no JSX — sempre pelas classes do tema.
+  sucesso), `sand` (fundo/superfície neutros — redesign 2026-09-05: escala
+  fria/neutra, família "zinc", não mais um cinza levemente quente), `amber`
+  (alerta/atenção), `rust` (erro/perigo), `sky` (informação), `violet`
+  (ausência/férias/folga). **`teal` foi removida** no redesign de
+  2026-09-05 (era o acento secundário adicionado em 2026-09-04) — não
+  reintroduzir sem decisão explícita; "selecionado/ativo" é sempre
+  semântica do forest em toda a plataforma. Definidas em
+  `tailwind.config.ts`, nunca usar cores hex soltas no JSX — sempre pelas
+  classes do tema. **Preferir cor sólida a gradiente** (redesign 2026-09-05,
+  tom minimalista/refinado) — gradientes decorativos (barra de destaque de
+  `Card accent`, semáforo de `corPorFaixa`, nav ativo da Sidebar, fundo do
+  Login) foram todos trocados por cor sólida; o único gradiente que
+  sobrou é funcional (sweep do `Skeleton`/shimmer), não decorativo.
 - **Modo escuro** (desde 2026-08-31, ver seção 10 para o histórico
   completo): `ink`/`sand` são variáveis CSS (`.dark` em `<html>` troca o
   valor), então `bg-sand-surface`/`text-ink`/`border-sand-line` já
@@ -5184,25 +5256,33 @@ antes de mexer em qualquer coisa:
   de um par manual `dark:bg-{cor}-500/15 dark:text-{cor}-400` toda vez
   que forem usados — não existe atalho automático pra esse padrão
   específico (ver `Badge.tsx`/`Avatar.tsx` como referência).
-- **Tipografia**: Poppins + Inter como fallback (`font-display`, pesos
-  600/700/800 — desde 2026-09-04, mesma fonte do relatório PPTX/PDF),
-  Inter sozinho (`font-body`), IBM Plex Mono (`font-mono`, não usado hoje
-  em nenhuma tela identificada). Tamanhos semânticos custom: `text-display`,
-  `text-card-title`, `text-legenda`, `text-kpi-lg`, `text-micro`.
+- **Tipografia**: `Sora` como única família (`font-display` e `font-body`
+  apontam pra ela — redesign 2026-09-05, substituiu o par Poppins/Inter),
+  pesos 400/500/600/700/800, diferenciação entre display/body é só
+  peso/tamanho, não fonte diferente. IBM Plex Mono (`font-mono`) continua
+  não usado em nenhuma tela identificada. Tamanhos semânticos custom:
+  `text-display`, `text-card-title`, `text-legenda`, `text-kpi-lg`,
+  `text-micro`. O relatório exportável (PPTX/PDF da Reunião de Resultados,
+  `exportPptx.ts`/`RelatorioResultadosSac.tsx`) continua **de propósito**
+  na identidade anterior (Poppins, teal `#2FE0C8`) — é um artefato de
+  impressão com identidade própria já aprovada, fora do escopo do redesign
+  do app ao vivo (ver seção 10, 2026-09-05).
 - **Raio de borda**: `rounded-xl`/`rounded-2xl` em praticamente todo
   elemento (cards, inputs, botões, modais) — nunca `rounded-none`/`rounded-sm`
   sem motivo.
 - **Sombras**: `shadow-card` (base), `shadow-soft`, `shadow-float` (modais,
-  sidebar expandida), `shadow-glow` (halo teal, uso pontual — logo do
-  Login) — não usar `shadow-lg`/`shadow-xl` padrão do Tailwind.
+  sidebar expandida) — valores mais rasos/neutros desde o redesign de
+  2026-09-05 (antes tinham tinta verde forte). `shadow-glow` foi **removida**
+  junto com o teal — não usar `shadow-lg`/`shadow-xl` padrão do Tailwind.
 - **Motion**: `framer-motion` já é dependência instalada — usar em vez de
   CSS `@keyframes` sempre que a animação depende de estado React (entrada/
   saída condicional, `layoutId` pra elemento que desliza entre posições).
-  `@keyframes` em `index.css` (`blob-float`, `shimmer`) só faz sentido pra
-  animação puramente decorativa e sempre-ativa, sem estado. Toda animação
-  nova (própria ou herdada de `prefers-reduced-motion`) precisa continuar
-  funcionando com `prefers-reduced-motion: reduce` — ver o bloco já
-  existente em `index.css`.
+  `@keyframes` em `index.css` (hoje só `shimmer`, do Skeleton — os blobs
+  decorativos do Login foram removidos no redesign de 2026-09-05) só faz
+  sentido pra animação puramente decorativa e sempre-ativa, sem estado.
+  Toda animação nova (própria ou herdada de `prefers-reduced-motion`)
+  precisa continuar funcionando com `prefers-reduced-motion: reduce` — ver
+  o bloco já existente em `index.css`.
 - **Layout de página**: container global `max-w-[1600px]` centralizado
   (`AppLayout.tsx`), sidebar fixa recolhível (72px colapsada, 240px
   expandida, expande no hover ou fixada por clique).

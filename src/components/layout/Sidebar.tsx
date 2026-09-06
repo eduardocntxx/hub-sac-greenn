@@ -66,7 +66,7 @@ function NavItem({
           isActive
             ? highlight
               ? "bg-amber-500/90 text-ink"
-              : "relative bg-gradient-to-r from-teal-500/15 to-forest-500/10 text-forest-100 before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-teal-400"
+              : "bg-forest-500/90 text-white"
             : "text-white/60 hover:bg-white/5 hover:text-white/90"
         )
       }

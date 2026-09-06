@@ -30,29 +30,6 @@ const signUpSchema = z
   });
 type SignUpForm = z.infer<typeof signUpSchema>;
 
-const BLOBS = [
-  { cor: "bg-forest-500", pos: "-left-24 -top-24", tam: "h-80 w-80", delay: "0s" },
-  { cor: "bg-sky-500", pos: "-right-20 top-10", tam: "h-64 w-64", delay: "-4s" },
-  { cor: "bg-violet-500", pos: "-bottom-28 -left-16", tam: "h-96 w-96", delay: "-8s" },
-  { cor: "bg-amber-500", pos: "-bottom-20 right-0", tam: "h-72 w-72", delay: "-12s" },
-  { cor: "bg-rust-500", pos: "left-1/3 top-0", tam: "h-56 w-56", delay: "-16s" },
-  { cor: "bg-forest-300", pos: "right-1/4 bottom-0", tam: "h-64 w-64", delay: "-6s" },
-];
-
-function BlobsFundo() {
-  return (
-    <div className="pointer-events-none fixed inset-0 overflow-hidden">
-      {BLOBS.map((b, i) => (
-        <div
-          key={i}
-          className={`animate-blob-float absolute rounded-full opacity-[0.12] blur-3xl ${b.cor} ${b.pos} ${b.tam}`}
-          style={{ animationDelay: b.delay }}
-        />
-      ))}
-    </div>
-  );
-}
-
 export default function Login() {
   const { user, login, loading, error: profileError } = useAuth();
   const [aba, setAba] = useState<"entrar" | "criar-conta">("entrar");
@@ -140,11 +117,10 @@ export default function Login() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-sand-bg to-forest-500/10 px-4">
-      <BlobsFundo />
+    <div className="relative flex min-h-screen items-center justify-center bg-sand-bg px-4">
       <Card className="relative w-full max-w-md p-6 shadow-float" accent>
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-forest-600 text-white shadow-glow">
+          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-forest-600 text-white">
             <Leaf size={22} />
           </div>
           <h1 className="font-display text-lg font-semibold text-ink">Hub SAC Greenn</h1>

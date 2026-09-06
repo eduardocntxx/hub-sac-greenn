@@ -61,23 +61,17 @@ export default {
           600: "#71679C",
           700: "#584F7A",
         },
-        // Acento secundário — mesmo valor de #2FE0C8 já aprovado na
-        // identidade visual do relatório PPTX/PDF (src/lib/exportPptx.ts),
-        // pra o app ao vivo e o relatório exportado lerem como o mesmo
-        // produto. Uso pontual (logo do Login, barra de destaque nos
-        // cards) — "selecionado/ativo" continua sendo semântica do forest.
-        teal: {
-          50: "#E1FBF6",
-          400: "#5EE8D2",
-          500: "#2FE0C8",
-          600: "#20B7A3",
-          700: "#187F73",
-        },
         success: "#4CAF50",
       },
       fontFamily: {
-        display: ["'Poppins'", "'Inter'", "system-ui", "sans-serif"],
-        body: ["'Inter'", "system-ui", "sans-serif"],
+        // Uma única voz tipográfica para o app inteiro (redesign 2026-09-05,
+        // substitui o par Poppins/Inter) — display e body usam a mesma
+        // família, diferenciados só por peso/tamanho, princípio de
+        // minimalismo refinado. Manter os dois nomes de utilitário (não
+        // colapsar em um só) porque ~180 usos de font-display/font-body no
+        // código já esperam essas duas classes.
+        display: ["'Sora'", "ui-sans-serif", "system-ui", "sans-serif"],
+        body: ["'Sora'", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       fontSize: {
         display: ["2rem", { lineHeight: "1.25", fontWeight: "700" }],
@@ -90,13 +84,14 @@ export default {
         xl: "0.75rem",
         "2xl": "1rem",
       },
+      // Sombras mais rasas e neutras (redesign 2026-09-05) — o conjunto
+      // anterior usava tinta verde forte e um "glow" decorativo, mais
+      // "produto com personalidade" do que minimalista refinado.
       boxShadow: {
-        card: "0 1px 3px rgba(15,45,35,0.06), 0 1px 2px rgba(15,45,35,0.04)",
-        "card-hover": "0 8px 24px -6px rgba(15,45,35,0.14), 0 2px 6px rgba(15,45,35,0.06)",
-        soft: "0 4px 18px rgba(15,45,35,0.06)",
-        float: "0 16px 40px -8px rgba(15,45,35,0.22)",
-        // Uso pontual (logo do Login) — não vira sombra padrão de card.
-        glow: "0 0 0 1px rgba(47,224,200,0.18), 0 10px 30px -8px rgba(47,224,200,0.35)",
+        card: "0 1px 2px rgba(15,23,21,0.04)",
+        "card-hover": "0 4px 12px -4px rgba(15,23,21,0.10)",
+        soft: "0 2px 10px rgba(15,23,21,0.05)",
+        float: "0 12px 32px -12px rgba(15,23,21,0.18)",
       },
       transitionDuration: {
         DEFAULT: "150ms",

@@ -1,7 +1,7 @@
 import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
-type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "ausencia" | "brand" | "accent";
+type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "ausencia" | "brand";
 
 // Os tons "50" (fundo bem claro + texto escuro) são pensados pra superfície
 // clara — no dark mode viram um preenchimento translúcido da própria cor
@@ -16,7 +16,6 @@ const tones: Record<Tone, string> = {
   info: "bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/10 dark:bg-sky-500/15 dark:text-sky-400 dark:ring-sky-400/20",
   ausencia: "bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-600/10 dark:bg-violet-500/15 dark:text-violet-400 dark:ring-violet-400/20",
   brand: "bg-forest-700 text-white",
-  accent: "bg-teal-50 text-teal-700 ring-1 ring-inset ring-teal-600/10 dark:bg-teal-500/15 dark:text-teal-400 dark:ring-teal-400/20",
 };
 
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {

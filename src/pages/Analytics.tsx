@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Star, MessagesSquare, Timer, CheckCircle2, Lock, PhoneCall,
+  Star, MessagesSquare, Timer, CheckCircle2, Lock, PhoneCall, SlidersHorizontal,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Kpi } from "@/components/ui/Kpi";
@@ -26,6 +26,7 @@ import {
 import { resolvePeriodo, periodoAnterior, type PeriodoPreset } from "@/lib/dateRanges";
 import { formatDuration } from "@/lib/formatDuration";
 import { DateRangePopover } from "@/components/ui/DateRangePopover";
+import { cn } from "@/lib/utils";
 
 // Valores reais de crisp_conversations.status são "pending"/"resolved".
 const statusLabel: Record<string, string> = { resolved: "Resolvido", pending: "Pendente" };
@@ -77,6 +78,7 @@ export default function Analytics() {
   const [granularidade, setGranularidade] = usePersistedState<"day" | "week" | "month">("analytics:granularidade", "day");
   const [rankingOrdenarPor, setRankingOrdenarPor] = useState<RankingCampo | undefined>(undefined);
   const [rankingDirecao, setRankingDirecao] = useState<"asc" | "desc">("desc");
+  const [filtroAberto, setFiltroAberto] = useState(false);
 
   function ordenarRankingPorColuna(campo: RankingCampo) {
     if (rankingOrdenarPor === campo) {
@@ -177,30 +179,66 @@ export default function Analytics() {
             Painel estratégico do SAC — dados reais, calculados no banco.
           </p>
         </div>
-        <DateRangePopover
-          preset={preset}
-          personalizado={personalizado}
-          onChangePreset={setPreset}
-          onChangePersonalizado={setPersonalizado}
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <DateRangePopover
+            preset={preset}
+            personalizado={personalizado}
+            onChangePreset={setPreset}
+            onChangePersonalizado={setPersonalizado}
+          />
+          <div className="relative">
+            {filtroAberto && <div className="fixed inset-0 z-10" onClick={() => setFiltroAberto(false)} />}
+            <button
+              onClick={() => setFiltroAberto((a) => !a)}
+              className={cn(
+                "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[13px] transition-colors",
+                operadorNome || canal || estado
+                  ? "border-forest-300 bg-forest-50 text-forest-700 dark:border-forest-500/40 dark:bg-forest-500/15 dark:text-forest-300"
+                  : "border-sand-line bg-sand-surface text-ink/60 hover:border-sand-line-strong"
+              )}
+            >
+              <SlidersHorizontal size={14} />
+              Filtros
+            </button>
+            {filtroAberto && (
+              <div className="absolute right-0 top-full z-20 mt-1.5 w-64 space-y-2 overflow-hidden rounded-xl border border-sand-line bg-sand-surface p-3 shadow-float">
+                <div>
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink/40">Operador</p>
+                  <select value={operadorNome} onChange={(e) => setOperadorNome(e.target.value)} className="h-9 w-full rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
+                    <option value="">Todos os operadores</option>
+                    {operadoresDisponiveis.map((nome) => (
+                      <option key={nome} value={nome}>{nome}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink/40">Canal</p>
+                  <select value={canal} onChange={(e) => setCanal(e.target.value)} className="h-9 w-full rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
+                    <option value="">Todos os canais</option>
+                    {(canaisDisponiveis ?? []).map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink/40">Status</p>
+                  <select value={estado} onChange={(e) => setEstado(e.target.value)} className="h-9 w-full rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
+                    <option value="">Todos os status</option>
+                    {statusOptions.map((s) => <option key={s} value={s}>{statusLabel[s] ?? s}</option>)}
+                  </select>
+                </div>
+                {(operadorNome || canal || estado) && (
+                  <button
+                    type="button"
+                    onClick={() => { setOperadorNome(""); setCanal(""); setEstado(""); }}
+                    className="w-full text-left text-[11px] text-forest-600 hover:underline"
+                  >
+                    Limpar filtros
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-
-      <Card className="flex flex-wrap items-center gap-2 p-3">
-        <select value={operadorNome} onChange={(e) => setOperadorNome(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
-          <option value="">Todos os operadores</option>
-          {operadoresDisponiveis.map((nome) => (
-            <option key={nome} value={nome}>{nome}</option>
-          ))}
-        </select>
-        <select value={canal} onChange={(e) => setCanal(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
-          <option value="">Todos os canais</option>
-          {(canaisDisponiveis ?? []).map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select value={estado} onChange={(e) => setEstado(e.target.value)} className="h-9 rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
-          <option value="">Todos os status</option>
-          {statusOptions.map((s) => <option key={s} value={s}>{statusLabel[s] ?? s}</option>)}
-        </select>
-      </Card>
 
       <div>
         <h2 className="mb-3 font-display text-sm font-semibold text-ink">Indicadores principais</h2>
