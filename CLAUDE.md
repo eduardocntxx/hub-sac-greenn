@@ -116,11 +116,18 @@ src/
   index.css                     → Tailwind + poucos overrides globais
 ```
 
-Não existe pasta `supabase/` com migrations neste repositório — o schema é
-gerenciado diretamente no projeto Supabase ("Hub SAC", project-ref
+O schema (tabelas, RLS, funções `security definer`) continua gerenciado
+diretamente no projeto Supabase ("Hub SAC", project-ref
 `riiwphsvqlatqtaqaemd` desde 2026-09-01 — projeto anterior "Centralização
-- SAC"/`cqcjfirnwpvisicdiuaf` migrado nessa data, ver seção 10), fora do
-controle de versão do frontend. Isso é um risco documentado (seção 20).
+- SAC"/`cqcjfirnwpvisicdiuaf` migrado nessa data, ver seção 10), **sem**
+migrations versionadas — risco documentado (seção 20). Desde 2026-09-08
+existe `supabase/functions/` neste repositório (baixado via `supabase
+functions download`, CLI autenticada com `supabase login` — ver seção 10),
+com o código-fonte real de `invite-user`/`self-signup`/`complete-oauth-
+signup`, mantido em sincronia manualmente (editar aqui e rodar `supabase
+functions deploy <nome> --project-ref riiwphsvqlatqtaqaemd` até esse fluxo
+virar CI). `supabase/.temp/` (cache local da CLI, criado por `supabase
+link`) está no `.gitignore` — nunca commitar.
 
 ## 5. Fluxo de autenticação
 
@@ -5196,6 +5203,93 @@ não compensava. **Confirmado com o usuário em 2026-09-08**: `yrzxx` é
 conta dele mesmo (outra máquina/perfil de git) — não precisa mais tratar
 como identidade desconhecida se aparecer de novo.
 
+**Bug real corrigido em 2026-09-08 — botão "Aprovar" (Administração →
+Usuários) sempre falhava, nunca tinha sido testado com usuário pendente
+real:** `aprovar(id)` chamava `upsertUser({ id, aprovado: true })`, que faz
+`.upsert()` (`INSERT ... ON CONFLICT (id) DO UPDATE`) — mesmo a linha já
+existindo (o caminho real sendo um UPDATE), o Postgres valida as colunas
+`NOT NULL` (`nome`, `email`, sem default) da linha candidata do INSERT
+antes de perceber que vai cair no conflito, e como o payload só mandava
+`id`+`aprovado`, a operação sempre falhava. Como `PostgrestError` não é
+`instanceof Error`, o catch sempre caía na mensagem genérica ("Não foi
+possível aprovar."), escondendo a causa real. Corrigido com `approveUser(id)`
+novo em `api.ts`, um `.update()` direto — `upsertUser` continua como
+estava, usado só pelo formulário de edição completo (que já manda todos os
+campos, nunca teve esse problema).
+
+**Incidente `complete-oauth-signup` resolvido em 2026-09-08 — causa raiz
+real encontrada (o mesmo bug em 3 funções) e as duas camadas do fix
+aplicadas:** continuação do incidente do Vittor (Auth apagado, entrada
+anterior nesta seção). Pela primeira vez neste projeto, autenticada a
+Supabase CLI (`supabase login`, rodado pelo usuário no próprio terminal —
+o fluxo de login por navegador não funciona dentro do shell não-interativo
+desta sessão, dá `Cannot use automatic login flow inside non-TTY
+environments` mesmo forçando um pseudo-terminal) e usado `supabase
+functions download`/`db query --linked` pra ler o código real, em vez de
+reconstruir por dedução.
+
+Confirmado: `complete-oauth-signup` checa usuário existente só por
+`auth_id` (nunca por e-mail) antes do insert, e em QUALQUER erro de
+insert — não só domínio inválido — apaga incondicionalmente o usuário do
+Auth recém-autenticado (`adminClient.auth.admin.deleteUser`). Foi
+exatamente isso que apagou o Auth do Vittor: o insert falhou por
+`users_email_key` (a linha "só de cobertura" dele já existia), caiu no
+mesmo branch de cleanup pensado só pra domínio inválido, e destruiu uma
+identidade real, não um órfão. **O mesmo padrão exato existe em
+`self-signup` e `invite-user`** — nenhuma das duas tinha sido citada no
+plano original, achadas só ao ler o código de verdade.
+
+Fix aplicado nas 3 (deployado via `supabase functions deploy <nome>
+--project-ref riiwphsvqlatqtaqaemd`):
+- `complete-oauth-signup`: busca por e-mail (`ilike`, com `%`/`_`
+  escapados pra não virarem coringa) antes do insert — se achar linha com
+  `auth_id null` (conta só-cobertura), faz `UPDATE` do `auth_id` nela e
+  pula o insert; se achar com `auth_id` de outra conta, erro 409 sem
+  sobrescrever; senão, segue o fluxo de sempre.
+- `invite-user`: mesma busca por e-mail antes de convidar — se achar
+  `auth_id null`, convida e vincula na linha existente (preserva jornada/
+  histórico já cadastrados) em vez de inserir do zero; se já tem
+  `auth_id`, recusa com 409 antes de gastar um convite.
+- `self-signup`: mesma busca, mas **nunca vincula automaticamente** —
+  diferente do Google (verificado pelo próprio provedor), aqui é só um
+  e-mail digitado + senha escolhida por quem preencheu o formulário, sem
+  garantia de que é o dono de fato. Só recusa com 409, antes de criar
+  qualquer coisa no Auth.
+
+**Segunda camada, achada só depois de ler o trigger de verdade:**
+`prevent_self_privilege_escalation()` reverte `auth_id`/`role_id`/
+`aprovado` sempre que `is_admin()` dá falso — e `is_admin()` depende de
+`auth.uid()`, que resolve `NULL` numa chamada feita com a service role key
+(a que toda Edge Function usa). Sem tratar isso, o `UPDATE` novo de
+`complete-oauth-signup`/`invite-user` "funcionaria" (sem erro) mas o
+trigger reverteria o `auth_id` pra `NULL` de novo, silenciosamente — a
+pessoa continuaria travada, agora sem nenhum erro pra avisar. Este é
+exatamente o risco já cogitado no plano original antes de ver o código
+("triggers do Postgres sempre disparam, independente de bypass de RLS ou
+status de service-role"). Corrigido adicionando `if auth.role() =
+'service_role' then return new; end if;` no topo do trigger (aplicado via
+`supabase db query --linked`) — seguro porque a service role key nunca é
+exposta ao cliente (só as 3 Edge Functions a têm), então não abre nenhum
+caminho novo de auto-escalação pelo navegador; só reconhece o backend como
+já-confiável, mesmo nível que `is_admin()` já concede. Ver seção 21.
+
+**Estado real confirmado por query direta (não suposição)**: no momento do
+fix, só "Eduardo Nicolau" existia em `auth.users` — o Vittor não tinha
+tentado logar de novo ainda (`auth_id` continua `null` na linha dele).
+Ana Franca, Ana Paula Maximiano de Souza e Ketlin Reis seguem no mesmo
+estado (`auth_id null`, `ativo true`) — não bateram no bug ainda só
+porque não tentaram logar, não porque estavam protegidas. Com o fix e o
+deploy já em produção, a expectativa é que a próxima tentativa de login
+via Google de qualquer uma delas vincule direto na linha existente, sem
+erro — **ainda não validado com um login real**, já que esta sessão não
+consegue passar pela SSO da JumpCloud da empresa.
+
+`supabase/functions/*` (as 3 funções) ficam versionadas neste repositório
+pela primeira vez a partir de agora (ver seção 4) — mantidas em sincronia
+manualmente (editar aqui, `supabase functions deploy` pra publicar); o SQL
+do trigger não tem migration própria (nenhuma migration é versionada neste
+projeto, ver seção 20), documentado só em prosa aqui mesmo.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
@@ -5573,6 +5667,16 @@ sabidamente incompleto por decisão de escopo (não é bug):
   `ProtectedRoute` já suportam adicionar novos perfis além de
   Admin/Colaborador sem refatoração estrutural (mas `mapDbUserToAppUser`
   hoje só reconhece dois valores — extensão real exigiria tratar isso).
+- **Triggers do Postgres disparam pra service role também — RLS bypass não
+  é trigger bypass.** `prevent_self_privilege_escalation()` (seção 5, item
+  8) reconhece `auth.role() = 'service_role'` como confiável (mesmo nível
+  de `is_admin()`) desde 2026-09-08 (ver seção 10), porque uma Edge
+  Function usando a service role key pra dar `UPDATE` em `public.users`
+  ainda dispara esse trigger — só ignora RLS, não os triggers da tabela.
+  Qualquer trigger novo em `users` que dependa de `is_admin()`/
+  `current_app_user_id()` precisa do mesmo tratamento explícito, senão
+  quebra silenciosamente (sem erro) qualquer Edge Function que precise
+  escrever nessas colunas.
 
 ## 22. Boas práticas que devem ser seguidas neste projeto
 
