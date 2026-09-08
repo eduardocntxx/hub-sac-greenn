@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -44,6 +45,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // getSession() (no mount) e onAuthStateChange disparam loadProfile quase
+  // juntos no mesmo login (INITIAL_SESSION + SIGNED_IN) — sem isso,
+  // completeOAuthSignup() roda 2x em paralelo pro mesmo usuário, as duas
+  // chamadas colidem no UPDATE da mesma linha, uma esbarra num erro
+  // passageiro de concorrência, e o catch dela apaga um Auth que a OUTRA
+  // chamada acabou de vincular com sucesso — foi isso que travou o Felipe
+  // num loop mesmo depois do primeiro fix. Uma promise compartilhada faz a
+  // segunda chamada só esperar a primeira terminar, em vez de duplicar.
+  const provisionamentoEmVoo = useRef<Promise<DbUser> | null>(null);
 
   async function loadProfile(session: Session | null) {
     if (!session?.user || !supabase) {
@@ -60,7 +70,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // caindo no erro explícito abaixo, sem tentar se auto-curar.
       if (!profile && session.user.app_metadata?.provider === "google") {
         try {
-          profile = await completeOAuthSignup();
+          if (!provisionamentoEmVoo.current) {
+            provisionamentoEmVoo.current = completeOAuthSignup().finally(() => {
+              provisionamentoEmVoo.current = null;
+            });
+          }
+          profile = await provisionamentoEmVoo.current;
         } catch (e) {
           setError(e instanceof Error ? e.message : "Não foi possível concluir o login com Google.");
           setUser(null);
