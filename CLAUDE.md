@@ -5161,6 +5161,41 @@ tiveram edição própria.
   Overview/CSAT nos dois temas antes de considerar o redesign
   definitivamente fechado.
 
+**Feature nova em 2026-09-06 — filtros do Analytics consolidados num
+botão:** a faixa de 3 `<select>` (operador/canal/status) que ficava
+sempre visível abaixo do cabeçalho virou um botão "Filtros" com
+popover, mesmo padrão já usado no Overview (`SlidersHorizontal`,
+destaque de borda quando algum filtro está ativo, botão "Limpar
+filtros" só quando necessário). `DateRangePopover` continua no
+cabeçalho, ao lado do botão novo.
+
+**Incidente de segurança encontrado e corrigido em 2026-09-06/07 —
+`.env` real commitado no `main`, repositório público:** ao tentar dar
+push do trabalho da sessão, o push foi rejeitado por não-fast-forward —
+`git fetch` revelou 2 commits no `main` remoto que não vieram desta
+sessão, de uma identidade `yrzxx` com o mesmo e-mail do usuário mas
+`git user.name` diferente do `eduardocntxx` usado no resto do histórico
+(já tinha aparecido antes como autor da PR #1, nunca totalmente
+esclarecido): um removia `.env` do `.gitignore`, o outro commitava o
+`.env` real. Confirmado antes de agir: repositório é **público**
+(`gh repo view` → `isPrivate: false`); o `.env` commitado só tinha
+`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` (sem chave de serviço ou
+outro segredo) — essa anon key já é pública por design nesta
+arquitetura (vai embutida no bundle JS que qualquer visitante do Hub já
+consegue ler; RLS é a barreira real, ver seção 21), então não era um
+segredo explorável, mas a prática enfraquecia a proteção pra qualquer
+coisa mais sensível que entre no `.env` no futuro. Corrigido com o
+usuário ciente (confirmado antes de mexer): merge dos commits do
+`yrzxx` pra trazer o histórico real, seguido de um commit restaurando
+`.env`/`.env.local` no `.gitignore` e `git rm --cached .env` (arquivo
+continua no disco local, só parou de ser versionado). Deliberadamente
+**não** reescrito o histórico público (`filter-repo`/force-push) pra
+apagar os commits antigos — dado que o valor exposto é seguro por
+design, o custo/risco de reescrever histórico de um repositório público
+não compensava. **Pendência**: identidade `yrzxx` ainda não confirmada
+com o usuário — se aparecer de novo fazendo push direto (sem PR) em
+`main`, vale confirmar se é mesmo uma conta dele antes de assumir.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
