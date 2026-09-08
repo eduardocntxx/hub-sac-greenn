@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Dialog } from "@/components/ui/Dialog";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { fetchUsers, fetchRoles, upsertUser, deleteUser, inviteUser } from "@/services/api";
+import { fetchUsers, fetchRoles, upsertUser, approveUser, deleteUser, inviteUser } from "@/services/api";
 import type { DbUser } from "@/types/database";
 
 const userSchema = z.object({
@@ -111,7 +111,7 @@ export default function AdminUsuarios() {
 
   async function aprovar(id: string) {
     try {
-      await upsertUser({ id, aprovado: true });
+      await approveUser(id);
       await queryClient.invalidateQueries({ queryKey: ["users"] });
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível aprovar.");
