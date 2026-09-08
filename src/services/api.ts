@@ -84,6 +84,17 @@ export async function upsertUser(user: Partial<DbUser> & { id?: string }) {
   return data as DbUser;
 }
 
+export async function approveUser(id: string) {
+  const { data, error } = await client()
+    .from("users")
+    .update({ aprovado: true })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as DbUser;
+}
+
 export async function updateOwnProfile(id: string, dados: { nome: string; cargo: string; equipe: string }) {
   const { data, error } = await client().from("users").update(dados).eq("id", id).select().single();
   if (error) throw error;
