@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Navigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -118,13 +119,19 @@ export default function Login() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-sand-bg px-4">
-      <Card className="relative w-full max-w-md p-6 shadow-float" accent>
-        <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-forest-600 text-white">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: "easeOut" }}
+        className="w-full max-w-md"
+      >
+      <Card className="relative w-full p-7 shadow-float" accent>
+        <div className="mb-7 flex flex-col items-center text-center">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-forest-600 text-white shadow-card ring-1 ring-inset ring-white/10">
             <Leaf size={22} />
           </div>
-          <h1 className="font-display text-lg font-semibold text-ink">Hub SAC Greenn</h1>
-          <p className="mt-1 text-sm text-ink/50">Plataforma interna do time de Suporte</p>
+          <h1 className="font-display text-xl font-bold tracking-tight text-ink">Hub SAC Greenn</h1>
+          <p className="mt-1.5 text-sm text-ink/50">Plataforma interna do time de Suporte</p>
         </div>
 
         {recuperando ? (
@@ -204,7 +211,7 @@ export default function Login() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full rounded-lg border border-sand-line bg-sand-surface px-3 py-2 text-sm outline-none focus:border-forest-500"
+                    className="w-full rounded-lg border border-sand-line bg-sand-surface px-3 py-2 text-sm outline-none transition-shadow focus:border-forest-500 focus:ring-2 focus:ring-forest-500/20"
                     placeholder="voce@greenn.com.br"
                   />
                 </div>
@@ -322,6 +329,7 @@ export default function Login() {
           </>
         )}
       </Card>
+      </motion.div>
     </div>
   );
 }
