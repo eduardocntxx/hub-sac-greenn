@@ -75,9 +75,26 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     if (porEmail) {
+      // auth_id preenchido pode estar órfão (aponta pra um auth.users que
+      // não existe mais — já aconteceu, causa desconhecida, log de
+      // auditoria do Supabase não guarda histórico) — nesse caso trata
+      // igual auth_id nulo, senão a pessoa fica travada num loop
+      // permanente de "e-mail já vinculado" contra uma conta que não
+      // existe de verdade.
+      // Checa data.user diretamente em vez de só `!error` — não dá pra
+      // confiar que a ausência do usuário sempre vem como error truthy
+      // (pode vir como error:null + data.user:null dependendo da versão
+      // do SDK), e foi exatamente esse ponto cego que deixou o Felipe
+      // preso num loop mesmo depois do primeiro fix.
+      let authIdAindaExiste = false;
       if (porEmail.auth_id) {
-        // E-mail já vinculado a outra conta — não sobrescreve o vínculo
-        // de outra pessoa.
+        const check = await adminClient.auth.admin.getUserById(porEmail.auth_id);
+        authIdAindaExiste = !check.error && !!check.data?.user;
+      }
+
+      if (porEmail.auth_id && authIdAindaExiste) {
+        // E-mail já vinculado a outra conta de verdade — não sobrescreve
+        // o vínculo de outra pessoa.
         await adminClient.auth.admin.deleteUser(authUser.id);
         return json({ error: "Este e-mail já está vinculado a outra conta." }, 409);
       }
@@ -88,7 +105,13 @@ Deno.serve(async (req: Request) => {
         .select()
         .single();
       if (updateError) {
-        await adminClient.auth.admin.deleteUser(authUser.id);
+        // Diferente do branch de domínio inválido/insert acima: aqui o
+        // Auth já é uma identidade real (Google confirmou o dono do
+        // e-mail), só não conseguiu vincular ainda — apagar destruiria
+        // uma conta válida por causa de um erro possivelmente passageiro
+        // (ex: duas chamadas concorrentes tentando o mesmo UPDATE — já
+        // aconteceu, causou o loop do Felipe). Só devolve o erro; a
+        // próxima tentativa usa o mesmo Auth e tenta vincular de novo.
         return json({ error: updateError.message }, 400);
       }
       return json({ user: vinculado }, 200);
