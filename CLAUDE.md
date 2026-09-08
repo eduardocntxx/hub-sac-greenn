@@ -5192,9 +5192,9 @@ continua no disco local, só parou de ser versionado). Deliberadamente
 **não** reescrito o histórico público (`filter-repo`/force-push) pra
 apagar os commits antigos — dado que o valor exposto é seguro por
 design, o custo/risco de reescrever histórico de um repositório público
-não compensava. **Pendência**: identidade `yrzxx` ainda não confirmada
-com o usuário — se aparecer de novo fazendo push direto (sem PR) em
-`main`, vale confirmar se é mesmo uma conta dele antes de assumir.
+não compensava. **Confirmado com o usuário em 2026-09-08**: `yrzxx` é
+conta dele mesmo (outra máquina/perfil de git) — não precisa mais tratar
+como identidade desconhecida se aparecer de novo.
 
 ## 12. Convenções de código
 
