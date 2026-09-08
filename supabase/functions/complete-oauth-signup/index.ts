@@ -75,9 +75,19 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     if (porEmail) {
-      if (porEmail.auth_id) {
-        // E-mail já vinculado a outra conta — não sobrescreve o vínculo
-        // de outra pessoa.
+      // auth_id preenchido pode estar órfão (aponta pra um auth.users que
+      // não existe mais — já aconteceu, causa desconhecida, log de
+      // auditoria do Supabase não guarda histórico) — nesse caso trata
+      // igual auth_id nulo, senão a pessoa fica travada num loop
+      // permanente de "e-mail já vinculado" contra uma conta que não
+      // existe de verdade.
+      const authIdAindaExiste = porEmail.auth_id
+        ? !(await adminClient.auth.admin.getUserById(porEmail.auth_id)).error
+        : false;
+
+      if (porEmail.auth_id && authIdAindaExiste) {
+        // E-mail já vinculado a outra conta de verdade — não sobrescreve
+        // o vínculo de outra pessoa.
         await adminClient.auth.admin.deleteUser(authUser.id);
         return json({ error: "Este e-mail já está vinculado a outra conta." }, 409);
       }
