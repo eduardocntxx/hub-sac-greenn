@@ -6,6 +6,10 @@ dist
 .vercel
 .design-sync
 
+# Estado local da Supabase CLI (link do projeto, cache de versões) — nunca
+# tem segredo de verdade, mas é específico da máquina, não do projeto.
+supabase/.temp
+
 # Exports de workflow do n8n (fora deste repo por convenção — contêm token
 # real de webhook) e outros arquivos avulsos que às vezes caem na raiz do
 # projeto por engano.
