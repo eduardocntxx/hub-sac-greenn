@@ -5333,6 +5333,80 @@ diagnóstico foi colado no chat e precisa ser revogado em
 supabase.com/dashboard/account/tokens (dá acesso à conta toda, 4 projetos
 em 2 organizações) — não foi gravado em nenhum arquivo.
 
+**Auditoria completa em 2026-09-21 (banco + segurança + frontend) e
+hardening aplicado:** feita só com leitura (Management API/CLI com PAT
+colado pelo usuário), projeto Hub SAC. **Aplicado (item 1, via `supabase db
+query --linked`, transação única):** `revoke execute on all functions in
+schema public from public, anon` + `grant execute ... to authenticated,
+service_role`; `alter default privileges for role postgres in schema public
+revoke execute on functions from anon` (não dá pra fazer o mesmo para
+`supabase_admin`, então função criada por esse role ainda nasce executável
+por `anon` — sempre conferir `has_function_privilege('anon', oid,
+'execute')` depois de criar RPC nova); view `v_reopened_count_real` com
+`security_invoker = true` e sem grant pra anon/authenticated (nenhuma
+função nem tela a usa mais); `revoke truncate, references, trigger` em todas
+as tabelas de `public` para anon/authenticated.
+
+Motivo: antes disso, qualquer pessoa **sem login** (a anon key está no JS
+público) lia a view (ignorava RLS), `colaboradores_online` (nome/cargo/
+horário dos colaboradores) e `dashboard_atendimento_summary` (métricas do
+time, CSAT médio), e chamava RPCs de escrita sem checagem de identidade
+(`marcar_conversa_resolvida`, `marcar_conversa_estado`,
+`resetar_csat_pending_se_livre`, `upsert_operator_alias`). Tabelas sensíveis
+(`crisp_conversations`, `csat_results`, `users`) já devolviam 0 linhas pra
+anon (RLS ok). O n8n usa só `service_role` (confirmado nos logs do
+gateway, inclusive `upsert_operator_alias`), então não foi afetado. Validado
+depois: sem login → HTTP 401 nas 4 rotas testadas; admin logado (JWT
+simulado, `set local role authenticated`) segue chamando as RPCs; gateway
+sem regressão (200/201/204 do n8n normais; os únicos `permission denied` nos
+logs foram os testes sem login). Rollback: `grant execute on all functions
+in schema public to anon; alter view public.v_reopened_count_real reset
+(security_invoker); grant all on public.v_reopened_count_real to anon,
+authenticated; grant truncate, references, trigger on all tables in schema
+public to anon, authenticated;`.
+
+**Achados da auditoria AINDA ABERTOS (nada disso foi alterado):**
+1. **Job de retenção de `crisp_messages` (fora deste repo, provável n8n)
+   apaga mensagens com mais de ~13 dias** (`delete ... using
+   crisp_conversations where current_started_at < $1`, precedido de `select
+   m.* ... order by m.id limit/offset`, 48–77 s por chamada). Em 21/09, 1.535
+   das 6.287 conversas já estavam sem nenhuma mensagem. 10 funções dependem
+   de `crisp_messages` (`_primeiras_respostas_humanas` — fonte de TODO o
+   TFR —, `relogio_espera_cliente`, `relogio_posse_periodo` Tier C,
+   `resposta_generica_*`, `tempo_resposta_bot`, `reopened_count_real_periodo`,
+   `atendimento_timeline`, `contagem_periodo`, `atendente_performance`), então
+   TFR/espera/IA-genérica perdem amostra em períodos com mais de ~13 dias
+   (afeta RR mensal e "Este ano"). Das 1.535 sem mensagem, 451 ainda têm
+   `first_human_response_at`/`first_human_operator_crisp_id` na própria
+   conversa — fallback possível. Não estava documentado antes.
+2. **Auth:** `disable_signup=false` sem hook de domínio (a checagem de
+   `@greenn.com.br` só existe na Edge Function `self-signup`; cadastro direto
+   em `/auth/v1/signup` a contorna) e nenhuma policy considera `aprovado`
+   (aprovação é só de UI); ~24 tabelas têm SELECT `using (true)` pra
+   qualquer `authenticated`. Sem SMTP customizado e `rate_limit_email_sent=2`
+   (2 e-mails/h no projeto todo; o SMTP padrão ainda pode só entregar a
+   membros da org) — recuperação de senha/convite podem não chegar.
+   `site_url` = `http://localhost:5173` e senha mínima do servidor = 6
+   (UI exige 8).
+3. **Frontend:** bundle único de 2,3 MB (669 kB gzip), zero lazy loading de
+   rota, `jspdf`/`pptxgenjs` importados estaticamente (até o Login baixa).
+4. **`dashboard_atendimento_summary`** (a RPC mais chamada, 34k chamadas,
+   ~1–1,7 s) ainda calcula `minutos_uteis_entre_time()` por linha e não usa
+   o cache `cobertura_semanal` das irmãs; como as outras, `operator_id_aliases`
+   (25 linhas) teve 136 milhões de seq scans por chamadas por linha
+   (`nome_canonico_por_operator_id`) — sintoma de custo por linha, ganho
+   pequeno se corrigido isolado.
+5. Compute é Micro (60 conexões): durante a própria auditoria (~10
+   consultas de 1–2 s em série) houve `statement timeout` em RPCs de um
+   usuário real e consultas do Studio de 17–26 s. Upgrade pra Small/Medium é
+   a alavanca mais barata; índices nunca usados (`idx_crisp_conversations_
+   started_at`/`_created`, 360 kB cada) e FKs sem índice são irrelevantes
+   nesse volume.
+6. Higiene: 37 folgas de teste em `calendar_leave_requests` (motivo "a"/"2");
+   `csat_pending` com 3,7 mil linhas (3,4 mil com mais de 3 dias);
+   `horario_por_nome`/`csat_tempo_resposta_correlacao` continuam código
+   morto.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
