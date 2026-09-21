@@ -5290,6 +5290,49 @@ manualmente (editar aqui, `supabase functions deploy` pra publicar); o SQL
 do trigger não tem migration própria (nenhuma migration é versionada neste
 projeto, ver seção 20), documentado só em prosa aqui mesmo.
 
+**Incidente de lentidão em 2026-09-21 — "o Supabase tá pesado, não carrega":
+não era o banco, foram 2 causas fixáveis (decisão: NÃO migrar pra banco
+próprio):** usuário sugeriu criar um banco próprio. Diagnóstico via
+Management API (`POST /v1/projects/{ref}/database/query` com Personal
+Access Token — o MCP do Supabase estava sem autorização) no projeto **Hub
+SAC** (`riiwphsvqlatqtaqaemd`): o banco tem só 164 MB (maior tabela,
+`crisp_messages`, 57k linhas), 100% de cache hit, compute **Micro** (60
+conexões, ~224 MB de shared_buffers). Migrar de banco não ganharia nada —
+e o app depende de Auth/Realtime/Storage/Edge Functions do Supabase, então
+seria reconstruir um backend inteiro.
+
+1. **Tempestade de refetch (causa principal):** `useRealtimeConversas`
+   invalidava 6 queries agregadas pesadas a cada mudança em
+   `crisp_conversations` (o n8n escreve nela o tempo todo), sem debounce, em
+   toda aba aberta, e o `QueryClient` tinha `staleTime` 0. `pg_stat_statements`
+   (acumulado desde 20/08) mostrou `dashboard_atendimento_summary` com 34k
+   chamadas (~9,4h de tempo de banco), `atendente_performance` 22k,
+   `conversas_evolucao` 20k, e o polling de WAL do Realtime mais 12,5k s —
+   volume incompatível com 3 a 5 usuários abrindo páginas. Corrigido:
+   `useRealtimeConversas` e `useRealtimeCsat` agora agrupam invalidações
+   (throttle de 30s, timer limpo no unmount) e `App.tsx` ganhou
+   `staleTime: 60_000` padrão (mutações continuam refrescando na hora — o
+   `invalidateQueries` ignora `staleTime`). Consequência aceita: os
+   dashboards podem levar até ~30s pra refletir uma conversa nova.
+2. **`statement_timeout` de `authenticated` voltou pra 8s:** o ajuste pra 25s
+   de 2026-08-24 foi feito no projeto antigo e **não veio na migração de
+   2026-09-01** (mesma categoria da publicação `supabase_realtime` perdida —
+   config de role não aparece em `pg_get_functiondef`/`information_schema`).
+   `max_exec_time` de várias RPCs agrupava em ~7,9s = queries cortadas pelo
+   timeout. Reaplicado: `alter role authenticated set statement_timeout =
+   '25s'; notify pgrst, 'reload config';` (confirmado em `pg_roles.rolconfig`).
+   `anon` (3s) e `authenticator` (8s) ficaram como estão.
+
+**Lição pra qualquer migração futura de projeto Supabase:** além de
+schema/funções/RLS/dados/publicação Realtime, conferir `select rolname,
+rolconfig from pg_roles` (timeouts por role) — é config que nenhuma
+introspecção de schema enxerga. **Pendente/decisão do usuário:** subir o
+compute de Micro pra Small (~US$15/mês) ou Medium (~US$60/mês) se a
+lentidão persistir depois dessas duas correções. O token usado no
+diagnóstico foi colado no chat e precisa ser revogado em
+supabase.com/dashboard/account/tokens (dá acesso à conta toda, 4 projetos
+em 2 organizações) — não foi gravado em nenhum arquivo.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
