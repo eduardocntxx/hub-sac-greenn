@@ -5333,6 +5333,157 @@ diagnóstico foi colado no chat e precisa ser revogado em
 supabase.com/dashboard/account/tokens (dá acesso à conta toda, 4 projetos
 em 2 organizações) — não foi gravado em nenhum arquivo.
 
+**Auditoria completa em 2026-09-21 (banco + segurança + frontend) e
+hardening aplicado:** feita só com leitura (Management API/CLI com PAT
+colado pelo usuário), projeto Hub SAC. **Aplicado (item 1, via `supabase db
+query --linked`, transação única):** `revoke execute on all functions in
+schema public from public, anon` + `grant execute ... to authenticated,
+service_role`; `alter default privileges for role postgres in schema public
+revoke execute on functions from anon` (não dá pra fazer o mesmo para
+`supabase_admin`, então função criada por esse role ainda nasce executável
+por `anon` — sempre conferir `has_function_privilege('anon', oid,
+'execute')` depois de criar RPC nova); view `v_reopened_count_real` com
+`security_invoker = true` e sem grant pra anon/authenticated (nenhuma
+função nem tela a usa mais); `revoke truncate, references, trigger` em todas
+as tabelas de `public` para anon/authenticated.
+
+Motivo: antes disso, qualquer pessoa **sem login** (a anon key está no JS
+público) lia a view (ignorava RLS), `colaboradores_online` (nome/cargo/
+horário dos colaboradores) e `dashboard_atendimento_summary` (métricas do
+time, CSAT médio), e chamava RPCs de escrita sem checagem de identidade
+(`marcar_conversa_resolvida`, `marcar_conversa_estado`,
+`resetar_csat_pending_se_livre`, `upsert_operator_alias`). Tabelas sensíveis
+(`crisp_conversations`, `csat_results`, `users`) já devolviam 0 linhas pra
+anon (RLS ok). O n8n usa só `service_role` (confirmado nos logs do
+gateway, inclusive `upsert_operator_alias`), então não foi afetado. Validado
+depois: sem login → HTTP 401 nas 4 rotas testadas; admin logado (JWT
+simulado, `set local role authenticated`) segue chamando as RPCs; gateway
+sem regressão (200/201/204 do n8n normais; os únicos `permission denied` nos
+logs foram os testes sem login). Rollback: `grant execute on all functions
+in schema public to anon; alter view public.v_reopened_count_real reset
+(security_invoker); grant all on public.v_reopened_count_real to anon,
+authenticated; grant truncate, references, trigger on all tables in schema
+public to anon, authenticated;`.
+
+**Achados da auditoria AINDA ABERTOS (nada disso foi alterado):**
+1. **Job de retenção de `crisp_messages` (fora deste repo, provável n8n)
+   apaga mensagens com mais de ~13 dias** (`delete ... using
+   crisp_conversations where current_started_at < $1`, precedido de `select
+   m.* ... order by m.id limit/offset`, 48–77 s por chamada). Em 21/09, 1.535
+   das 6.287 conversas já estavam sem nenhuma mensagem. 10 funções dependem
+   de `crisp_messages` (`_primeiras_respostas_humanas` — fonte de TODO o
+   TFR —, `relogio_espera_cliente`, `relogio_posse_periodo` Tier C,
+   `resposta_generica_*`, `tempo_resposta_bot`, `reopened_count_real_periodo`,
+   `atendimento_timeline`, `contagem_periodo`, `atendente_performance`), então
+   TFR/espera/IA-genérica perdem amostra em períodos com mais de ~13 dias
+   (afeta RR mensal e "Este ano"). Das 1.535 sem mensagem, 451 ainda têm
+   `first_human_response_at`/`first_human_operator_crisp_id` na própria
+   conversa — fallback possível. Não estava documentado antes. **TFR
+   corrigido no mesmo dia (ver "Correção do TFR" abaixo); as outras funções
+   que leem `crisp_messages` continuam afetadas.**
+2. **Auth:** `disable_signup=false` sem hook de domínio (a checagem de
+   `@greenn.com.br` só existe na Edge Function `self-signup`; cadastro direto
+   em `/auth/v1/signup` a contorna) e nenhuma policy considera `aprovado`
+   (aprovação é só de UI); ~24 tabelas têm SELECT `using (true)` pra
+   qualquer `authenticated`. Sem SMTP customizado e `rate_limit_email_sent=2`
+   (2 e-mails/h no projeto todo; o SMTP padrão ainda pode só entregar a
+   membros da org) — recuperação de senha/convite podem não chegar.
+   `site_url` = `http://localhost:5173` e senha mínima do servidor = 6
+   (UI exige 8).
+   **Tentativa de corrigir `password_min_length`=8 e `site_url` de produção via
+   Management API foi bloqueada pelo classificador do modo automático (2026-09-21)
+   — ainda pendente; fazer pelo Dashboard (Authentication → Sign In / Providers e
+   URL Configuration) ou com permissão explícita.**
+3. **Frontend — RESOLVIDO** (PR "Lazy loading das rotas", 2026-09-21): entry
+   2.347 kB → 415 kB (669 → 127 kB gzip); carregamento inicial ~207 kB gzip;
+   `jspdf`/`pptxgenjs` só ao exportar. Ver convenção na seção 15.
+4. **`dashboard_atendimento_summary` — medido e deliberadamente NÃO
+   reescrito.** Melhor caso 922 ms (3 repetições): TFR ~450 ms, TTR ~265 ms
+   (horas úteis por linha), `reopened_count_real_periodo` ~145 ms. Trocar o
+   cálculo por linha pelo padrão `cobertura_semanal` pouparia no máximo ~0,4 s
+   num KPI central (risco de deriva numérica) — pouco perto da oscilação
+   observada (a mesma consulta levou 7,3 s, 5,3 s e 0,9 s em execuções
+   seguidas). Com o throttle do Realtime a RPC deve cair de ~34k chamadas.
+   `operator_id_aliases` com 136 milhões de seq scans é sintoma do mesmo custo
+   por linha, ganho pequeno isolado.
+5. **Compute/oscilação de latência.** Teste sintético de CPU pura (mesma
+   consulta 10x): 868–951 ms, razão máx/mín 1,1x — **não é throttling de
+   CPU**. As lentidões esporádicas (primeiras execuções 5–7 s, depois 0,9 s)
+   parecem cache frio/I-O: hipótese (não provada) é o job de retenção varrendo
+   `crisp_messages` (126 MB) e expulsando páginas quentes do cache num Micro
+   (1 GB de RAM). Alavancas: corrigir o job (paginação por chave, lotes
+   menores, fora do horário de uso) e/ou subir o compute pra Small (2 GB, ~US$15/mês).
+   Durante a própria auditoria houve `statement timeout` em RPCs de usuário
+   real e consultas do Studio de 17–26 s. Índices nunca usados
+   (`idx_crisp_conversations_started_at`/`_created`, 360 kB) e FKs sem índice
+   são irrelevantes nesse volume.
+6. Higiene: 37 folgas de teste em `calendar_leave_requests` (motivo "a"/"2");
+   `csat_pending` com 3,7 mil linhas (3,4 mil com mais de 3 dias);
+   `horario_por_nome`/`csat_tempo_resposta_correlacao` continuam código
+   morto.
+
+**Correção do TFR sob a retenção de mensagens (2026-09-21, aplicada via
+`supabase db query --linked`):** `_primeiras_respostas_humanas(data_inicio,
+data_fim)` — fonte de todo o TFR (9 consumidoras: `atendente_performance`,
+`atendimentos_com_metricas`, `dashboard_atendimento_summary`,
+`metricas_por_tipo_cliente`, `minhas_conversas_metricas`,
+`motivo_contato_resumo`, `operador_ranking`, `tfr_ttr_percentis`,
+`velocidade_por_tipo_cliente`) — lia só `crisp_messages`. Além de perder
+amostra quando a conversa fica sem mensagem, achei que **inflava** o TFR
+quando a mensagem real era apagada mas sobrava uma tardia: 72 conversas de
+01/09 apareciam com "1ª resposta" em 18/09 (~17 dias depois; mensagens de um
+atendente em conversas antigas, 09-18 21:04). Medido contra
+`crisp_conversations.first_human_response_at` (gravado pelo n8n em tempo
+real): em dias com mensagens completas (>= 09/09) só 6 de 1.934 divergem
+>1 min, e os casos claros favorecem a coluna (em 3 deles a "mensagem" tem
+exatamente o instante do início da conversa, TFR 0 s = artefato).
+
+Nova regra: **a coluna tem prioridade** (válida só se
+`first_human_response_at >= current_started_at`, operador não nulo e não bot
+— guarda contra valor do ciclo anterior de conversa reaberta) e a mensagem
+vira **fallback**. Escrita como `SELECT` único com dois `LEFT JOIN LATERAL`
+(sem CTE/full join) — a primeira tentativa com CTEs + `FULL JOIN` parecia
+piorar `dashboard_atendimento_summary` (1,7 s → 6,6 s), mas era **ruído do
+Micro** (CPU compartilhada oscila: a mesma função levou 3,8 s e 1,1 s em
+sequência); com 3 repetições e mínimo, tudo ficou no nível anterior
+(dashboard 895 ms, tfr_ttr 1.028 ms, atendente_performance 1.085 ms,
+velocidade 515 ms). **Lição: benchmark neste projeto = 3+ repetições, usar o
+mínimo, nunca uma medida só.** Equivalência entre a versão com CTE e a
+`LATERAL` provada por `EXCEPT` nos dois sentidos (2.683 linhas, 0 diferenças).
+Efeito nos números (01/09–21/09, horas úteis): amostras de TFR 2.298 → 2.655
+(+357 recuperadas), média 10,9 h → 7,6 h, P50 90 min → 55 min, P90 35 h → 26
+h, SLA 17,4% → 18,8%. Ou seja, **relatórios de RR/Analytics desse período
+mostravam TFR pior que o real.**
+
+**O que continua NÃO recuperável:** `relogio_espera_cliente`,
+`tempo_resposta_bot`, `resposta_generica_*`, `relogio_posse_periodo` (Tier C)
+e `reopened_count_real_periodo` precisam do conteúdo/ordem das mensagens e
+seguem perdendo amostra em conversas com mais de ~13 dias. A correção de
+verdade é no job de retenção (n8n, fora deste repo): arquivar/derivar antes
+de apagar ou parar de apagar, e trocar o `OFFSET` por paginação por chave
+(`where m.id > $ultimo order by m.id limit N`).
+
+Rollback (definição anterior, só mensagens):
+```sql
+create or replace function public._primeiras_respostas_humanas(data_inicio timestamptz, data_fim timestamptz)
+ returns table(session_id text, primeira_resposta_humana_at timestamptz, primeiro_atendente_humano text, primeiro_atendente_humano_crisp_id text)
+ language sql stable security definer set search_path to 'public'
+as $function$
+  select m.session_id,
+    min(m.message_timestamp) as primeira_resposta_humana_at,
+    (array_agg(m.operator_nome order by m.message_timestamp))[1] as primeiro_atendente_humano,
+    (array_agg(m.operator_crisp_id order by m.message_timestamp))[1] as primeiro_atendente_humano_crisp_id
+  from public.crisp_messages m
+  join public.crisp_conversations cc on cc.crisp_id = m.session_id
+  where cc.current_started_at between data_inicio and data_fim
+    and m.operator_crisp_id is not null
+    and m.message_timestamp >= cc.current_started_at
+    and not (m.origin ilike '%crisp.im:bot%' or m.origin ilike '%allan.godoy%'
+             or coalesce(m.operator_nome, '') ilike 'Atendente IA%')
+  group by m.session_id;
+$function$;
+```
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
