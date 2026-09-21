@@ -5366,21 +5366,30 @@ authenticated; grant truncate, references, trigger on all tables in schema
 public to anon, authenticated;`.
 
 **Achados da auditoria AINDA ABERTOS (nada disso foi alterado):**
-1. **Job de retenção de `crisp_messages` (fora deste repo, provável n8n)
-   apaga mensagens com mais de ~13 dias** (`delete ... using
-   crisp_conversations where current_started_at < $1`, precedido de `select
-   m.* ... order by m.id limit/offset`, 48–77 s por chamada). Em 21/09, 1.535
-   das 6.287 conversas já estavam sem nenhuma mensagem. 10 funções dependem
-   de `crisp_messages` (`_primeiras_respostas_humanas` — fonte de TODO o
-   TFR —, `relogio_espera_cliente`, `relogio_posse_periodo` Tier C,
+1. **`crisp_messages` foi apagada À MÃO — não existe job de retenção.** Por
+   volta de 08/09, com o Hub "todo travado" (a causa real era a tempestade de
+   refetch + `statement_timeout` de 8 s, e o banco tem só 164 MB — ver acima),
+   o usuário apagou pelo executor de SQL da API (papel `postgres`, assinatura
+   `SET statement_timeout='58s'`) as mensagens de conversas com
+   `current_started_at` anterior a ~08/09: em `pg_stat_statements`, 33
+   leituras paginadas por `OFFSET` (84.500 linhas) e 4 deletes (108.001
+   linhas). **Não há nada agendado:** os 5 fluxos n8n exportados (`Crisp →
+   Hub`, `Google Chat`, `Request de users no Crisp`, `Sincronizar tipo_cliente`,
+   `Widget CSAT`) não tocam `crisp_messages` com delete/`OFFSET`, e não existe
+   `cron.job`. (Hipótese anterior de "job de retenção no n8n" foi descartada.)
+   **Perda única e limitada, que não cresce:** mensagens de 01/09 a 07/09 —
+   1.535 das 6.287 conversas ficaram sem mensagem. Sinal de alerta em aberto:
+   108.001 apagadas contra 84.500 lidas — falta confirmar se existe cópia (ex.:
+   Projeto Messages, CSV). 10 funções dependem de `crisp_messages`
+   (`_primeiras_respostas_humanas` — fonte de TODO o TFR —,
+   `relogio_espera_cliente`, `relogio_posse_periodo` Tier C,
    `resposta_generica_*`, `tempo_resposta_bot`, `reopened_count_real_periodo`,
-   `atendimento_timeline`, `contagem_periodo`, `atendente_performance`), então
-   TFR/espera/IA-genérica perdem amostra em períodos com mais de ~13 dias
-   (afeta RR mensal e "Este ano"). Das 1.535 sem mensagem, 451 ainda têm
+   `atendimento_timeline`, `contagem_periodo`, `atendente_performance`) e
+   perdem amostra só para 01–07/09. Das 1.535 sem mensagem, 451 ainda têm
    `first_human_response_at`/`first_human_operator_crisp_id` na própria
-   conversa — fallback possível. Não estava documentado antes. **TFR
-   corrigido no mesmo dia (ver "Correção do TFR" abaixo); as outras funções
-   que leem `crisp_messages` continuam afetadas.**
+   conversa. **TFR corrigido no mesmo dia (ver "Correção do TFR" abaixo).**
+   Lição: apagar dado nunca resolveu a lentidão (o banco é pequeno); se
+   travar de novo, medir antes (`pg_stat_statements`, logs do gateway).
 2. **Auth:** `disable_signup=false` sem hook de domínio (a checagem de
    `@greenn.com.br` só existe na Edge Function `self-signup`; cadastro direto
    em `/auth/v1/signup` a contorna) e nenhuma policy considera `aprovado`
@@ -5409,11 +5418,12 @@ public to anon, authenticated;`.
 5. **Compute/oscilação de latência.** Teste sintético de CPU pura (mesma
    consulta 10x): 868–951 ms, razão máx/mín 1,1x — **não é throttling de
    CPU**. As lentidões esporádicas (primeiras execuções 5–7 s, depois 0,9 s)
-   parecem cache frio/I-O: hipótese (não provada) é o job de retenção varrendo
-   `crisp_messages` (126 MB) e expulsando páginas quentes do cache num Micro
-   (1 GB de RAM). Alavancas: corrigir o job (paginação por chave, lotes
-   menores, fora do horário de uso) e/ou subir o compute pra Small (2 GB, ~US$15/mês).
-   Durante a própria auditoria houve `statement timeout` em RPCs de usuário
+   parecem cache frio/I-O num Micro (1 GB de RAM). A hipótese de "job de
+   retenção varrendo `crisp_messages`" foi **descartada** (foi uma exclusão
+   manual única, ver item 1); a causa das oscilações segue não identificada
+   (candidatas: rajadas de escrita do n8n, ~9 escritas/min, autovacuum/
+   checkpoint e o I/O do Micro). A alavanca mais barata é subir o compute pra
+   Small (2 GB, ~US$15/mês). Durante a própria auditoria houve `statement timeout` em RPCs de usuário
    real e consultas do Studio de 17–26 s. Índices nunca usados
    (`idx_crisp_conversations_started_at`/`_created`, 360 kB) e FKs sem índice
    são irrelevantes nesse volume.
@@ -5422,7 +5432,7 @@ public to anon, authenticated;`.
    `horario_por_nome`/`csat_tempo_resposta_correlacao` continuam código
    morto.
 
-**Correção do TFR sob a retenção de mensagens (2026-09-21, aplicada via
+**Correção do TFR sob a exclusão de mensagens (2026-09-21, aplicada via
 `supabase db query --linked`):** `_primeiras_respostas_humanas(data_inicio,
 data_fim)` — fonte de todo o TFR (9 consumidoras: `atendente_performance`,
 `atendimentos_com_metricas`, `dashboard_atendimento_summary`,
@@ -5458,10 +5468,9 @@ mostravam TFR pior que o real.**
 **O que continua NÃO recuperável:** `relogio_espera_cliente`,
 `tempo_resposta_bot`, `resposta_generica_*`, `relogio_posse_periodo` (Tier C)
 e `reopened_count_real_periodo` precisam do conteúdo/ordem das mensagens e
-seguem perdendo amostra em conversas com mais de ~13 dias. A correção de
-verdade é no job de retenção (n8n, fora deste repo): arquivar/derivar antes
-de apagar ou parar de apagar, e trocar o `OFFSET` por paginação por chave
-(`where m.id > $ultimo order by m.id limit N`).
+seguem sem amostra para as conversas de 01–07/09 (exclusão manual única de
+~08/09; **não é recorrente** e não cresce). Só recupera restaurando as
+mensagens a partir de uma cópia, se existir.
 
 Rollback (definição anterior, só mensagens):
 ```sql
