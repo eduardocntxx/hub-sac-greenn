@@ -5390,20 +5390,33 @@ public to anon, authenticated;`.
    membros da org) — recuperação de senha/convite podem não chegar.
    `site_url` = `http://localhost:5173` e senha mínima do servidor = 6
    (UI exige 8).
-3. **Frontend:** bundle único de 2,3 MB (669 kB gzip), zero lazy loading de
-   rota, `jspdf`/`pptxgenjs` importados estaticamente (até o Login baixa).
-4. **`dashboard_atendimento_summary`** (a RPC mais chamada, 34k chamadas,
-   ~1–1,7 s) ainda calcula `minutos_uteis_entre_time()` por linha e não usa
-   o cache `cobertura_semanal` das irmãs; como as outras, `operator_id_aliases`
-   (25 linhas) teve 136 milhões de seq scans por chamadas por linha
-   (`nome_canonico_por_operator_id`) — sintoma de custo por linha, ganho
-   pequeno se corrigido isolado.
-5. Compute é Micro (60 conexões): durante a própria auditoria (~10
-   consultas de 1–2 s em série) houve `statement timeout` em RPCs de um
-   usuário real e consultas do Studio de 17–26 s. Upgrade pra Small/Medium é
-   a alavanca mais barata; índices nunca usados (`idx_crisp_conversations_
-   started_at`/`_created`, 360 kB cada) e FKs sem índice são irrelevantes
-   nesse volume.
+   **Tentativa de corrigir `password_min_length`=8 e `site_url` de produção via
+   Management API foi bloqueada pelo classificador do modo automático (2026-09-21)
+   — ainda pendente; fazer pelo Dashboard (Authentication → Sign In / Providers e
+   URL Configuration) ou com permissão explícita.**
+3. **Frontend — RESOLVIDO** (PR "Lazy loading das rotas", 2026-09-21): entry
+   2.347 kB → 415 kB (669 → 127 kB gzip); carregamento inicial ~207 kB gzip;
+   `jspdf`/`pptxgenjs` só ao exportar. Ver convenção na seção 15.
+4. **`dashboard_atendimento_summary` — medido e deliberadamente NÃO
+   reescrito.** Melhor caso 922 ms (3 repetições): TFR ~450 ms, TTR ~265 ms
+   (horas úteis por linha), `reopened_count_real_periodo` ~145 ms. Trocar o
+   cálculo por linha pelo padrão `cobertura_semanal` pouparia no máximo ~0,4 s
+   num KPI central (risco de deriva numérica) — pouco perto da oscilação
+   observada (a mesma consulta levou 7,3 s, 5,3 s e 0,9 s em execuções
+   seguidas). Com o throttle do Realtime a RPC deve cair de ~34k chamadas.
+   `operator_id_aliases` com 136 milhões de seq scans é sintoma do mesmo custo
+   por linha, ganho pequeno isolado.
+5. **Compute/oscilação de latência.** Teste sintético de CPU pura (mesma
+   consulta 10x): 868–951 ms, razão máx/mín 1,1x — **não é throttling de
+   CPU**. As lentidões esporádicas (primeiras execuções 5–7 s, depois 0,9 s)
+   parecem cache frio/I-O: hipótese (não provada) é o job de retenção varrendo
+   `crisp_messages` (126 MB) e expulsando páginas quentes do cache num Micro
+   (1 GB de RAM). Alavancas: corrigir o job (paginação por chave, lotes
+   menores, fora do horário de uso) e/ou subir o compute pra Small (2 GB, ~US$15/mês).
+   Durante a própria auditoria houve `statement timeout` em RPCs de usuário
+   real e consultas do Studio de 17–26 s. Índices nunca usados
+   (`idx_crisp_conversations_started_at`/`_created`, 360 kB) e FKs sem índice
+   são irrelevantes nesse volume.
 6. Higiene: 37 folgas de teste em `calendar_leave_requests` (motivo "a"/"2");
    `csat_pending` com 3,7 mil linhas (3,4 mil com mais de 3 dias);
    `horario_por_nome`/`csat_tempo_resposta_correlacao` continuam código
