@@ -37,7 +37,12 @@ import AdminPermissoes from "@/pages/admin/AdminPermissoes";
 import AdminEscalas from "@/pages/admin/AdminEscalas";
 import AdminMetas from "@/pages/admin/AdminMetas";
 
-const queryClient = new QueryClient();
+// staleTime de 60s: sem isso (padrão 0) toda montagem/foco de aba refaz as
+// agregações pesadas do Postgres. Mutações continuam refrescando na hora via
+// invalidateQueries, que ignora staleTime.
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 60_000 } },
+});
 
 export default function App() {
   return (
