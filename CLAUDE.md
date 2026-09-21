@@ -5378,7 +5378,9 @@ public to anon, authenticated;`.
    TFR/espera/IA-genérica perdem amostra em períodos com mais de ~13 dias
    (afeta RR mensal e "Este ano"). Das 1.535 sem mensagem, 451 ainda têm
    `first_human_response_at`/`first_human_operator_crisp_id` na própria
-   conversa — fallback possível. Não estava documentado antes.
+   conversa — fallback possível. Não estava documentado antes. **TFR
+   corrigido no mesmo dia (ver "Correção do TFR" abaixo); as outras funções
+   que leem `crisp_messages` continuam afetadas.**
 2. **Auth:** `disable_signup=false` sem hook de domínio (a checagem de
    `@greenn.com.br` só existe na Edge Function `self-signup`; cadastro direto
    em `/auth/v1/signup` a contorna) e nenhuma policy considera `aprovado`
@@ -5406,6 +5408,68 @@ public to anon, authenticated;`.
    `csat_pending` com 3,7 mil linhas (3,4 mil com mais de 3 dias);
    `horario_por_nome`/`csat_tempo_resposta_correlacao` continuam código
    morto.
+
+**Correção do TFR sob a retenção de mensagens (2026-09-21, aplicada via
+`supabase db query --linked`):** `_primeiras_respostas_humanas(data_inicio,
+data_fim)` — fonte de todo o TFR (9 consumidoras: `atendente_performance`,
+`atendimentos_com_metricas`, `dashboard_atendimento_summary`,
+`metricas_por_tipo_cliente`, `minhas_conversas_metricas`,
+`motivo_contato_resumo`, `operador_ranking`, `tfr_ttr_percentis`,
+`velocidade_por_tipo_cliente`) — lia só `crisp_messages`. Além de perder
+amostra quando a conversa fica sem mensagem, achei que **inflava** o TFR
+quando a mensagem real era apagada mas sobrava uma tardia: 72 conversas de
+01/09 apareciam com "1ª resposta" em 18/09 (~17 dias depois; mensagens de um
+atendente em conversas antigas, 09-18 21:04). Medido contra
+`crisp_conversations.first_human_response_at` (gravado pelo n8n em tempo
+real): em dias com mensagens completas (>= 09/09) só 6 de 1.934 divergem
+>1 min, e os casos claros favorecem a coluna (em 3 deles a "mensagem" tem
+exatamente o instante do início da conversa, TFR 0 s = artefato).
+
+Nova regra: **a coluna tem prioridade** (válida só se
+`first_human_response_at >= current_started_at`, operador não nulo e não bot
+— guarda contra valor do ciclo anterior de conversa reaberta) e a mensagem
+vira **fallback**. Escrita como `SELECT` único com dois `LEFT JOIN LATERAL`
+(sem CTE/full join) — a primeira tentativa com CTEs + `FULL JOIN` parecia
+piorar `dashboard_atendimento_summary` (1,7 s → 6,6 s), mas era **ruído do
+Micro** (CPU compartilhada oscila: a mesma função levou 3,8 s e 1,1 s em
+sequência); com 3 repetições e mínimo, tudo ficou no nível anterior
+(dashboard 895 ms, tfr_ttr 1.028 ms, atendente_performance 1.085 ms,
+velocidade 515 ms). **Lição: benchmark neste projeto = 3+ repetições, usar o
+mínimo, nunca uma medida só.** Equivalência entre a versão com CTE e a
+`LATERAL` provada por `EXCEPT` nos dois sentidos (2.683 linhas, 0 diferenças).
+Efeito nos números (01/09–21/09, horas úteis): amostras de TFR 2.298 → 2.655
+(+357 recuperadas), média 10,9 h → 7,6 h, P50 90 min → 55 min, P90 35 h → 26
+h, SLA 17,4% → 18,8%. Ou seja, **relatórios de RR/Analytics desse período
+mostravam TFR pior que o real.**
+
+**O que continua NÃO recuperável:** `relogio_espera_cliente`,
+`tempo_resposta_bot`, `resposta_generica_*`, `relogio_posse_periodo` (Tier C)
+e `reopened_count_real_periodo` precisam do conteúdo/ordem das mensagens e
+seguem perdendo amostra em conversas com mais de ~13 dias. A correção de
+verdade é no job de retenção (n8n, fora deste repo): arquivar/derivar antes
+de apagar ou parar de apagar, e trocar o `OFFSET` por paginação por chave
+(`where m.id > $ultimo order by m.id limit N`).
+
+Rollback (definição anterior, só mensagens):
+```sql
+create or replace function public._primeiras_respostas_humanas(data_inicio timestamptz, data_fim timestamptz)
+ returns table(session_id text, primeira_resposta_humana_at timestamptz, primeiro_atendente_humano text, primeiro_atendente_humano_crisp_id text)
+ language sql stable security definer set search_path to 'public'
+as $function$
+  select m.session_id,
+    min(m.message_timestamp) as primeira_resposta_humana_at,
+    (array_agg(m.operator_nome order by m.message_timestamp))[1] as primeiro_atendente_humano,
+    (array_agg(m.operator_crisp_id order by m.message_timestamp))[1] as primeiro_atendente_humano_crisp_id
+  from public.crisp_messages m
+  join public.crisp_conversations cc on cc.crisp_id = m.session_id
+  where cc.current_started_at between data_inicio and data_fim
+    and m.operator_crisp_id is not null
+    and m.message_timestamp >= cc.current_started_at
+    and not (m.origin ilike '%crisp.im:bot%' or m.origin ilike '%allan.godoy%'
+             or coalesce(m.operator_nome, '') ilike 'Atendente IA%')
+  group by m.session_id;
+$function$;
+```
 
 ## 12. Convenções de código
 
