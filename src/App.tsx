@@ -5,37 +5,42 @@ import { AppLayout } from "@/layouts/AppLayout";
 import { AdminOnlyRoute } from "@/routes/ProtectedRoute";
 import { RequireAuth } from "@/routes/RequireAuth";
 import { RequirePermission } from "@/routes/RequirePermission";
+import { RouteBoundary } from "@/components/RouteBoundary";
+import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 import Login from "@/pages/Login";
-import DefinirSenha from "@/pages/DefinirSenha";
 import Home from "@/pages/Home";
-import Csat from "@/pages/Csat";
-import ReclameAqui from "@/pages/ReclameAqui";
-import Nps from "@/pages/Nps";
-import Performance from "@/pages/Performance";
-import Helpdesks from "@/pages/Helpdesks";
-import Calendario from "@/pages/Calendario";
-import MeuPainel from "@/pages/MeuPainel";
-import Missoes from "@/pages/Missoes";
-import Analytics from "@/pages/Analytics";
-import ReuniaoResultados from "@/pages/ReuniaoResultados";
-import Cursos from "@/pages/Cursos";
-import Documentacao from "@/pages/Documentacao";
-import Atualizacoes from "@/pages/Atualizacoes";
-import OutrosLinks from "@/pages/OutrosLinks";
-import Perfil from "@/pages/Perfil";
 
-import AdminLayout from "@/pages/admin/AdminLayout";
-import AdminOverview from "@/pages/admin/AdminOverview";
-import AdminUsuarios from "@/pages/admin/AdminUsuarios";
-import AdminOutrosLinks from "@/pages/admin/AdminOutrosLinks";
-import AdminCursos from "@/pages/admin/AdminCursos";
-import AdminDocumentacao from "@/pages/admin/AdminDocumentacao";
-import AdminAtualizacoes from "@/pages/admin/AdminAtualizacoes";
-import AdminPerfis from "@/pages/admin/AdminPerfis";
-import AdminPermissoes from "@/pages/admin/AdminPermissoes";
-import AdminEscalas from "@/pages/admin/AdminEscalas";
-import AdminMetas from "@/pages/admin/AdminMetas";
+// Login e Home ficam no bundle inicial (Login é a 1ª tela de quem não tem
+// sessão; Home é o destino de quase todo login). O resto carrega sob demanda —
+// antes era um único JS de 2,3 MB (669 kB gzip) baixado até na tela de login.
+const DefinirSenha = lazyWithRetry(() => import("@/pages/DefinirSenha"));
+const Csat = lazyWithRetry(() => import("@/pages/Csat"));
+const ReclameAqui = lazyWithRetry(() => import("@/pages/ReclameAqui"));
+const Nps = lazyWithRetry(() => import("@/pages/Nps"));
+const Performance = lazyWithRetry(() => import("@/pages/Performance"));
+const Helpdesks = lazyWithRetry(() => import("@/pages/Helpdesks"));
+const Calendario = lazyWithRetry(() => import("@/pages/Calendario"));
+const MeuPainel = lazyWithRetry(() => import("@/pages/MeuPainel"));
+const Missoes = lazyWithRetry(() => import("@/pages/Missoes"));
+const Analytics = lazyWithRetry(() => import("@/pages/Analytics"));
+const ReuniaoResultados = lazyWithRetry(() => import("@/pages/ReuniaoResultados"));
+const Cursos = lazyWithRetry(() => import("@/pages/Cursos"));
+const Documentacao = lazyWithRetry(() => import("@/pages/Documentacao"));
+const Atualizacoes = lazyWithRetry(() => import("@/pages/Atualizacoes"));
+const OutrosLinks = lazyWithRetry(() => import("@/pages/OutrosLinks"));
+const Perfil = lazyWithRetry(() => import("@/pages/Perfil"));
+const AdminLayout = lazyWithRetry(() => import("@/pages/admin/AdminLayout"));
+const AdminOverview = lazyWithRetry(() => import("@/pages/admin/AdminOverview"));
+const AdminUsuarios = lazyWithRetry(() => import("@/pages/admin/AdminUsuarios"));
+const AdminOutrosLinks = lazyWithRetry(() => import("@/pages/admin/AdminOutrosLinks"));
+const AdminCursos = lazyWithRetry(() => import("@/pages/admin/AdminCursos"));
+const AdminDocumentacao = lazyWithRetry(() => import("@/pages/admin/AdminDocumentacao"));
+const AdminAtualizacoes = lazyWithRetry(() => import("@/pages/admin/AdminAtualizacoes"));
+const AdminPerfis = lazyWithRetry(() => import("@/pages/admin/AdminPerfis"));
+const AdminPermissoes = lazyWithRetry(() => import("@/pages/admin/AdminPermissoes"));
+const AdminEscalas = lazyWithRetry(() => import("@/pages/admin/AdminEscalas"));
+const AdminMetas = lazyWithRetry(() => import("@/pages/admin/AdminMetas"));
 
 // staleTime de 60s: sem isso (padrão 0) toda montagem/foco de aba refaz as
 // agregações pesadas do Postgres. Mutações continuam refrescando na hora via
@@ -49,6 +54,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <BrowserRouter>
+          <RouteBoundary>
           <Routes>
             <Route path="login" element={<Login />} />
             <Route path="definir-senha" element={<DefinirSenha />} />
@@ -101,6 +107,7 @@ export default function App() {
               </Route>
             </Route>
           </Routes>
+          </RouteBoundary>
         </BrowserRouter>
       </AuthProvider>
     </QueryClientProvider>

@@ -5508,7 +5508,15 @@ em 2 organizações) — não foi gravado em nenhum arquivo.
 1. Criar o componente em `src/pages/NomeDaPagina.tsx` (ou
    `src/pages/admin/AdminNomeDaPagina.tsx` se for administrativa).
 2. Registrar a rota em `src/App.tsx`, dentro do bloco `<Route
-   element={<AppLayout />}>` (autenticado). Se for admin-only, envolver em
+   element={<AppLayout />}>` (autenticado). Importar a página com
+   `lazyWithRetry(() => import("@/pages/..."))` — **não** com `import`
+   estático: só `Login` e `Home` ficam no bundle inicial (era um JS único de
+   2,3 MB / 669 kB gzip; hoje ~415 kB / 127 kB o entry e ~207 kB gzip no
+   carregamento inicial). `AppLayout` e `App.tsx` já envolvem as rotas em
+   `RouteBoundary` (Suspense com esqueleto + tela de erro com "Recarregar");
+   `lazyWithRetry` recarrega a página uma vez se o chunk sumiu após um deploy.
+   Libs pesadas (`jspdf`, `pptxgenjs`) só via `await import()` dentro do
+   handler do clique, nunca no topo do arquivo. Se for admin-only, envolver em
    `<Route element={<AdminOnlyRoute />}>`; se depender de permissão
    granular, em `<Route element={<RequirePermission slug="..." />}>`.
 3. Se a página deve aparecer na sidebar, adicionar em

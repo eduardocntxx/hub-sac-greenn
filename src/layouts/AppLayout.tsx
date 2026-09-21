@@ -5,6 +5,7 @@ import { Header } from "@/components/layout/Header";
 import { NotificationsProvider } from "@/contexts/NotificationsContext";
 import { ToastProvider } from "@/contexts/ToastContext";
 import { useRealtimeAnnouncementsNotifier } from "@/hooks/useRealtimeAnnouncementsNotifier";
+import { RouteBoundary } from "@/components/RouteBoundary";
 
 function AppLayoutInner() {
   useRealtimeAnnouncementsNotifier();
@@ -33,7 +34,9 @@ function AppLayoutInner() {
               transition={{ duration: 0.22, ease: "easeOut" }}
               className="print:m-0"
             >
-              <Outlet />
+              <RouteBoundary resetKey={location.pathname}>
+                <Outlet />
+              </RouteBoundary>
             </motion.div>
           </div>
         </main>

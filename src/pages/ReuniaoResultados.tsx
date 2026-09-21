@@ -34,8 +34,6 @@ import {
   type AtendentePerformanceRow,
 } from "@/services/api";
 import { formatDuration } from "@/lib/formatDuration";
-import { exportRRHistoricoToPdf, exportRRUnicaToPdf } from "@/lib/exportPdf";
-import { exportResultadosSacToPptx } from "@/lib/exportPptx";
 import { manualDataVazia, type ResultadosSacData, type ManualData } from "@/lib/resultadosSac";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { RelatorioResultadosSac } from "@/components/RelatorioResultadosSac";
@@ -717,6 +715,8 @@ export default function ReuniaoResultados() {
               onClick={async () => {
                 setExportandoPptx(true);
                 try {
+                  // pptxgenjs só baixa quando alguém exporta.
+                  const { exportResultadosSacToPptx } = await import("@/lib/exportPptx");
                   await exportResultadosSacToPptx(dadosRelatorio);
                 } finally {
                   setExportandoPptx(false);
@@ -928,7 +928,10 @@ export default function ReuniaoResultados() {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => exportRRHistoricoToPdf(user?.nome ?? "—", historico)}
+              onClick={async () => {
+                const { exportRRHistoricoToPdf } = await import("@/lib/exportPdf");
+                exportRRHistoricoToPdf(user?.nome ?? "—", historico);
+              }}
             >
               <Download size={14} /> Baixar histórico
             </Button>
@@ -1040,7 +1043,12 @@ export default function ReuniaoResultados() {
             >
               <Pencil size={14} /> Editar
             </Button>
-            <Button onClick={() => exportRRUnicaToPdf(user?.nome ?? "—", visualizando)}>
+            <Button
+              onClick={async () => {
+                const { exportRRUnicaToPdf } = await import("@/lib/exportPdf");
+                exportRRUnicaToPdf(user?.nome ?? "—", visualizando);
+              }}
+            >
               <Download size={14} /> Baixar PDF
             </Button>
           </div>

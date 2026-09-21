@@ -17,7 +17,6 @@ import type { DbCsatResult } from "@/types/database";
 import { CsatDetalheDialog } from "@/components/CsatDetalheDialog";
 import { Dialog } from "@/components/ui/Dialog";
 import { exportCsatToCsv } from "@/lib/exportCsv";
-import { exportCsatDashboardToPdf } from "@/lib/exportPdf";
 import {
   PERIODO_LABELS,
   resolvePeriodo,
@@ -599,13 +598,15 @@ export default function Csat() {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() =>
+              onClick={async () => {
+                // jsPDF (+html2canvas) só baixa quando alguém pede o PDF.
+                const { exportCsatDashboardToPdf } = await import("@/lib/exportPdf");
                 exportCsatDashboardToPdf({
                   periodoLabel: PERIODO_LABELS[preset],
                   totalAvaliacoes: porColaborador.reduce((acc, c) => acc + c.total, 0),
                   porColaborador,
-                })
-              }
+                });
+              }}
             >
               <FileDown size={14} /> Exportar dashboard em PDF
             </Button>
