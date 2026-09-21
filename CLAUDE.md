@@ -5403,6 +5403,25 @@ public to anon, authenticated;`.
    Management API foi bloqueada pelo classificador do modo automático (2026-09-21)
    — ainda pendente; fazer pelo Dashboard (Authentication → Sign In / Providers e
    URL Configuration) ou com permissão explícita.**
+   **Hook de domínio (2026-09-21):** criada e testada no banco a função
+   `public.hook_before_user_created(event jsonb)` (só `@greenn.com.br` passa —
+   `x@evil.greenn.com.br` e `x@greenn.com.br.evil.com` são barrados; retorna
+   403 com mensagem em português; executável só por `supabase_auth_admin`).
+   **Está INERTE até ser habilitada** em Dashboard → Authentication → Hooks →
+   Before User Created → tipo Postgres function →
+   `public.hook_before_user_created`. Os 10 usuários existentes (3 em
+   `auth.users`, 7 em `public.users`) são todos `@greenn.com.br`, então nada
+   legítimo é barrado hoje; se algum dia houver convite pra e-mail externo,
+   ele também será barrado (o hook roda em qualquer criação de usuário).
+   Rollback: desabilitar o hook no Dashboard (a função pode ficar).
+   **SMTP:** o Resend da conta tem `teste.avaliacao.sbs` (verificado, mas é
+   domínio de teste, não corporativo) e `task.greenn.com.br` (**não
+   verificado**: falta o DNS — TXT DKIM `resend._domainkey.task`, MX
+   `send.task` → `feedback-smtp.sa-east-1.amazonses.com` (prioridade 10) e TXT
+   SPF `send.task` → `v=spf1 include:amazonses.com ~all`). Depois de
+   verificar, configurar SMTP customizado no Supabase (host `smtp.resend.com`,
+   porta 465, usuário `resend`, senha = API key de envio) e subir
+   `rate_limit_email_sent`.
 3. **Frontend — RESOLVIDO** (PR "Lazy loading das rotas", 2026-09-21): entry
    2.347 kB → 415 kB (669 → 127 kB gzip); carregamento inicial ~207 kB gzip;
    `jspdf`/`pptxgenjs` só ao exportar. Ver convenção na seção 15.
