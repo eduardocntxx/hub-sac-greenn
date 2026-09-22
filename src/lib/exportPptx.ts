@@ -32,6 +32,7 @@ const FONT_BODY = "Arial";
 const COR = {
   bg: "141414",
   cardBg: "1E1E1E",
+  cardBg2: "252525", // linha alternada (zebra) das tabelas — só um tom acima de cardBg
   cardBorder: "2E2E2E",
   ink: "FFFFFF",
   inkSoft: "B8B8B8",
@@ -143,6 +144,40 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
     }
   }
 
+  // Tabela dentro de um card arredondado (moldura `roundRect` por trás,
+  // sem borda de célula) — pedido do usuário em 2026-09-22 ("aumenta esse
+  // gráfico e deixa ele mais arredondado, deixa o pptx mais padrão"): as
+  // tabelas antes eram só uma grade de células quadradas com borda de
+  // 0,5pt em cada uma, lia como planilha crua, não como o resto do deck
+  // (que usa `roundRect` em todo card/linha do Ranking). Mesmo raio/estilo
+  // de moldura já usado em `metricCard`, zebra sutil (`cardBg`/`cardBg2`)
+  // no lugar da linha de grade em cada célula pra separar as linhas sem
+  // parecer planilha. `rowH` é o mínimo por linha — cai pro chamador
+  // escolher um valor generoso o bastante pra não estourar a moldura
+  // quando uma célula quebra em 2 linhas (validado gerando o pptx real e
+  // medindo a altura de verdade no XML, não só o cálculo aqui).
+  function tabelaArredondada(
+    slide: PptxGenJS.Slide,
+    x: number, y: number, w: number,
+    linhas: PptxGenJS.TableRow[],
+    colW: number[],
+    rowH: number[]
+  ) {
+    const alturaEstimada = rowH.reduce((s, r) => s + r, 0);
+    const pad = 0.16;
+    slide.addShape("roundRect", {
+      x: x - pad, y: y - pad, w: w + pad * 2, h: alturaEstimada + pad * 2,
+      rectRadius: 0.14, fill: { color: COR.cardBg }, line: { color: COR.cardBorder, width: 1 },
+    });
+    slide.addTable(linhas, {
+      x, y, w, colW, rowH,
+      border: { type: "none" },
+      autoPage: false,
+      valign: "middle",
+    });
+    return alturaEstimada;
+  }
+
   function metricasSlide(titulo: string, subtitulo: string | undefined, cards: CardInfo[], notaRodape?: string) {
     const slide = slideBase(titulo, subtitulo);
     const n = cards.length;
@@ -233,7 +268,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
     if (tipos.length > 0) {
       const slide = slideBase("Velocidade", "Tempo de resposta e resolução, por tipo de cliente — média e mediana, horas úteis e corridas.");
       const th = (text: string, align?: "left" | "right") => ({
-        text, options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 9, align: align ?? ("right" as const), fontFace: FONT_BODY },
+        text, options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10.5, align: align ?? ("right" as const), fontFace: FONT_BODY },
       });
       const linhasTabela: PptxGenJS.TableRow[] = [
         [
@@ -241,12 +276,13 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
           th("TFR médio (útil)"), th("TFR mediana (útil)"), th("TFR corrido méd/med"),
           th("TTR médio (útil)"), th("TTR mediana (útil)"), th("TTR corrido méd/med"),
         ],
-        ...tipos.map((t) => {
+        ...tipos.map((t, i) => {
+          const zebra = i % 2 === 1 ? COR.cardBg2 : COR.cardBg;
           const td = (text: string, align?: "left" | "right") => ({
-            text, options: { color: COR.ink, fontSize: 9, align: align ?? ("right" as const), fill: { color: COR.cardBg }, fontFace: FONT_BODY },
+            text, options: { color: COR.ink, fontSize: 10.5, align: align ?? ("right" as const), fill: { color: zebra }, fontFace: FONT_BODY },
           });
           return [
-            { text: tituloTipo(t.tipo_cliente), options: { color: COR.mint, bold: true, fontSize: 9.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
+            { text: tituloTipo(t.tipo_cliente), options: { color: COR.mint, bold: true, fontSize: 11, fill: { color: zebra }, fontFace: FONT_BODY } },
             td(fmtNum(t.chamados)),
             td(formatDuration(t.tfr_media_uteis_seg)),
             td(formatDuration(t.tfr_p50_uteis_seg)),
@@ -257,24 +293,20 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
           ];
         }),
       ];
-      // y=2.6 (não 2.1) — achado real em 2026-09-22, print do usuário: com
-      // só 2-4 tipos a tabela ficava presa perto do topo e sobrava quase
-      // 1/3 do slide em preto vazio embaixo. Medido no print (posições
-      // reais em px convertidas pra polegada): tabela+rodapé formam um
-      // bloco de ~2,85in; centralizando esse bloco na área útil entre o
-      // banner (~1,3in) e o rodapé do período (~6,8in) dá y≈2,6 — não é
-      // cálculo exato (linha com "corrido méd/med" quebra em 2 linhas,
-      // altura real varia um pouco), só uma centralização aproximada que
-      // distribui o vazio em vez de deixá-lo todo embaixo.
+      // Linhas maiores (fonte 10,5/11, rowH generoso) + moldura
+      // arredondada — pedido do usuário ("aumenta esse gráfico e deixa
+      // ele mais arredondado"). rowH de dado = 0,62 (não 0,4) porque as
+      // colunas "corrido méd/med" costumam quebrar em 2 linhas com essa
+      // fonte maior — folga validada gerando o pptx real e medindo a
+      // altura verdadeira no XML antes de fechar (ver histórico do
+      // commit). y=2.6, mantido do fix de espaço vazio de mais cedo hoje.
       const yTabela = 2.6;
-      slide.addTable(linhasTabela, {
-        x: MX, y: yTabela, w: CW,
-        colW: [1.5, 1.0, 1.35, 1.4, 1.75, 1.35, 1.4, 1.75],
-        border: { type: "solid", color: COR.cardBorder, pt: 0.5 },
-        autoPage: false,
-        valign: "middle",
-      });
-      const y2 = yTabela + 0.4 + tipos.length * 0.4 + 0.25;
+      const rowH = [0.42, ...tipos.map(() => 0.62)];
+      const alturaTabela = tabelaArredondada(
+        slide, MX, yTabela, CW, linhasTabela,
+        [1.5, 1.0, 1.35, 1.4, 1.75, 1.35, 1.4, 1.75], rowH
+      );
+      const y2 = yTabela + alturaTabela + 0.35;
       slide.addText(
         "\"Chamados\" conta todo mundo com a tag, respondido ou não — pode ser maior que a base real de TFR/TTR (só quem já tem resposta humana/resolução calculada). \"Mediana\" (p50) é o valor do meio — mais resistente a outlier do que a média (achado real: 1 chamado de dias sozinho já puxou uma média inteira). \"Corrido\" é o tempo de relógio cru, sem descontar fora do expediente — mostrado como média/mediana no mesmo formato.",
         { x: MX, y: y2, w: CW, h: 0.6, fontSize: 9, color: COR.inkFraco, italic: true, fontFace: FONT_BODY }
@@ -306,7 +338,11 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
   if (data.topTfrProdutor.length > 0 || data.topTfrFinal.length > 0) {
     const slide = slideBase("Top 5 — Maiores tempos de 1ª resposta", "Os chamados que mais demoraram até a 1ª resposta humana no período.");
     const colW = [1.9, 1.55, 1.55, 1.55, 1.25, 1.35, 1.15];
-    const tabelaTopTfr = (casos: typeof data.topTfrProdutor, y: number, rowH: number) => {
+    // Mesma moldura arredondada + zebra do resto do deck (pedido do
+    // usuário, 2026-09-22). rowH continua compacto (0,3) porque são 2
+    // tabelas empilhadas no mesmo slide — não dá pra aumentar tanto quanto
+    // a de Velocidade sem estourar o espaço disponível.
+    const tabelaTopTfr = (casos: typeof data.topTfrProdutor, y: number) => {
       const linhas: PptxGenJS.TableRow[] = [
         [
           { text: "Cliente", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, fontFace: FONT_BODY } },
@@ -317,51 +353,50 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
           { text: "TFR corrido", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, align: "right", fontFace: FONT_BODY } },
           { text: "Chamado", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, align: "center", fontFace: FONT_BODY } },
         ],
-        ...casos.map((c) => {
+        ...casos.map((c, i) => {
           const corrido = tfrCorridoSeg(c.current_started_at, c.primeira_resposta_humana_at);
+          const zebra = i % 2 === 1 ? COR.cardBg2 : COR.cardBg;
           return [
-            { text: c.cliente_nome || "—", options: { color: COR.ink, fontSize: 8.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-            { text: fmtDataHora(c.current_started_at), options: { color: COR.inkSoft, fontSize: 8, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-            { text: fmtDataHora(c.primeira_resposta_humana_at), options: { color: COR.inkSoft, fontSize: 8, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-            { text: fmtDataHora(c.resolved_at), options: { color: COR.inkSoft, fontSize: 8, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-            { text: formatDuration(c.tempo_primeira_resposta_seg), options: { color: COR.mint, bold: true, fontSize: 8.5, align: "right" as const, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-            { text: formatDuration(corrido), options: { color: COR.inkSoft, fontSize: 8, align: "right" as const, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
+            { text: c.cliente_nome || "—", options: { color: COR.ink, fontSize: 8.5, fill: { color: zebra }, fontFace: FONT_BODY } },
+            { text: fmtDataHora(c.current_started_at), options: { color: COR.inkSoft, fontSize: 8, fill: { color: zebra }, fontFace: FONT_BODY } },
+            { text: fmtDataHora(c.primeira_resposta_humana_at), options: { color: COR.inkSoft, fontSize: 8, fill: { color: zebra }, fontFace: FONT_BODY } },
+            { text: fmtDataHora(c.resolved_at), options: { color: COR.inkSoft, fontSize: 8, fill: { color: zebra }, fontFace: FONT_BODY } },
+            { text: formatDuration(c.tempo_primeira_resposta_seg), options: { color: COR.mint, bold: true, fontSize: 8.5, align: "right" as const, fill: { color: zebra }, fontFace: FONT_BODY } },
+            { text: formatDuration(corrido), options: { color: COR.inkSoft, fontSize: 8, align: "right" as const, fill: { color: zebra }, fontFace: FONT_BODY } },
             {
               text: c.link_chamado ? "Ver ↗" : "—",
               options: {
-                color: c.link_chamado ? COR.mint : COR.inkFraco, fontSize: 8, align: "center" as const, fill: { color: COR.cardBg }, fontFace: FONT_BODY,
+                color: c.link_chamado ? COR.mint : COR.inkFraco, fontSize: 8, align: "center" as const, fill: { color: zebra }, fontFace: FONT_BODY,
                 hyperlink: c.link_chamado ? { url: c.link_chamado } : undefined,
               },
             },
           ];
         }),
       ];
-      slide.addTable(linhas, {
-        x: MX, y, w: CW, colW,
-        rowH,
-        border: { type: "solid", color: COR.cardBorder, pt: 0.5 },
-        autoPage: false,
-        valign: "middle",
-      });
+      tabelaArredondada(slide, MX, y, CW, linhas, colW, [0.27, ...casos.map(() => 0.27)]);
     };
 
-    slide.addText("PRODUTOR", { x: MX, y: 1.32, w: CW, h: 0.26, fontSize: 11, bold: true, color: COR.mint, charSpacing: 0.5, fontFace: FONT_BODY });
+    // Offsets recalculados pra sobrar dos dois lados (subtítulo do banner
+    // novo termina em ~1,38in; cada moldura arredondada tem 0,16in de
+    // acolchoamento pra fora da tabela) — reconferido gerando o pptx real
+    // e medindo o XML antes de fechar.
+    slide.addText("PRODUTOR", { x: MX, y: 1.45, w: CW, h: 0.26, fontSize: 11, bold: true, color: COR.mint, charSpacing: 0.5, fontFace: FONT_BODY });
     if (data.topTfrProdutor.length > 0) {
-      tabelaTopTfr(data.topTfrProdutor, 1.6, 0.28);
+      tabelaTopTfr(data.topTfrProdutor, 1.89);
     } else {
-      slide.addText("Sem casos no período.", { x: MX, y: 1.62, w: CW, h: 0.3, fontSize: 9, italic: true, color: COR.inkFraco, fontFace: FONT_BODY });
+      slide.addText("Sem casos no período.", { x: MX, y: 1.89, w: CW, h: 0.3, fontSize: 9, italic: true, color: COR.inkFraco, fontFace: FONT_BODY });
     }
 
-    slide.addText("CLIENTE FINAL", { x: MX, y: 3.45, w: CW, h: 0.26, fontSize: 11, bold: true, color: COR.mint, charSpacing: 0.5, fontFace: FONT_BODY });
+    slide.addText("CLIENTE FINAL", { x: MX, y: 3.82, w: CW, h: 0.26, fontSize: 11, bold: true, color: COR.mint, charSpacing: 0.5, fontFace: FONT_BODY });
     if (data.topTfrFinal.length > 0) {
-      tabelaTopTfr(data.topTfrFinal, 3.73, 0.28);
+      tabelaTopTfr(data.topTfrFinal, 4.26);
     } else {
-      slide.addText("Sem casos no período.", { x: MX, y: 3.75, w: CW, h: 0.3, fontSize: 9, italic: true, color: COR.inkFraco, fontFace: FONT_BODY });
+      slide.addText("Sem casos no período.", { x: MX, y: 4.26, w: CW, h: 0.3, fontSize: 9, italic: true, color: COR.inkFraco, fontFace: FONT_BODY });
     }
 
     slide.addText(
       `Mediana de TFR (horas úteis) no período: ${formatDuration(A.percentis?.tfr_p50 ?? null)} — referência pra comparar com os 5 casos de cada grupo acima, que são os piores, não o típico.`,
-      { x: MX, y: 5.55, w: CW, h: 0.5, fontSize: 9, color: COR.inkFraco, italic: true, fontFace: FONT_BODY }
+      { x: MX, y: 6.19, w: CW, h: 0.4, fontSize: 8.5, color: COR.inkFraco, italic: true, fontFace: FONT_BODY }
     );
   }
 
@@ -425,13 +460,16 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
           { text: "Nota média", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 11, align: "right", fontFace: FONT_BODY } },
           { text: "Avaliações", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 11, align: "right", fontFace: FONT_BODY } },
         ],
-        ...linhas.map((c) => [
-          { text: c.operator_nome, options: { color: COR.ink, fontSize: 11, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-          { text: (c.csat_medio ?? 0).toFixed(2).replace(".", ","), options: { color: COR.inkSoft, fontSize: 11, align: "right" as const, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-          { text: String(c.total_avaliacoes), options: { color: COR.inkSoft, fontSize: 11, align: "right" as const, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-        ]),
+        ...linhas.map((c, i) => {
+          const zebra = i % 2 === 1 ? COR.cardBg2 : COR.cardBg;
+          return [
+            { text: c.operator_nome, options: { color: COR.ink, fontSize: 11, fill: { color: zebra }, fontFace: FONT_BODY } },
+            { text: (c.csat_medio ?? 0).toFixed(2).replace(".", ","), options: { color: COR.inkSoft, fontSize: 11, align: "right" as const, fill: { color: zebra }, fontFace: FONT_BODY } },
+            { text: String(c.total_avaliacoes), options: { color: COR.inkSoft, fontSize: 11, align: "right" as const, fill: { color: zebra }, fontFace: FONT_BODY } },
+          ];
+        }),
       ];
-      slide.addTable(linhasTabela, { x: MX, y: 2.1, w: CW, colW: [CW - 3.2, 1.6, 1.6], border: { type: "solid", color: COR.cardBorder, pt: 0.5 }, autoPage: false });
+      tabelaArredondada(slide, MX, 2.1, CW, linhasTabela, [CW - 3.2, 1.6, 1.6], [0.4, ...linhas.map(() => 0.4)]);
     }
   }
 
