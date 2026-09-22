@@ -157,7 +157,10 @@ export default function Analytics() {
     return copia;
   }, [rankingFiltrado, rankingOrdenarPor, rankingDirecao]);
 
-  const serieChamados = (evolucaoCsat ?? []).map((e) => ({ label: e.periodo.slice(5), value: e.total }));
+  // analytics_evolucao() lê de csat_results (avaliações), não de
+  // crisp_conversations — "total" aqui é contagem de avaliações no
+  // período, não de conversas/chamados (ver CLAUDE.md).
+  const serieAvaliacoes = (evolucaoCsat ?? []).map((e) => ({ label: e.periodo.slice(5), value: e.total }));
   const serieCsat = (evolucaoCsat ?? []).map((e) => ({
     label: e.periodo.slice(5),
     value: e.media_csat,
@@ -260,7 +263,7 @@ export default function Analytics() {
 
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 p-5 pb-0">
-          <h2 className="font-display text-sm font-semibold text-ink">Evolução de conversas e CSAT</h2>
+          <h2 className="font-display text-sm font-semibold text-ink">Evolução de avaliações e CSAT</h2>
           <SegmentedControl
             options={[["day", "Diária"], ["week", "Semanal"], ["month", "Mensal"]] as const}
             value={granularidade}
@@ -269,8 +272,8 @@ export default function Analytics() {
         </div>
         <div className="grid gap-4 p-5 md:grid-cols-2">
           <div>
-            <p className="mb-2 text-xs font-medium text-ink/50">Conversas</p>
-            {loadingEvolucao ? <p className="text-sm text-ink/50">Carregando...</p> : serieChamados.length === 0 ? <p className="text-sm text-ink/50">Sem dados.</p> : <BarChart data={serieChamados} getColorClass={corChamados} height={128} />}
+            <p className="mb-2 text-xs font-medium text-ink/50" title="Conta avaliações de CSAT recebidas no período, não conversas/chamados — analytics_evolucao() lê de csat_results.">Avaliações</p>
+            {loadingEvolucao ? <p className="text-sm text-ink/50">Carregando...</p> : serieAvaliacoes.length === 0 ? <p className="text-sm text-ink/50">Sem dados.</p> : <BarChart data={serieAvaliacoes} getColorClass={corChamados} height={128} />}
           </div>
           <div>
             <p className="mb-2 text-xs font-medium text-ink/50">CSAT médio</p>
