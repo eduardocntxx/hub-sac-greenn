@@ -21,18 +21,17 @@ import {
   fetchTodosAtendimentosComMetricas,
   fetchDistinctTiposCliente,
   fetchDistinctAtendentesConversas,
-  fetchTfrTtrPercentis,
+  fetchVelocidadePorTipoCliente,
   fetchBacklogPorIdade,
   fetchBacklogCasos,
   fetchRelogioPosse,
   fetchRelogioEsperaCliente,
   fetchHorasExpedientePeriodo,
   fetchMotivoContatoResumo,
-  fetchMetricasPorTipoCliente,
   fetchCsatDistribuicao,
   fetchTempoRespostaBot,
   fetchContagemPeriodo,
-  fetchReaberturaResumo,
+  fetchReaberturaPorTipoCliente,
   fetchReaberturaCasos,
   fetchTransferenciasResumo,
   fetchTransferenciasCasos,
@@ -40,8 +39,11 @@ import {
   fetchRecontatoCasos,
   fetchRespostaGenericaResumo,
   fetchRespostaGenericaCasos,
+  fetchVolumeDiaHora,
   type ModoTempo,
   type AtendimentoComMetricas,
+  type VelocidadePorTipoCliente,
+  type ReaberturaPorTipoCliente,
 } from "@/services/api";
 import { resolvePeriodo, type PeriodoPreset } from "@/lib/dateRanges";
 import { formatDuration } from "@/lib/formatDuration";
@@ -61,6 +63,10 @@ const statusTone: Record<string, "success" | "warning" | "neutral"> = {
 const statusLabel: Record<string, string> = { resolved: "Resolvido", pending: "Pendente" };
 
 const PAGE_SIZE = 15;
+
+// dow do Postgres: 0=domingo .. 6=sábado (mesma convenção de cobertura_semanal).
+const DIAS_SEMANA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const HORAS_DIA = Array.from({ length: 24 }, (_, h) => h);
 
 type OrdenarCampo = "tempo_aberto" | "tfr" | "tempo_resolucao";
 const DIRECAO_PADRAO: Record<OrdenarCampo, "asc" | "desc"> = {
@@ -117,7 +123,11 @@ export default function Performance() {
   const podeVer = isAdmin;
 
   const [aba, setAba] = usePersistedState<"ranking" | "atendimentos" | "generico">("overview:aba", "ranking");
-  const [modoTempo, setModoTempo] = usePersistedState<ModoTempo>("overview:modoTempo", "uteis");
+  // Toggle de horas úteis/corridas removido do Overview (pedido do usuário) —
+  // Velocidade agora mostra os dois modos direto no card, sem precisar
+  // escolher. O resto da página (Ranking, Motivo de contato, Transferências)
+  // continua em horas úteis, só sem opção de trocar pela UI.
+  const modoTempo: ModoTempo = "uteis";
   const [preset, setPreset] = usePersistedState<PeriodoPreset>("overview:preset", "30dias");
   const [personalizado, setPersonalizado] = usePersistedState("overview:personalizado", { inicio: "", fim: "" });
   // Filtro de canal é exclusivo da aba Atendimentos (lista de chamados) — a
@@ -191,39 +201,9 @@ export default function Performance() {
   // null quando não há filtro, não "").
   const tipoClienteRpc = tipoClienteFiltro || undefined;
 
-  const { data: percentis, isLoading: loadingPercentis } = useQuery({
-    queryKey: ["tfr-ttr-percentis", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
-    queryFn: () => fetchTfrTtrPercentis(inicio, fim, undefined, atendenteNomesFiltro, modoTempo, tipoClienteRpc),
-  });
-
-  const { data: backlog, isLoading: loadingBacklog } = useQuery({
-    queryKey: ["backlog-por-idade", atendenteNomes, tipoClienteFiltro],
-    queryFn: () => fetchBacklogPorIdade(undefined, atendenteNomesFiltro, tipoClienteRpc),
-  });
-
-  const { data: posse, isLoading: loadingPosse } = useQuery({
-    queryKey: ["relogio-posse", inicio, fim, tipoClienteFiltro],
-    queryFn: () => fetchRelogioPosse(inicio, fim, undefined, tipoClienteRpc),
-  });
-
-  const { data: esperaCliente, isLoading: loadingEspera } = useQuery({
-    queryKey: ["relogio-espera-cliente", inicio, fim, atendenteNomes, tipoClienteFiltro],
-    queryFn: () => fetchRelogioEsperaCliente(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-  });
-
-  const { data: horasExpediente, isLoading: loadingExpediente } = useQuery({
-    queryKey: ["horas-expediente-periodo", inicio, fim, atendenteNomes],
-    queryFn: () => fetchHorasExpedientePeriodo(inicio, fim, atendenteNomesFiltro),
-  });
-
-  const { data: motivos, isLoading: loadingMotivos } = useQuery({
-    queryKey: ["motivo-contato-resumo", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
-    queryFn: () => fetchMotivoContatoResumo(inicio, fim, undefined, modoTempo, atendenteNomesFiltro, tipoClienteRpc),
-  });
-
-  const { data: metricasTipoCliente, isLoading: loadingTipoCliente } = useQuery({
-    queryKey: ["metricas-tipo-cliente", inicio, fim, modoTempo, atendenteNomes],
-    queryFn: () => fetchMetricasPorTipoCliente(inicio, fim, undefined, modoTempo, atendenteNomesFiltro),
+  const { data: contagem } = useQuery({
+    queryKey: ["contagem-periodo", inicio, fim, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchContagemPeriodo(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
   });
 
   const { data: csatDist } = useQuery({
@@ -231,20 +211,76 @@ export default function Performance() {
     queryFn: () => fetchCsatDistribuicao(inicio, fim, undefined, atendenteNomesFiltro),
   });
 
-  const { data: contagem } = useQuery({
-    queryKey: ["contagem-periodo", inicio, fim, atendenteNomes, tipoClienteFiltro],
-    queryFn: () => fetchContagemPeriodo(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-  });
-
   const { data: tempoRespostaBot } = useQuery({
     queryKey: ["tempo-resposta-bot", inicio, fim],
     queryFn: () => fetchTempoRespostaBot(inicio, fim),
   });
 
-  const { data: reaberturaResumo, isLoading: loadingReabertura } = useQuery({
-    queryKey: ["reabertura-resumo", inicio, fim, atendenteNomes, tipoClienteFiltro],
-    queryFn: () => fetchReaberturaResumo(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
+  // Compute tier pequeno satura quando todas as agregações pesadas disparam
+  // juntas (mesmo padrão já resolvido em ReuniaoResultados.tsx com
+  // anteriorHabilitado) — as queries abaixo só disparam depois que
+  // contagem_periodo (rápida) resolver, reduzindo o pico de concorrência.
+  const waveDoisHabilitada = contagem !== undefined;
+
+  // Substitui os antigos percentis (Velocidade) + metricas-tipo-cliente (Por
+  // tipo de cliente) — 1 query só, já traz "Geral" (time inteiro) + 1 linha
+  // por tipo real, média E mediana, horas úteis E corridas juntas (sem
+  // toggle, sem chamar 2x). Pedido explícito do usuário: mediana como
+  // número principal, cards segmentados por tipo perto de Velocidade.
+  const { data: velocidadePorTipo, isLoading: loadingVelocidade } = useQuery({
+    queryKey: ["velocidade-por-tipo", inicio, fim, atendenteNomes],
+    queryFn: () => fetchVelocidadePorTipoCliente(inicio, fim, undefined, atendenteNomesFiltro),
+    enabled: waveDoisHabilitada,
   });
+  const velocidadeGeral = useMemo(() => velocidadePorTipo?.find((v: VelocidadePorTipoCliente) => v.tipo_cliente === "Geral"), [velocidadePorTipo]);
+  const velocidadePorTipoReal = useMemo(() => (velocidadePorTipo ?? []).filter((v: VelocidadePorTipoCliente) => v.tipo_cliente !== "Geral"), [velocidadePorTipo]);
+
+  const { data: backlog, isLoading: loadingBacklog } = useQuery({
+    queryKey: ["backlog-por-idade", atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchBacklogPorIdade(undefined, atendenteNomesFiltro, tipoClienteRpc),
+    enabled: waveDoisHabilitada,
+  });
+
+  const { data: posse, isLoading: loadingPosse } = useQuery({
+    queryKey: ["relogio-posse", inicio, fim, tipoClienteFiltro],
+    queryFn: () => fetchRelogioPosse(inicio, fim, undefined, tipoClienteRpc),
+    enabled: waveDoisHabilitada,
+  });
+
+  const { data: volumeDiaHora, isLoading: loadingVolumeDiaHora } = useQuery({
+    queryKey: ["volume-dia-hora", inicio, fim, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchVolumeDiaHora(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
+    enabled: waveDoisHabilitada,
+  });
+
+  const { data: esperaCliente, isLoading: loadingEspera } = useQuery({
+    queryKey: ["relogio-espera-cliente", inicio, fim, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchRelogioEsperaCliente(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
+    enabled: waveDoisHabilitada,
+  });
+
+  const { data: horasExpediente, isLoading: loadingExpediente } = useQuery({
+    queryKey: ["horas-expediente-periodo", inicio, fim, atendenteNomes],
+    queryFn: () => fetchHorasExpedientePeriodo(inicio, fim, atendenteNomesFiltro),
+    enabled: waveDoisHabilitada,
+  });
+
+  const { data: motivos, isLoading: loadingMotivos } = useQuery({
+    queryKey: ["motivo-contato-resumo", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchMotivoContatoResumo(inicio, fim, undefined, modoTempo, atendenteNomesFiltro, tipoClienteRpc),
+    enabled: waveDoisHabilitada,
+  });
+
+  // Mesma ideia de velocidade-por-tipo: 1 query com "Geral" + 1 linha por
+  // tipo, usada tanto pelos novos cards segmentados quanto pela seção
+  // "Reabertura" já existente (que antes tinha sua própria query só pro
+  // "Geral" — unificado aqui pra não repetir a mesma agregação 2x).
+  const { data: reaberturaPorTipo, isLoading: loadingReabertura } = useQuery({
+    queryKey: ["reabertura-por-tipo", inicio, fim, atendenteNomes],
+    queryFn: () => fetchReaberturaPorTipoCliente(inicio, fim, undefined, atendenteNomesFiltro),
+    enabled: waveDoisHabilitada,
+  });
+  const reaberturaResumo = useMemo(() => reaberturaPorTipo?.find((r: ReaberturaPorTipoCliente) => r.tipo_cliente === "Geral"), [reaberturaPorTipo]);
 
   const { data: reaberturaCasos } = useQuery({
     queryKey: ["reabertura-casos", inicio, fim, atendenteNomes, tipoClienteFiltro],
@@ -255,6 +291,7 @@ export default function Performance() {
   const { data: transferenciasResumo, isLoading: loadingTransferencias } = useQuery({
     queryKey: ["transferencias-resumo", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchTransferenciasResumo(inicio, fim, undefined, atendenteNomesFiltro, modoTempo, tipoClienteRpc),
+    enabled: waveDoisHabilitada,
   });
 
   const { data: transferenciasCasos } = useQuery({
@@ -266,6 +303,7 @@ export default function Performance() {
   const { data: fcrRecontato, isLoading: loadingFcr } = useQuery({
     queryKey: ["fcr-recontato-resumo", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchFcrRecontatoResumo(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
+    enabled: waveDoisHabilitada,
   });
 
   const { data: recontatoCasos } = useQuery({
@@ -313,7 +351,7 @@ export default function Performance() {
   const { data: ranking, isLoading } = useQuery({
     queryKey: ["atendente-performance", inicio, fim, modoTempo, tipoClienteFiltro],
     queryFn: () => fetchAtendentePerformance(inicio, fim, undefined, undefined, modoTempo, tipoClienteRpc),
-    enabled: podeVer && aba === "ranking",
+    enabled: waveDoisHabilitada && podeVer && aba === "ranking",
   });
 
   const [rankingOrdenarPor, setRankingOrdenarPor] = useState<RankingCampo | undefined>(undefined);
@@ -358,10 +396,20 @@ export default function Performance() {
   }, [rankingHumano, rankingOrdenarPor, rankingDirecao]);
 
   const posseMap = useMemo(() => {
-    const mapa = new Map<string, { minutos_posse: number; conversas: number }>();
+    const mapa = new Map<string, { minutos_posse: number; chamados: number }>();
     (posse ?? []).forEach((p) => mapa.set(p.atendente, p));
     return mapa;
   }, [posse]);
+
+  const volumeDiaHoraGrid = useMemo(() => {
+    const mapa = new Map<string, number>();
+    (volumeDiaHora ?? []).forEach((v) => mapa.set(`${v.dia_semana}-${v.hora}`, v.chamados));
+    return mapa;
+  }, [volumeDiaHora]);
+  const volumeDiaHoraMax = useMemo(
+    () => Math.max(0, ...(volumeDiaHora ?? []).map((v) => v.chamados)),
+    [volumeDiaHora]
+  );
 
   const posseFiltrada = useMemo(
     () => (posse ?? []).filter((p) => atendenteNomes.length === 0 || atendenteNomes.includes(p.atendente)),
@@ -550,7 +598,7 @@ export default function Performance() {
               onClick={() => setFiltroAberto((a) => !a)}
               className={cn(
                 "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[13px] transition-colors",
-                modoTempo === "corridas" || tipoClienteFiltro || atendenteNomes.length > 0 || (aba === "atendimentos" && (canal || tipoCliente || motivo))
+                tipoClienteFiltro || atendenteNomes.length > 0 || (aba === "atendimentos" && (canal || tipoCliente || motivo))
                   ? "border-forest-300 bg-forest-50 text-forest-700 dark:border-forest-500/40 dark:bg-forest-500/15 dark:text-forest-300"
                   : "border-sand-line bg-sand-surface text-ink/60 hover:border-sand-line-strong"
               )}
@@ -560,21 +608,7 @@ export default function Performance() {
             </button>
             {filtroAberto && (
               <div className="absolute right-0 top-full z-20 mt-1.5 w-72 space-y-3 overflow-hidden rounded-xl border border-sand-line bg-sand-surface p-3 shadow-float">
-                <div>
-                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink/40">Tempo</p>
-                  <SegmentedControl
-                    className="w-full"
-                    options={[["uteis", "Horas úteis"], ["corridas", "Horas corridas"]] as const}
-                    value={modoTempo}
-                    onChange={setModoTempo}
-                  />
-                  <p className="mt-1.5 text-[11px] text-ink/40">
-                    {modoTempo === "uteis"
-                      ? "Desconta fora do expediente cadastrado do time."
-                      : "Tempo de relógio cru, sem desconto."}
-                  </p>
-                </div>
-                <div className="space-y-2 border-t border-sand-line pt-3">
+                <div className="space-y-2">
                   <div>
                     <div className="flex items-center justify-between">
                       <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink/40">
@@ -613,7 +647,7 @@ export default function Performance() {
                     </div>
                   </div>
                   {aba === "ranking" && (
-                    <p className="text-[11px] text-ink/40">Filtra o Dashboard inteiro (Ranking, Velocidade, Backlog, Posse, Reabertura, Transferências, FCR/Recontato, Por tipo de cliente).</p>
+                    <p className="text-[11px] text-ink/40">Filtra o Dashboard inteiro (Ranking, Backlog, Posse, Reabertura, Transferências, FCR/Recontato). Velocidade já mostra todo mundo, segmentado por tipo — esse filtro não muda ela.</p>
                   )}
                 </div>
                 {aba === "ranking" ? (
@@ -628,8 +662,8 @@ export default function Performance() {
                       {(tiposCliente ?? []).map((t) => <option key={t.tag} value={t.tag}>{t.label}</option>)}
                     </select>
                     <p className="mt-1.5 text-[11px] text-ink/40">
-                      Filtra o Dashboard inteiro (Ranking, Velocidade, Backlog, Posse, Reabertura, Transferências,
-                      FCR/Recontato, Por tipo de cliente) — exceto CSAT e Relógio de trabalho ativo.
+                      Filtra o Dashboard inteiro (Ranking, Backlog, Posse, Reabertura, Transferências, FCR/Recontato)
+                      — exceto CSAT, Relógio de trabalho ativo e Velocidade (que já mostra todo mundo segmentado).
                     </p>
                   </div>
                 ) : (
@@ -738,7 +772,7 @@ export default function Performance() {
                 className="flex cursor-pointer flex-wrap items-center gap-6 border-sky-400/30 bg-sky-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
               >
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Atendimentos</p>
+                  <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Chamados</p>
                   <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{iaEntry.total_atendimentos}</p>
                 </div>
                 {tempoRespostaBot && tempoRespostaBot.amostras > 0 && (
@@ -763,19 +797,22 @@ export default function Performance() {
                   <div>
                     <p
                       className="text-xs font-medium uppercase tracking-wide text-ink/40"
-                      title="Conta diferente de 'Atendimentos': inclui qualquer chamado em que o bot segurou a posse em algum momento, mesmo que um humano tenha assumido depois — por isso os dois números não precisam bater"
+                      title="Só conta posse através de evento real de roteamento — e o marcador sintético do bot (usado como 'atendente atual' na maioria dos chamados) nunca gera esse evento. Então isso reflete quase só a conta real do bot na Crisp (allan@gdigital.com.br), que quase nunca fica como atendente atual — por isso pode divergir bastante de 'Atendimentos', pra mais ou pra menos"
                     >
                       Chamados c/ posse
                     </p>
-                    <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{iaPosse.conversas}</p>
+                    <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{iaPosse.chamados}</p>
                   </div>
                 )}
               </Card>
               <p className="mt-2 text-xs text-ink/40">
                 Separado do ranking humano — TFR e tempo de resolução não fazem sentido pro bot (ele não "responde
-                como humano" nem "resolve" no sentido usado ali). "Atendimentos" conta chamados onde o bot é o
-                atendente registrado agora; "Chamados c/ posse" conta todo chamado que passou pelo bot em algum
-                momento, mesmo repassado depois — por isso os números podem divergir (não é erro).
+                como humano" nem "resolve" no sentido usado ali). "Chamados" conta chamados onde o bot é o
+                atendente registrado agora — quase sempre via um marcador sintético que nunca passa por roteamento
+                real. "Chamados c/ posse" só existe através de roteamento real, que esse marcador nunca gera — então
+                vem quase inteiramente da conta de verdade do bot na Crisp, que raramente é quem fica registrado como
+                atendente atual. São duas fontes praticamente sem sobreposição, não um subconjunto uma da outra — por
+                isso os números podem divergir bastante (não é erro).
               </p>
             </div>
           )}
@@ -824,10 +861,20 @@ export default function Performance() {
                     <SortableHeader align="center" field="csat_medio" label="CSAT médio" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
                     <SortableHeader align="center" field="total_avaliacoes" label="Avaliações" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
                     <th className="px-4 py-3 font-medium">Tempo de posse</th>
-                    <th className="px-4 py-3 font-medium">Chamados c/ posse</th>
+                    <th
+                      className="px-4 py-3 font-medium"
+                      title="Só conta posse ATIVA — trechos em que o chamado já está com status resolvido não entram aqui, mesmo esse chamado continuando contando em 'Chamados'. Por isso costuma ser MENOR que 'Chamados', não maior, apesar do nome sugerir 'todo chamado que passou pela pessoa'."
+                    >
+                      Chamados c/ posse
+                    </th>
                     <th className="px-4 py-3 font-medium">Posse média</th>
                     <th className="px-4 py-3 font-medium" title="Atendimentos ÷ horas de posse — produtividade só faz sentido lida junto com CSAT/TFR/reabertura ao lado">Atend./hora</th>
-                    <th className="px-4 py-3 font-medium">Reaberturas</th>
+                    <th
+                      className="px-4 py-3 font-medium"
+                      title="Quantidade de EVENTOS de reabertura atribuídos a esse atendente no período — não é por chamado (um chamado que reabre 3 vezes conta 3 aqui). Não inclui o bot."
+                    >
+                      Reaberturas
+                    </th>
                     <th className="px-4 py-3 font-medium">Transferências</th>
                   </tr>
                 </thead>
@@ -854,8 +901,8 @@ export default function Performance() {
                         <td className={cn("px-4 py-3 font-semibold", corTextoCsat(r.csat_medio))}>{r.csat_medio?.toFixed(1) ?? "—"}</td>
                         <td className="px-4 py-3 text-ink/70">{r.total_avaliacoes}</td>
                         <td className="px-4 py-3 text-ink/70">{p ? formatDuration(p.minutos_posse * 60) : "—"}</td>
-                        <td className="px-4 py-3 text-ink/70">{p ? p.conversas : "—"}</td>
-                        <td className="px-4 py-3 text-ink/70">{p ? formatDuration((p.minutos_posse / p.conversas) * 60) : "—"}</td>
+                        <td className="px-4 py-3 text-ink/70">{p ? p.chamados : "—"}</td>
+                        <td className="px-4 py-3 text-ink/70">{p ? formatDuration((p.minutos_posse / p.chamados) * 60) : "—"}</td>
                         <td className="px-4 py-3 text-ink/70">{atendPorHora !== null ? atendPorHora.toFixed(1) : "—"}</td>
                         <td className="px-4 py-3 text-ink/70">{reaberturaPorAtendenteMap.get(r.operator_nome) ?? 0}</td>
                         <td className="px-4 py-3 text-ink/70">{transferenciasOrigemMap.get(r.operator_nome) ?? 0}</td>
@@ -887,10 +934,11 @@ export default function Performance() {
             </Card>
           )}
           <p className="text-xs text-ink/40">
-            "Chamados" conta onde a pessoa é a atendente registrada agora. "Chamados c/ posse"
-            conta de forma diferente — inclui trechos em que a pessoa segurou o chamado mesmo que outra tenha assumido
-            depois (handoff), por isso os dois números não precisam bater. Clique numa linha com posse pra ver os
-            chamados específicos.
+            "Chamados" conta onde a pessoa é a atendente registrada agora, não importa o status. "Chamados c/ posse"
+            só conta posse ATIVA — um chamado já resolvido some daqui mesmo continuando em "Chamados", por isso esse
+            número costuma ser MENOR (não maior, apesar do nome). Ele também inclui trechos em que a pessoa segurou o
+            chamado antes de repassar pra outra pessoa (handoff) — então os dois números nunca precisam bater, em
+            nenhuma direção. Clique numa linha com posse pra ver os chamados específicos.
           </p>
 
           <div>
@@ -904,62 +952,60 @@ export default function Performance() {
                 <Info size={13} /> ver mais
               </button>
             </div>
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card className="p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-ink/40">TFR — tempo até 1ª resposta humana</p>
-                {loadingPercentis ? (
-                  <p className="mt-2 text-sm text-ink/50">Carregando...</p>
-                ) : !percentis || percentis.tfr_amostras === 0 ? (
-                  <p className="mt-2 text-sm text-ink/50">Sem amostras no período.</p>
-                ) : (
-                  <>
-                    <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{formatDuration(percentis.tfr_media)}</p>
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink/60">
-                      <span>P50: {formatDuration(percentis.tfr_p50)}</span>
-                      <span>P90: {formatDuration(percentis.tfr_p90)}</span>
-                      <span>P95: {formatDuration(percentis.tfr_p95)}</span>
-                    </div>
-                    <p className={cn("mt-2 text-sm font-bold", corTextoSla(percentis.tfr_sla_pct))}>
-                      SLA cumprido: {percentis.tfr_sla_pct?.toFixed(1) ?? "—"}%
-                    </p>
-                    <p className="mt-1 text-[11px] text-ink/40">{percentis.tfr_amostras} amostras</p>
-                  </>
-                )}
-              </Card>
-              <Card className="p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-ink/40">TTR — tempo até resolução</p>
-                {loadingPercentis ? (
-                  <p className="mt-2 text-sm text-ink/50">Carregando...</p>
-                ) : !percentis || percentis.ttr_amostras === 0 ? (
-                  <p className="mt-2 text-sm text-ink/50">Sem amostras no período.</p>
-                ) : (
-                  <>
-                    <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{formatDuration(percentis.ttr_media)}</p>
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink/60">
-                      <span>P50: {formatDuration(percentis.ttr_p50)}</span>
-                      <span>P90: {formatDuration(percentis.ttr_p90)}</span>
-                      <span>P95: {formatDuration(percentis.ttr_p95)}</span>
-                    </div>
-                    <p className={cn("mt-2 text-sm font-bold", corTextoSla(percentis.ttr_sla_pct))}>
-                      SLA cumprido: {percentis.ttr_sla_pct?.toFixed(1) ?? "—"}%
-                    </p>
-                    <p className="mt-1 text-[11px] text-ink/40">{percentis.ttr_amostras} amostras</p>
-                    {percentis.ttr_primeira_resolucao_amostras > 0 && (
-                      <p
-                        className="mt-2 border-t border-sand-line pt-2 text-[11px] text-ink/50"
-                        title="Amostra diferente do TTR principal de propósito: o TTR acima só conta quem está resolvido agora (resolved_at). Esta linha conta quem já foi resolvido pelo menos uma vez, mesmo que tenha reaberto depois e esteja pendente de novo agora (first_resolved_at) — por isso o número de amostras pode ser maior aqui, e o valor médio pode não bater com o TTR acima."
-                      >
-                        1ª resolução (antes de reabrir): <span className="font-medium text-ink/70">{formatDuration(percentis.ttr_primeira_resolucao_media)}</span>
-                        {" "}({percentis.ttr_primeira_resolucao_amostras} amostra{percentis.ttr_primeira_resolucao_amostras === 1 ? "" : "s"})
-                      </p>
-                    )}
-                  </>
-                )}
-              </Card>
-            </div>
-            <p className="mt-2 text-xs text-ink/40">
-              SLA de 1ª resposta e de resolução são independentes (metas em minutos configuráveis em <code>sla_config</code>,
-              hoje uma regra única global). Tempo já desconta fora de expediente.
+            {loadingVelocidade ? (
+              <p className="text-sm text-ink/50">Carregando...</p>
+            ) : !velocidadeGeral ? (
+              <Card className="p-4"><p className="text-sm text-ink/50">Sem chamados no período.</p></Card>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {[velocidadeGeral, ...velocidadePorTipoReal].map((v: VelocidadePorTipoCliente) => {
+                  const rb = reaberturaPorTipo?.find((r: ReaberturaPorTipoCliente) => r.tipo_cliente === v.tipo_cliente);
+                  return (
+                    <Card key={v.tipo_cliente} className="p-4">
+                      <div className="flex items-baseline justify-between">
+                        <p className="font-display text-sm font-semibold text-ink">{v.tipo_cliente}</p>
+                        <p className="text-xs text-ink/50">{v.chamados.toLocaleString("pt-BR")} chamados</p>
+                      </div>
+                      <div className="mt-3 border-t border-sand-line pt-3">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40">1ª resposta (mediana)</p>
+                        <p
+                          className="mt-0.5 font-display text-lg font-semibold text-ink"
+                          title={`Média: ${formatDuration(v.tfr_media_uteis_seg)} útil / ${formatDuration(v.tfr_media_corridas_seg)} corrido`}
+                        >
+                          {formatDuration(v.tfr_p50_uteis_seg)}
+                        </p>
+                        <p className="text-xs text-ink/50">corrido: {formatDuration(v.tfr_p50_corridas_seg)}</p>
+                      </div>
+                      <div className="mt-3 border-t border-sand-line pt-3">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40">Resolução (mediana)</p>
+                        <p
+                          className="mt-0.5 font-display text-lg font-semibold text-ink"
+                          title={`Média: ${formatDuration(v.ttr_media_uteis_seg)} útil / ${formatDuration(v.ttr_media_corridas_seg)} corrido`}
+                        >
+                          {formatDuration(v.ttr_p50_uteis_seg)}
+                        </p>
+                        <p className="text-xs text-ink/50">corrido: {formatDuration(v.ttr_p50_corridas_seg)}</p>
+                      </div>
+                      <div className="mt-3 border-t border-sand-line pt-3">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40">Reabertura</p>
+                        {rb ? (
+                          <p className="mt-0.5 text-sm text-ink/70">
+                            <span className="font-semibold text-ink">{rb.taxa_pct?.toFixed(1) ?? "—"}%</span>
+                            {" "}({rb.total_reabertos.toLocaleString("pt-BR")} de {rb.total_resolvidos.toLocaleString("pt-BR")} resolvidos)
+                          </p>
+                        ) : (
+                          <p className="mt-0.5 text-sm text-ink/40">—</p>
+                        )}
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+            <p className="mt-3 text-xs text-ink/40">
+              Mediana (P50) como número principal — metade dos chamados fica em até esse tempo, é o "caso típico" e sofre
+              bem menos com outliers do que a média (passe o mouse pra ver a média). "Geral" é o time inteiro, sem filtrar
+              por tipo. Tempo sempre desconta feriado; "Sem tipo" é quem não tem tag de segmento capturada pela Crisp ainda.
             </p>
           </div>
 
@@ -972,13 +1018,12 @@ export default function Performance() {
                 </button>
               </div>
               <div className="mt-3 space-y-3 text-sm text-ink/70">
-                <p><span className="font-semibold text-ink">TFR</span> — tempo até a 1ª resposta humana. No Ranking, atribuído a quem de fato respondeu primeiro (não necessariamente quem é o atendente atual do chamado, se ele trocou de mão depois).</p>
-                <p><span className="font-semibold text-ink">TTR</span> — tempo até a resolução (do início do chamado até ele ser marcado como resolvido). Se o chamado reabriu, esse valor é sempre até a resolução mais recente/final — a linha "1ª resolução" embaixo do card mostra quanto tempo levou da primeira vez, antes de reabrir.</p>
-                <p><span className="font-semibold text-ink">Média</span> — soma de todos os tempos dividida pela quantidade de chamados. Pode ser puxada por poucos casos muito lentos (outliers).</p>
-                <p><span className="font-semibold text-ink">P50 (mediana)</span> — metade dos chamados foi respondida/resolvida em até esse tempo. É o "caso típico", menos sensível a outliers que a média.</p>
-                <p><span className="font-semibold text-ink">P90</span> — 90% dos chamados ficaram dentro desse tempo; só os 10% mais lentos passaram disso.</p>
-                <p><span className="font-semibold text-ink">P95</span> — 95% dos chamados ficaram dentro desse tempo; captura os piores casos (só 5% foi mais lento).</p>
-                <p><span className="font-semibold text-ink">SLA cumprido</span> — percentual de chamados que ficou dentro da meta configurada em <code>sla_config</code> (hoje uma meta única, em minutos, pra todo o time).</p>
+                <p><span className="font-semibold text-ink">1ª resposta (TFR)</span> — tempo até a 1ª resposta humana (bot não conta).</p>
+                <p><span className="font-semibold text-ink">Resolução (TTR)</span> — tempo até o chamado ser marcado como resolvido (última resolução, se reabriu mais de uma vez).</p>
+                <p><span className="font-semibold text-ink">Mediana (P50)</span> — metade dos chamados foi respondida/resolvida em até esse tempo. É o "caso típico", bem menos sensível a outliers do que a média — passe o mouse no número pra ver a média.</p>
+                <p><span className="font-semibold text-ink">Útil vs. corrido</span> — útil desconta fora do expediente cadastrado do time (e feriado); corrido é relógio cru, sem desconto.</p>
+                <p><span className="font-semibold text-ink">Reabertura</span> — % de chamados resolvidos nesse segmento que o cliente reabriu pelo menos uma vez.</p>
+                <p><span className="font-semibold text-ink">Chamados</span> — conta 1 + reaberturas por conversa. "Geral" mostra o time inteiro; os outros cards mostram só quem tem aquela tag de tipo de cliente.</p>
               </div>
             </Dialog>
           )}
@@ -1403,14 +1448,14 @@ export default function Performance() {
               <div className="grid gap-4 border-b border-sand-line pb-4 sm:grid-cols-3">
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Relógio do cliente</p>
-                  {loadingPercentis ? (
+                  {loadingVelocidade ? (
                     <p className="mt-1 text-sm text-ink/50">Carregando...</p>
-                  ) : !percentis || percentis.ttr_amostras === 0 ? (
+                  ) : !velocidadeGeral ? (
                     <p className="mt-1 text-sm text-ink/50">Sem amostras.</p>
                   ) : (
                     <>
-                      <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{formatDuration(percentis.ttr_media)}</p>
-                      <p className="mt-1 text-[11px] text-ink/40">TTR médio — mesmo valor de Velocidade, do ponto de vista de quem esperou</p>
+                      <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{formatDuration(velocidadeGeral.ttr_p50_uteis_seg)}</p>
+                      <p className="mt-1 text-[11px] text-ink/40">Mediana de Resolução — mesmo valor de Velocidade (card "Geral"), do ponto de vista de quem esperou</p>
                     </>
                   )}
                 </div>
@@ -1632,7 +1677,11 @@ export default function Performance() {
               </div>
               {posseDetalheAtendimentos && posseDetalheAtendimentos.count > 0 && (
                 <div className="mt-3 flex items-center justify-between text-sm text-ink/60">
-                  <span>{posseDetalheAtendimentos.count} conversas</span>
+                  <span title="Conversas = 1 por chamado do Crisp. Chamados pondera reabertura (1 + reopened_count) — os dois divergem quando o período/atendente teve chamado reaberto.">
+                    {posseDetalheAtendimentos.count} conversas
+                    {posseDetalheAtendimentos.totalChamados !== posseDetalheAtendimentos.count &&
+                      ` (${posseDetalheAtendimentos.totalChamados} chamados, com reabertura)`}
+                  </span>
                   <div className="flex gap-2">
                     <Button variant="secondary" size="sm" disabled={posseDetalhePage === 0} onClick={() => setPosseDetalhePage((p) => p - 1)}>Anterior</Button>
                     <span className="flex items-center px-2 text-xs">
@@ -1731,58 +1780,53 @@ export default function Performance() {
           </div>
 
           <div>
-            <h2 className="mb-3 font-display text-sm font-semibold text-ink">Por tipo de cliente</h2>
-            {loadingTipoCliente ? (
+            <h2 className="mb-3 font-display text-sm font-semibold text-ink">Volume por dia e horário</h2>
+            {loadingVolumeDiaHora ? (
               <p className="text-sm text-ink/50">Carregando...</p>
-            ) : !metricasTipoCliente || metricasTipoCliente.length === 0 ? (
-              <Card className="p-4"><p className="text-sm text-ink/50">Nenhum chamado com tipo de cliente identificado no período.</p></Card>
+            ) : !volumeDiaHora || volumeDiaHora.length === 0 ? (
+              <Card className="p-4"><p className="text-sm text-ink/50">Sem chamados no período.</p></Card>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {metricasTipoCliente
-                  .filter((m) => !tipoClienteFiltro || m.tipo_cliente === tipoClienteFiltro)
-                  .map((m) => (
-                  <Card
-                    key={m.tipo_cliente}
-                    onClick={() => setTipoClienteFiltro((atual) => (atual === m.tipo_cliente ? "" : m.tipo_cliente))}
-                    className={cn(
-                      "cursor-pointer p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover",
-                      tipoClienteFiltro === m.tipo_cliente && "border-forest-300 bg-forest-50/40 ring-1 ring-forest-300 dark:border-forest-500/40 dark:bg-forest-500/10 dark:ring-forest-500/40"
-                    )}
-                  >
-                    <p className="text-sm font-semibold text-ink">{m.tipo_cliente}</p>
-                    <p
-                      className="mt-1 text-xs text-ink/40"
-                      title="Conta todo chamado com essa tag no período, tenha ou não resposta/resolução ainda — por isso pode ser maior que a quantidade de amostras usada pro TFR/TTR médio ao lado."
-                    >
-                      {m.chamados} chamados
-                    </p>
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      <div>
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40">TFR médio</p>
-                        <p className="font-display text-sm font-semibold text-ink">{formatDuration(m.tfr_media_seg)}</p>
-                      </div>
-                      <div>
-                        <p
-                          className="text-[10px] font-medium uppercase tracking-wide text-ink/40"
-                          title="'—' quando nenhum chamado desse tipo foi resolvido ainda no período (comum cedo no dia, ou com fila grande)."
-                        >
-                          TTR médio
-                        </p>
-                        <p className="font-display text-sm font-semibold text-ink">{formatDuration(m.ttr_media_seg)}</p>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-              </div>
+              <Card className="overflow-x-auto p-4">
+                <table className="border-separate border-spacing-1 text-center text-[11px]">
+                  <thead>
+                    <tr>
+                      <th className="px-1 text-left font-medium text-ink/40">Dia \ Hora</th>
+                      {HORAS_DIA.map((h) => (
+                        <th key={h} className="px-0.5 font-medium text-ink/40">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {DIAS_SEMANA.map((nomeDia, dow) => (
+                      <tr key={dow}>
+                        <td className="px-1 text-left font-medium text-ink/60">{nomeDia}</td>
+                        {HORAS_DIA.map((h) => {
+                          const v = volumeDiaHoraGrid.get(`${dow}-${h}`) ?? 0;
+                          const intensidade = volumeDiaHoraMax > 0 ? v / volumeDiaHoraMax : 0;
+                          return (
+                            <td
+                              key={h}
+                              title={`${nomeDia}, ${h}h: ${v} chamados`}
+                              className="h-6 w-6 rounded text-ink/70"
+                              style={{ backgroundColor: `rgba(2, 132, 199, ${(0.06 + intensidade * 0.85).toFixed(2)})` }}
+                            >
+                              {v > 0 ? v : ""}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="mt-3 text-xs text-ink/40">
+                  Chamados por dia da semana × hora de início (horário de Brasília), somados no período inteiro selecionado —
+                  ajuda a ver o padrão de pico independente de quantas semanas o filtro cobrir. Mesma definição de "chamados"
+                  do resto da página (1 + reaberturas).
+                </p>
+              </Card>
             )}
-            <p className="mt-2 text-xs text-ink/40">
-              Só aparece aqui o tipo de cliente que existir de verdade em <code>crisp_conversations.tipo_cliente</code> no
-              período — não é uma lista fixa, novos segmentos aparecem sozinhos assim que o pipeline capturar. Clique num
-              card pra ver só aquele tipo (clique de novo pra voltar a ver todos). "Chamados" conta todo mundo com a tag,
-              independente de já ter sido respondido ou resolvido — por isso pode ser maior que as amostras do card de
-              Velocidade acima, que só conta quem já tem TFR/TTR calculado de verdade.
-            </p>
           </div>
+
         </>
       ) : aba === "atendimentos" ? (
         <>
