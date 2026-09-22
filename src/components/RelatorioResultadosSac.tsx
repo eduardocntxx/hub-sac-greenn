@@ -277,6 +277,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                 <thead className="bg-[#A8F5D0] text-xs uppercase tracking-wide text-[#141414]">
                   <tr>
                     <th className="px-3 py-2.5 text-left font-bold">Cliente</th>
+                    <th className="px-3 py-2.5 text-left font-bold">Tipo</th>
                     <th className="px-3 py-2.5 text-left font-bold">Abertura</th>
                     <th className="px-3 py-2.5 text-left font-bold">1ª resposta</th>
                     <th className="px-3 py-2.5 text-left font-bold">Fechamento</th>
@@ -289,6 +290,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                   {data.topTfrCasos.map((c) => (
                     <tr key={c.id} className="border-t border-sand-line bg-sand-surface">
                       <td className="px-3 py-2.5 font-medium text-ink">{c.cliente_nome || "—"}</td>
+                      <td className="px-3 py-2.5 text-ink/70">{c.tipo_cliente || "Sem tipo"}</td>
                       <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.current_started_at)}</td>
                       <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.primeira_resposta_humana_at)}</td>
                       <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.resolved_at)}</td>

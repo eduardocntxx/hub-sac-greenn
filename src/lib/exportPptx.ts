@@ -276,6 +276,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
     const linhasTabela: PptxGenJS.TableRow[] = [
       [
         { text: "Cliente", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, fontFace: FONT_BODY } },
+        { text: "Tipo", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, fontFace: FONT_BODY } },
         { text: "Abertura", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, fontFace: FONT_BODY } },
         { text: "1ª resposta", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, fontFace: FONT_BODY } },
         { text: "Fechamento", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, fontFace: FONT_BODY } },
@@ -287,6 +288,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
         const corrido = tfrCorridoSeg(c.current_started_at, c.primeira_resposta_humana_at);
         return [
           { text: c.cliente_nome || "—", options: { color: COR.ink, fontSize: 10, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
+          { text: c.tipo_cliente || "Sem tipo", options: { color: COR.inkSoft, fontSize: 9.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
           { text: fmtDataHora(c.current_started_at), options: { color: COR.inkSoft, fontSize: 9.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
           { text: fmtDataHora(c.primeira_resposta_humana_at), options: { color: COR.inkSoft, fontSize: 9.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
           { text: fmtDataHora(c.resolved_at), options: { color: COR.inkSoft, fontSize: 9.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
@@ -304,7 +306,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
     ];
     slide.addTable(linhasTabela, {
       x: MX, y: 2.0, w: CW,
-      colW: [2.2, 1.75, 1.75, 1.75, 1.4, 1.55, 1.4],
+      colW: [1.75, 1.05, 1.5, 1.5, 1.5, 1.3, 1.4, 1.2],
       border: { type: "solid", color: COR.cardBorder, pt: 0.5 },
       autoPage: false,
       valign: "middle",
