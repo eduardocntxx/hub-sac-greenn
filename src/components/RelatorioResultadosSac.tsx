@@ -19,8 +19,11 @@ const NOME_BOT = "IA Greenn";
 // impressão com identidade própria (preto + verde-menta, referência
 // "Tech News" do time de Tecnologia, 2026-09-22) que não deve mudar só
 // porque o app ao vivo trocou de tema — mesmo princípio já aplicado às
-// cores (ver o bloco de CSS vars redeclaradas mais abaixo).
-const FONT_DISPLAY = { fontFamily: "Impact, 'Arial Narrow Bold', sans-serif" };
+// cores (ver o bloco de CSS vars redeclaradas mais abaixo). Trocado de
+// Impact pra Arial Bold no mesmo dia — Impact é uma fonte condensada
+// crua, feedback real do usuário ("a fonte pode melhorar muito"); Arial em
+// negrito (peso já aplicado em cada uso) é limpa e sempre disponível.
+const FONT_DISPLAY = { fontFamily: "Arial, Helvetica, sans-serif", fontWeight: 800 as const };
 const FONT_LABEL = { fontFamily: "Arial, Helvetica, sans-serif", letterSpacing: "0.04em" };
 
 interface RelatorioResultadosSacProps {
@@ -398,23 +401,41 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
               tag="novo"
               nota="Amostra via crisp_id — cobre parte das avaliações recentes, crescendo. Não é a contagem exata."
             />
-            <div className="flex flex-col gap-3.5">
+            {/* Um card por tipo, mesmo padrão de "Por tipo de cliente" acima
+                (não um bloco de 3 cards por tipo empilhado) — pedido do
+                usuário pra juntar as várias slides/seções de CSAT numa só. */}
+            <MetricaGrid cols={2}>
               {csatPorTipo.map((c) => {
                 const prev = P.csatPorTipoCliente.find((p) => p.tipo_cliente === c.tipo_cliente);
                 const pct = c.total > 0 ? (c.boas / c.total) * 100 : null;
                 const pctPrev = prev && prev.total > 0 ? (prev.boas / prev.total) * 100 : null;
                 return (
-                  <div key={c.tipo_cliente} className="break-inside-avoid">
-                    <p className="mb-2 text-[12px] font-bold uppercase tracking-wide text-ink/50" style={FONT_LABEL}>{tituloTipo(c.tipo_cliente)}</p>
-                    <MetricaGrid>
-                      <MetricaCard label="Total de avaliações" valor={fmtNum(c.total)} delta={prev ? deltaPercentual(c.total, prev.total, false) : undefined} />
-                      <MetricaCard label="Avaliações boas (4–5)" valor={fmtPct1(pct)} delta={deltaPercentual(pct, pctPrev, false)} nota={`${c.boas} de ${c.total}`} />
-                      <MetricaCard label="Avaliações ruins (1–2)" valor={fmtNum(c.ruins)} delta={prev ? deltaPercentual(c.ruins, prev.ruins, true) : undefined} nota={`${c.neutras} neutras (nota 3)`} />
-                    </MetricaGrid>
+                  <div
+                    key={c.tipo_cliente}
+                    className="break-inside-avoid rounded-2xl border border-sand-line bg-sand-surface p-4 shadow-card print:shadow-none"
+                  >
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>{tituloTipo(c.tipo_cliente)}</p>
+                    <p className="mt-2 text-2xl font-extrabold tracking-tight text-[#A8F5D0] tabular-nums" style={FONT_DISPLAY}>
+                      {fmtPct1(pct)}
+                      <span className="ml-1 text-sm font-medium text-ink/40" style={{ fontFamily: "Arial, sans-serif" }}>boas</span>
+                    </p>
+                    <div className="mt-1.5">
+                      <DeltaTexto delta={deltaPercentual(pct, pctPrev, false)} />
+                    </div>
+                    <div className="mt-3.5 flex gap-6 border-t border-sand-line pt-3.5">
+                      <div>
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Total</p>
+                        <p className="mt-0.5 text-sm font-semibold tabular-nums text-ink">{fmtNum(c.total)} avaliações</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Ruins (1–2)</p>
+                        <p className="mt-0.5 text-sm font-semibold tabular-nums text-ink">{fmtNum(c.ruins)}</p>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
-            </div>
+            </MetricaGrid>
           </section>
         )}
 

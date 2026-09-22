@@ -12,14 +12,16 @@ import {
 
 const NOME_BOT = "IA Greenn";
 
-// Duas famílias — a mesma hierarquia grande-condensada + corpo limpo do
+// Duas famílias — mesma hierarquia grande-e-pesado + corpo limpo do
 // material "Tech News" do time de Tecnologia, usado como referência de
-// redesign em 2026-09-22 (preto + verde-menta, títulos gigantes/pesados,
-// texto de corpo normal). "Impact" é o análogo mais próximo entre as fontes
-// que já vêm instaladas com o Office/Windows (ver aviso de fontes seguras
-// do guia de PPTX) — a fonte condensada real do material de referência não
-// tem garantia de estar instalada na máquina de quem abrir o arquivo.
-const FONT_DISPLAY = "Impact";
+// redesign em 2026-09-22 (preto + verde-menta). Trocado de "Impact" pra
+// Arial Bold em 2026-09-22 (mesmo dia) — Impact é uma fonte condensada
+// crua, pesada demais até pra número/título curto, lia como "feio" numa
+// verificação real do usuário; Arial em negrito (peso já aplicado em toda
+// chamada que usa esta constante) é limpa, sempre instalada com
+// Office/Windows (fonte segura, ver guia de PPTX) e não distorce em
+// nenhuma substituição de fonte.
+const FONT_DISPLAY = "Arial";
 const FONT_BODY = "Arial";
 
 // Preto + verde-menta (referência "Tech News", 2026-09-22) — substituiu o
@@ -213,58 +215,55 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
     }
   }
 
-  // ---------- Velocidade (por tipo de cliente: Cliente Final e Produtor) ----------
+  // ---------- Velocidade (por tipo de cliente, dinâmico — inclui "Sem tipo") ----------
+  // Tabela, não cards: são 4 números por métrica (média útil, mediana
+  // útil, média corrida, mediana corrida) × TFR e TTR = denso demais pra
+  // caber em card, principalmente com mais de 2 tipos na tela (pedido do
+  // usuário: incluir "Sem tipo" também, não só Final/Produtor).
   {
-    const slide = slideBase("Velocidade", "Tempo de resposta e resolução, em horas úteis do time — por tipo de cliente.");
-    const tipos = [
-      { rotulo: "Cliente Final", chave: "Final" },
-      { rotulo: "Produtor", chave: "Produtor" },
-    ].map(({ rotulo, chave }) => ({
-      rotulo,
-      atual: A.tipoCliente.find((t) => t.tipo_cliente === chave),
-      anterior: P.tipoCliente.find((t) => t.tipo_cliente === chave),
-    }));
-
-    const gap = 0.3;
-    const colW = (CW - gap) / 2;
-    const cardH = 2.1;
-    const yTfr = 2.0;
-    const yTtr = yTfr + cardH + 0.25;
-
-    tipos.forEach((t, col) => {
-      const x = MX + col * (colW + gap);
-      const corridoTfr = t.atual?.tfr_media_corridas_seg != null ? formatDuration(t.atual.tfr_media_corridas_seg) : null;
-      const corridoTtr = t.atual?.ttr_media_corridas_seg != null ? formatDuration(t.atual.ttr_media_corridas_seg) : null;
-      const medianaTfr = t.atual?.tfr_p50_uteis_seg != null ? formatDuration(t.atual.tfr_p50_uteis_seg) : null;
-      const medianaTtr = t.atual?.ttr_p50_uteis_seg != null ? formatDuration(t.atual.ttr_p50_uteis_seg) : null;
-      // Nota compacta numa linha só (o card não sobra espaço vertical pra
-      // uma 2ª linha) — "chamados" encurtado pra caber junto com mediana e
-      // corrido; a explicação completa de cada termo já está no rodapé.
-      metricCard(slide, x, yTfr, colW, cardH, {
-        label: `1ª resposta — ${t.rotulo}`,
-        valor: formatDuration(t.atual?.tfr_media_uteis_seg ?? null),
-        delta: deltaPercentual(t.atual?.tfr_media_uteis_seg, t.anterior?.tfr_media_uteis_seg, true),
-        nota: [
-          t.atual ? `${fmtNum(t.atual.chamados)} chamados` : undefined,
-          medianaTfr ? `Mediana: ${medianaTfr}` : undefined,
-          corridoTfr ? `Corrido: ${corridoTfr}` : undefined,
-        ].filter(Boolean).join(" · ") || undefined,
+    const tipos = A.tipoCliente
+      .filter((t) => t.tipo_cliente !== "Geral" && t.chamados > 0)
+      .sort((a, b) => (a.tipo_cliente === "Sem tipo" ? 1 : 0) - (b.tipo_cliente === "Sem tipo" ? 1 : 0) || b.chamados - a.chamados);
+    if (tipos.length > 0) {
+      const slide = slideBase("Velocidade", "Tempo de resposta e resolução, por tipo de cliente — média e mediana, horas úteis e corridas.");
+      const th = (text: string, align?: "left" | "right") => ({
+        text, options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 9, align: align ?? ("right" as const), fontFace: FONT_BODY },
       });
-      metricCard(slide, x, yTtr, colW, cardH, {
-        label: `Resolução — ${t.rotulo}`,
-        valor: formatDuration(t.atual?.ttr_media_uteis_seg ?? null),
-        delta: deltaPercentual(t.atual?.ttr_media_uteis_seg, t.anterior?.ttr_media_uteis_seg, true),
-        nota: [
-          medianaTtr ? `Mediana: ${medianaTtr}` : undefined,
-          corridoTtr ? `Corrido: ${corridoTtr}` : undefined,
-        ].filter(Boolean).join(" · ") || undefined,
+      const linhasTabela: PptxGenJS.TableRow[] = [
+        [
+          th("Tipo", "left"), th("Chamados"),
+          th("TFR médio (útil)"), th("TFR mediana (útil)"), th("TFR corrido méd/med"),
+          th("TTR médio (útil)"), th("TTR mediana (útil)"), th("TTR corrido méd/med"),
+        ],
+        ...tipos.map((t) => {
+          const td = (text: string, align?: "left" | "right") => ({
+            text, options: { color: COR.ink, fontSize: 9, align: align ?? ("right" as const), fill: { color: COR.cardBg }, fontFace: FONT_BODY },
+          });
+          return [
+            { text: tituloTipo(t.tipo_cliente), options: { color: COR.mint, bold: true, fontSize: 9.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
+            td(fmtNum(t.chamados)),
+            td(formatDuration(t.tfr_media_uteis_seg)),
+            td(formatDuration(t.tfr_p50_uteis_seg)),
+            td(`${formatDuration(t.tfr_media_corridas_seg)} / ${formatDuration(t.tfr_p50_corridas_seg)}`),
+            td(formatDuration(t.ttr_media_uteis_seg)),
+            td(formatDuration(t.ttr_p50_uteis_seg)),
+            td(`${formatDuration(t.ttr_media_corridas_seg)} / ${formatDuration(t.ttr_p50_corridas_seg)}`),
+          ];
+        }),
+      ];
+      slide.addTable(linhasTabela, {
+        x: MX, y: 2.1, w: CW,
+        colW: [1.5, 1.0, 1.35, 1.4, 1.75, 1.35, 1.4, 1.75],
+        border: { type: "solid", color: COR.cardBorder, pt: 0.5 },
+        autoPage: false,
+        valign: "middle",
       });
-    });
-
-    slide.addText(
-      "\"Chamados\" conta todo mundo com a tag, respondido ou não — pode ser maior que a base real de TFR/TTR (só quem já tem resposta humana/resolução calculada). \"Mediana\" (p50) é o valor do meio — mais resistente a outlier do que a média. \"Corrido\" é o tempo de relógio cru, sem descontar fora do expediente.",
-      { x: MX, y: yTtr + cardH + 0.15, w: CW, h: 0.5, fontSize: 9.5, color: COR.inkFraco, italic: true, fontFace: FONT_BODY }
-    );
+      const y2 = 2.1 + 0.4 + tipos.length * 0.4 + 0.25;
+      slide.addText(
+        "\"Chamados\" conta todo mundo com a tag, respondido ou não — pode ser maior que a base real de TFR/TTR (só quem já tem resposta humana/resolução calculada). \"Mediana\" (p50) é o valor do meio — mais resistente a outlier do que a média (achado real: 1 chamado de dias sozinho já puxou uma média inteira). \"Corrido\" é o tempo de relógio cru, sem descontar fora do expediente — mostrado como média/mediana no mesmo formato.",
+        { x: MX, y: y2, w: CW, h: 0.6, fontSize: 9, color: COR.inkFraco, italic: true, fontFace: FONT_BODY }
+      );
+    }
   }
 
   // ---------- Top 5 — maiores tempos de 1ª resposta ----------
@@ -333,18 +332,34 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
   // exata de CSAT por tipo, por isso o aviso explícito no rodapé de cada
   // slide. Dinâmico: uma slide por tipo com avaliação de verdade no
   // período, "Sem tipo" incluso se houver.
-  A.csatPorTipoCliente
-    .filter((c) => c.total > 0)
-    .forEach((c) => {
-      const prev = P.csatPorTipoCliente.find((p) => p.tipo_cliente === c.tipo_cliente);
-      const boasPct = c.total > 0 ? (c.boas / c.total) * 100 : null;
-      const boasPctPrev = prev && prev.total > 0 ? (prev.boas / prev.total) * 100 : null;
-      metricasSlide(`Avaliações (CSAT) — ${tituloTipo(c.tipo_cliente)}`, undefined, [
-        { label: "Total de avaliações", valor: fmtNum(c.total), delta: prev ? deltaPercentual(c.total, prev.total, false) : undefined },
-        { label: "Avaliações boas (4–5)", valor: fmtPct1(boasPct), delta: deltaPercentual(boasPct, boasPctPrev, false), nota: `${c.boas} de ${c.total}` },
-        { label: "Avaliações ruins (1–2)", valor: fmtNum(c.ruins), delta: prev ? deltaPercentual(c.ruins, prev.ruins, true) : undefined, nota: `${c.neutras} neutras (nota 3)` },
-      ], "Amostra — só cobre avaliações já vinculadas ao chamado de origem (crisp_id), presente numa parte das avaliações recentes, crescendo. Não é a contagem exata de CSAT por tipo de cliente.");
-    });
+  // Uma slide só, um card por tipo lado a lado (mesmo padrão que a
+  // Velocidade já usava pra Final/Produtor) — antes era uma slide inteira
+  // por tipo, pedido do usuário pra juntar.
+  {
+    const tiposCsat = A.csatPorTipoCliente.filter((c) => c.total > 0);
+    if (tiposCsat.length > 0) {
+      const slide = slideBase("Avaliações (CSAT) por tipo de cliente", "Amostra via crisp_id — cobre parte das avaliações recentes, crescendo. Não é a contagem exata.");
+      const gap = 0.3;
+      const colW = (CW - gap * (tiposCsat.length - 1)) / tiposCsat.length;
+      const cardH = 2.3;
+      const y = 2.1;
+      tiposCsat.forEach((c, i) => {
+        const prev = P.csatPorTipoCliente.find((p) => p.tipo_cliente === c.tipo_cliente);
+        const boasPct = c.total > 0 ? (c.boas / c.total) * 100 : null;
+        const boasPctPrev = prev && prev.total > 0 ? (prev.boas / prev.total) * 100 : null;
+        metricCard(slide, MX + i * (colW + gap), y, colW, cardH, {
+          label: tituloTipo(c.tipo_cliente),
+          valor: fmtPct1(boasPct),
+          delta: deltaPercentual(boasPct, boasPctPrev, false),
+          nota: `${fmtNum(c.total)} avaliações · ${fmtNum(c.ruins)} ruins`,
+        });
+      });
+      slide.addText(
+        "Valor grande = % de avaliações boas (nota 4-5). \"Ruins\" = notas 1-2.",
+        { x: MX, y: y + cardH + 0.2, w: CW, h: 0.35, fontSize: 9.5, color: COR.inkFraco, italic: true, fontFace: FONT_BODY }
+      );
+    }
+  }
 
   // ---------- CSAT por atendente (tabela) ----------
   {
