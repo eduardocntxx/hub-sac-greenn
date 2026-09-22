@@ -5585,6 +5585,47 @@ novos casos desse tipo, o fallback por mensagem (que também tem a mesma
 exclusão) segue protegendo, então não é urgente, mas vale registrar como
 melhoria pendente do pipeline externo.
 
+**Bug de performance corrigido em 2026-09-22 (mesmo dia, mais tarde) —
+`atendimentos_com_metricas()` calculava `tempo_ativo_seg` pra TODO chamado
+do período, não só pros que o `LIMIT` final devolvia:** usuário reportou
+"tá demorando pra carregar os dados e exportar" na Reunião de Resultados.
+Medido com uma função de debug temporária (cópia com `is_admin()`
+trocado por `true`, criada e apagada na mesma investigação — sessão real
+via MCP ignora RLS, mesma lição já documentada nesta seção): a chamada
+usada pela tabela "Top 5" (`p_ordenar_por='tfr', p_limit=5`, janela de 7
+dias) levava **10 segundos e 54 mil buffer hits** só pra devolver 5
+linhas. Causa: `tempo_ativo_seg` (chama `atendimento_timeline()`, função
+por-conversa moderadamente cara) ficava no `SELECT` final, avaliado pra
+cada linha de `calc` (todo chamado do período) **antes** do `order by ...
+limit` ser aplicado — o `LIMIT` só cortava o resultado depois de já ter
+pago o custo caro pra todo mundo.
+
+Corrigido isolando `tempo_ativo_seg` do resto: nova CTE `pagina` faz o
+`order by`/`limit`/`offset`/agregados de janela (`count(*) over()`,
+`sum(...) over()`) só com colunas baratas, e um `select` externo (sobre
+`pagina`, já limitada a `p_limit` linhas) é quem calcula
+`tempo_ativo_seg` — a função só paga o preço caro pras linhas que de fato
+vão ser devolvidas, não pra todo o período. Validado bit-a-bit contra a
+versão antiga (0 divergências) em 4 cenários (`recentes` limit 1000/60d,
+`tfr desc` limit 5/14d, `tfr asc` limit 1000, `tempo_resolucao`/
+`tempo_aberto` com offset) antes de aplicar em produção. Resultado: **10s
+→ 3,1s** (~3x) pro caso do Top 5.
+
+**Pendência — ainda sobra ~3s de custo inerente, não resolvido**: mesmo
+depois do fix, os 54 mil buffer hits praticamente não mudaram — o
+`tempo_ativo_seg` era só parte do problema. O resto do custo vem de
+`_primeiras_respostas_humanas()`/`reopened_count_real_periodo()` (varrem
+`crisp_messages`/`crisp_conversation_state_history`/
+`operator_routing_history` pro período inteiro, mesmo cálculo caro que já
+serve outras 8 funções da plataforma) — não é um custo introduzido pela
+tabela Top 5, é o piso já existente de QUALQUER chamada dessa função
+(inclusive a aba Atendimentos do Overview, que sempre pagou esse preço,
+só nunca foi medido isoladamente até agora). Otimizar isso exigiria o
+mesmo tipo de trabalho já feito antes nesta seção pra outras funções
+(cache por dia, técnica gap-and-island) — não feito agora por escopo/
+tempo, registrado como candidato a próxima leva de performance se o
+relatório ainda parecer lento depois deste fix.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
