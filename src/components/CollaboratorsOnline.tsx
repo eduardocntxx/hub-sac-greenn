@@ -9,8 +9,8 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/contexts/ToastContext";
 import { useRealtimeUserStatus } from "@/hooks/useRealtimeUserStatus";
-import { fetchUserStatuses, upsertMyStatus } from "@/services/api";
-import type { CollaboratorStatus, DbUserStatus } from "@/types/database";
+import { fetchUserStatuses, upsertMyStatus, type ColaboradorStatusInfo } from "@/services/api";
+import type { CollaboratorStatus } from "@/types/database";
 import { cn } from "@/lib/utils";
 
 type Tone = "success" | "warning" | "neutral" | "brand" | "info" | "ausencia";
@@ -42,7 +42,7 @@ function dentroDoHorario(horaAtual: string, inicio: string | null, fim: string |
   return horaAtual >= inicio.slice(0, 5) && horaAtual <= fim.slice(0, 5);
 }
 
-function divergencia(s: DbUserStatus): string | null {
+function divergencia(s: ColaboradorStatusInfo): string | null {
   const agora = new Date().toTimeString().slice(0, 5);
   const dentro = dentroDoHorario(agora, s.horario_inicio, s.horario_fim);
   if (dentro === null) return null;
@@ -168,13 +168,13 @@ export function CollaboratorsOnline() {
                   exit={{ opacity: 0 }}
                 >
                   <Card className="relative flex items-center gap-3 border-sand-line p-4 transition-colors hover:bg-sand-subtle">
-                    <Avatar nome={s.users?.nome ?? "?"} />
+                    <Avatar nome={s.nome} />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-ink">{s.users?.nome}</p>
+                      <p className="truncate text-sm font-semibold text-ink">{s.nome}</p>
                       <p className="truncate text-xs text-ink/50">
                         {s.horario_inicio && s.horario_fim
                           ? `${s.horario_inicio.slice(0, 5)} – ${s.horario_fim.slice(0, 5)}`
-                          : s.users?.cargo}
+                          : s.cargo}
                       </p>
                     </div>
 
