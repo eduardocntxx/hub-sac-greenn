@@ -100,16 +100,22 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
   function slideBase(titulo: string, subtitulo?: string) {
     const slide = pptx.addSlide();
     slide.background = { color: COR.bg };
-    // Barra de topo chapada (verde-menta), sem gradiente — bloco de cor
-    // sólida é a assinatura visual do material de referência.
-    slide.addShape("rect", { x: 0, y: 0, w: 13.333, h: 1.15, fill: { color: COR.mint }, line: { type: "none" } });
+    // Banner virou uma tarja fina de destaque — achado real em 2026-09-22
+    // (print do usuário): o bloco mint chapado cobrindo 1,15in do topo,
+    // com o título dentro dele, lia como "muito quadrado"/"cartaz colado
+    // no preto". Reduzido pra uma tarja de 0,12in; o título saiu de dentro
+    // do bloco e passou a ser texto mint direto sobre o preto — mesma
+    // linguagem visual já usada nos valores dos cards (`metricCard`) e nas
+    // tabelas do resto do deck, então o efeito "bloco colado" não se repete
+    // aqui nem se contradiz com o resto do material.
+    slide.addShape("rect", { x: 0, y: 0, w: 13.333, h: 0.12, fill: { color: COR.mint }, line: { type: "none" } });
     slide.addText(titulo.toUpperCase(), {
-      x: MX, y: 0, w: 10.3, h: 1.15, fontSize: 30, bold: true, color: COR.bg, fontFace: FONT_DISPLAY, valign: "middle", charSpacing: 0.3,
+      x: MX, y: 0.35, w: 9.6, h: 0.75, fontSize: 30, bold: true, color: COR.mint, fontFace: FONT_DISPLAY, valign: "middle", charSpacing: 0.3,
     });
     if (subtitulo) {
-      slide.addText(subtitulo, { x: MX, y: 0.86, w: 10.3, h: 0.26, fontSize: 10.5, color: "2A2A2A", fontFace: FONT_BODY });
+      slide.addText(subtitulo, { x: MX, y: 1.1, w: 10.3, h: 0.28, fontSize: 10.5, color: COR.inkSoft, fontFace: FONT_BODY });
     }
-    seloGreenn(slide, 12.72, 0.575, 0.68);
+    seloGreenn(slide, 12.72, 0.62, 0.62);
     slide.addText(`${data.periodoAtualLabel}  ·  comparado a ${data.periodoAnteriorLabel}`, {
       x: MX, y: 7.1, w: CW, h: 0.3, fontSize: 9, color: COR.inkFraco, fontFace: FONT_BODY,
     });
@@ -251,14 +257,24 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
           ];
         }),
       ];
+      // y=2.6 (não 2.1) — achado real em 2026-09-22, print do usuário: com
+      // só 2-4 tipos a tabela ficava presa perto do topo e sobrava quase
+      // 1/3 do slide em preto vazio embaixo. Medido no print (posições
+      // reais em px convertidas pra polegada): tabela+rodapé formam um
+      // bloco de ~2,85in; centralizando esse bloco na área útil entre o
+      // banner (~1,3in) e o rodapé do período (~6,8in) dá y≈2,6 — não é
+      // cálculo exato (linha com "corrido méd/med" quebra em 2 linhas,
+      // altura real varia um pouco), só uma centralização aproximada que
+      // distribui o vazio em vez de deixá-lo todo embaixo.
+      const yTabela = 2.6;
       slide.addTable(linhasTabela, {
-        x: MX, y: 2.1, w: CW,
+        x: MX, y: yTabela, w: CW,
         colW: [1.5, 1.0, 1.35, 1.4, 1.75, 1.35, 1.4, 1.75],
         border: { type: "solid", color: COR.cardBorder, pt: 0.5 },
         autoPage: false,
         valign: "middle",
       });
-      const y2 = 2.1 + 0.4 + tipos.length * 0.4 + 0.25;
+      const y2 = yTabela + 0.4 + tipos.length * 0.4 + 0.25;
       slide.addText(
         "\"Chamados\" conta todo mundo com a tag, respondido ou não — pode ser maior que a base real de TFR/TTR (só quem já tem resposta humana/resolução calculada). \"Mediana\" (p50) é o valor do meio — mais resistente a outlier do que a média (achado real: 1 chamado de dias sozinho já puxou uma média inteira). \"Corrido\" é o tempo de relógio cru, sem descontar fora do expediente — mostrado como média/mediana no mesmo formato.",
         { x: MX, y: y2, w: CW, h: 0.6, fontSize: 9, color: COR.inkFraco, italic: true, fontFace: FONT_BODY }
