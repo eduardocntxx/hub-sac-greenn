@@ -5484,6 +5484,107 @@ as $function$
 $function$;
 ```
 
+**Investigação em 2026-09-22 — CPU/Memória do compute em 90%, causa explicada
+(não corrigida — decisão consciente de não fazer upgrade agora):** usuário
+reportou o painel do Supabase mostrando Compute/CPU/Memória em 90%. Primeira
+hipótese (errada, corrigida na hora): achei que a `main` de produção estivesse
+13 dias atrasada sem os fixes de performance — na real minha cópia local do
+git é que estava desatualizada; `b5d9a03` (staleTime padrão + throttle do
+Realtime) e mais uma leva de otimização que eu não conhecia (`PR #11`, lazy
+loading de rotas + exports de PDF/PPTX só ao exportar) **já estavam em
+produção desde 21/09**, um dia antes desse relato. Não fiz nenhum push nessa
+investigação, só sincronizei o git local.
+
+Com isso descartado, medi o banco ao vivo (5 amostras em 15s): ocioso, só a
+replicação do Realtime ativa, sem query pesada rodando naquele instante —
+confirma que o pico visto no painel é intermitente, não um travamento
+contínuo. Causa raiz identificada com números reais do próprio banco, não é
+1 bug pontual:
+- **Banco pequeno (164 MB)**, mas a **máquina é o tier Micro do Supabase**:
+  `shared_buffers` = 224 MB, `work_mem` = ~2,1 MB por operação de
+  ordenação/hash, `max_connections` = 60 — dimensionado pra projeto
+  hobby/dev, não pra dashboard analítico em produção.
+- **O tipo de query que o Hub roda é pesado por natureza**, não é CRUD
+  simples: `relogio_posse_periodo()` tem 25 mil caracteres de SQL (múltiplas
+  CTEs + window functions); `atendente_performance`, `tfr_ttr_percentis`,
+  `atendimento_timeline`, `relogio_espera_cliente`, `motivo_contato_resumo`
+  ficam entre 9 e 13 mil caracteres cada. Cada estágio de ordenação/agregação
+  reivindica seu próprio `work_mem`; com várias dessas rodando quase juntas
+  (Overview/Reunião de Resultados abertos por mais de um admin ao mesmo
+  tempo), a memória soma rápido numa máquina desse tamanho.
+- **Realtime roda 24h em segundo plano** (`pg_stat_replication` confirmou 1
+  conexão `streaming` ativa, lag de 19ms — saudável, mas é overhead fixo,
+  nunca desliga).
+- **n8n escreve continuamente** (Crisp → `crisp_conversations`/
+  `crisp_messages`/`csat_results`), independente de quantos usuários estão
+  olhando o Hub — inclusive disparando gatilhos como o de
+  `cobertura_semanal` a cada escrita.
+
+Não sobrou otimização de SQL/código óbvia pra aplicar — o trabalho de
+performance desta sessão e da anterior (staleTime, throttle, escalonamento
+em ondas da Reunião de Resultados, índices, `piso_ciclo`, cache de
+cobertura semanal, etc.) já cobriu o que dava pra resolver de graça. O
+próximo passo real seria upgrade de compute (Micro → Small/Medium,
+decisão de gasto). **Usuário decidiu conscientemente adiar esse upgrade**
+("não posso comprar até provar que esse projeto tá pronto... ainda tá
+funcionando, então vamo de marcha") — o app segue funcional mesmo nos
+picos, só mais lento; revisitar quando o projeto for validado/aprovado
+oficialmente, não é um problema esquecido.
+
+**Bug grave corrigido em 2026-09-22 — mensagem automática de encerramento
+por inatividade contaminava o TFR (tempo de 1ª resposta) da plataforma
+inteira:** usuário desconfiou de números na tabela nova "Top 5 — Maiores
+tempos de 1ª resposta" (só apareciam chamados de Produtor/Sem tipo, quase
+nunca Final) e pediu auditoria. Achado real: 145 chamados, fechados numa
+varredura em massa por 1 operadora ("Ana") num intervalo de ~1h36 no dia
+18/09/2026, tinham a mensagem-molde **"Boa tarde/noite! Como não
+recebemos novas mensagens neste chamado, iremos encerrá-lo..."** (macro de
+auto-encerramento por inatividade, disparada em lote) sendo lida por
+`_primeiras_respostas_humanas()` como se fosse a 1ª resposta humana de
+verdade ao cliente — produzindo TFR de 11 a 17 **dias** pra chamados que
+na real nunca tiveram resposta humana nenhuma antes do fechamento
+automático. Confirmado nos dois caminhos da função: tanto na coluna
+`crisp_conversations.first_human_response_at` (gravada pelo n8n em tempo
+real) quanto no fallback por `crisp_messages` — o n8n não distingue essa
+mensagem-molde de uma resposta humana genuína de conteúdo, mesma categoria
+dos bugs de detecção de bot por substring já corrigidos antes nesta seção
+(2026-08-18).
+
+Como `_primeiras_respostas_humanas()` é a fonte de TODO TFR da plataforma
+(9 consumidoras diretas: `atendente_performance`, `atendimentos_com_metricas`,
+`dashboard_atendimento_summary`, `metricas_por_tipo_cliente`,
+`minhas_conversas_metricas`, `motivo_contato_resumo`, `operador_ranking`,
+`tfr_ttr_percentis`, `velocidade_por_tipo_cliente`), esse achado não era
+só da tabela nova — Ranking, Velocidade, Overview, Meu Painel e Reunião de
+Resultados todos mostravam TFR inflado pra esses 145 casos. A contagem de
+"chamados" em si foi auditada em paralelo e confirmada correta (6.489
+conversas + 1.197 reaberturas = 7.686 chamados nos últimos 30 dias, bate
+exato com a fórmula `sum(1+reopened_count)` documentada) — não era um
+problema de contagem, só de TFR.
+
+Corrigido adicionando a mesma exclusão (`content ilike '%não recebemos
+novas mensagens neste chamado%'`) nos dois caminhos da função — quando o
+único "1º atendente humano" detectado é essa mensagem-molde, a função
+agora não retorna nada pra esse chamado (mesmo padrão de honestidade já
+usado em toda a plataforma: `TFR "—"` em vez de inventar um valor), a
+menos que exista uma mensagem humana genuína depois dela. Validado: os 3
+casos de teste originais (`session_8cfbb238...`, `session_6fa93979...`,
+`session_aefdbb93...`) passaram a não retornar nenhuma linha (correto —
+nenhum tinha resposta humana real além da macro); o top 10 de TFR dos
+últimos 30 dias, antes dominado por Produtor, ficou bem mais equilibrado
+(5 Final, 2 Produtor, 3 Sem tipo) depois do fix.
+
+**Pendência — fix real é do lado do n8n, não aplicado por mim** (sem
+acesso a essa ferramenta nesta sessão): o node que grava
+`first_human_response_at`/dispara o webhook de `message:send` precisa da
+mesma exclusão por conteúdo (ou, melhor, reconhecer esse macro/quick-reply
+como um tipo de mensagem próprio, não confundir com resposta humana de
+conteúdo) — o fix aplicado aqui corrige a LEITURA (toda consulta feita a
+partir de agora), mas se o n8n continuar gravando a coluna errada pra
+novos casos desse tipo, o fallback por mensagem (que também tem a mesma
+exclusão) segue protegendo, então não é urgente, mas vale registrar como
+melhoria pendente do pipeline externo.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
