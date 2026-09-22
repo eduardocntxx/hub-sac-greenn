@@ -5484,6 +5484,61 @@ as $function$
 $function$;
 ```
 
+**Auditoria das funções do Overview (2026-09-21) — o que estava errado e foi
+corrigido:** método = cruzar cada RPC das ~24 usadas pelo Overview com as
+demais e com um recálculo independente nas tabelas cruas, logado como admin
+(JWT simulado via `set_config('request.jwt.claims', ...)` numa transação com
+`rollback`). **Bug encontrado: 9 RPCs não excluíam conversas de teste
+(`cliente_e_teste`) enquanto as "irmãs" excluíam**, então resumo e lista nunca
+batiam: `atendimentos_com_metricas` (lista de Atendimentos: 6.322 conversas
+contra 6.262 no card), `backlog_casos` (lista +40 contra o card),
+`reabertura_casos` (571 contra 558), `transferencias_casos` (2.136 contra
+2.119), `recontato_casos` (6 contra 3), `motivo_contato_resumo` (+74 chamados),
+`relogio_posse_periodo` e `resposta_generica_casos`/`_resumo` (esta última
+usava uma 3ª definição de teste, só por e-mail `@greenn.com.br`). Corrigido
+acrescentando `and not public.cliente_e_teste(cc.cliente_nome,
+cc.cliente_email)` no ponto de seleção base de cada uma (nos ramos de
+`p_tipo_cliente` nulo/não nulo quando há dois; nas duas de resposta genérica
+substitui a definição própria). Depois: conversas 6.267 nas 4 fontes, chamados
+7.386 iguais entre contagem/lista/por tipo, backlog card = lista nas 4 faixas,
+reabertura 557 = 557 (eventos 817 = 817), transferências 2.119 = 2.119,
+recontato 3 = 3. Custo do filtro ≈ 41 ms por varredura de 6,3 mil linhas.
+**Regra: toda RPC do Overview que lê `crisp_conversations` precisa do mesmo
+filtro de teste do seu resumo — senão o card e o drill-down divergem.** Os 9
+originais estão em `~/Downloads/hub-sac-rollback-2026-09-21/` (fora do repo;
+rollback = `supabase db query --linked -f <arquivo>.sql`).
+
+**Verificado CORRETO (igual ao recálculo cru):** TFR/TTR (média, P50, P90) e
+SLA em modo corridas — `tfr_ttr_percentis` = `velocidade_por_tipo_cliente` =
+cru (2.676 e 2.382 amostras); `csat_distribuicao_notas`; `volume_dia_hora`
+(fuso `America/Sao_Paulo`; em UTC daria 22 em vez de 108 na célula seg 10h);
+chamados por atendente em `atendente_performance` (exatos nos 8 maiores; o TFR
+dessa RPC vem em **minutos**, as demais em segundos); lista de Atendimentos
+linha a linha (TFR/TTR dentro de ±1 s, sem tempo negativo, sem resolvido sem
+data, sem canal em URN cru); todas as conversões min→seg do frontend
+(`formatMin` = `formatDurationFromMinutes`, `* 60` antes de `formatDuration`).
+PPTX da Reunião de Resultados testado em Node (14/14/12 slides, zip íntegro,
+0 XML inválido) em 3 cenários: completo, vazio e com dados manuais.
+
+**Decisões PENDENTES (nada disso foi alterado):**
+1. **Taxa de reabertura mistura unidades:** 557 conversas reabertas ÷ 3.197
+   chamados resolvidos = 17,4%. Consistentes seriam 23,4% (557 ÷ 2.380
+   conversas resolvidas) ou 25,6% (817 eventos ÷ 3.197 chamados). Decisão de
+   2026-09-01 (só o denominador ponderado) merece revisão de produto.
+2. **IA genérica:** 4,5% usa como base 6.270 conversas, das quais ~1.527 não
+   têm mensagem (exclusão manual de 01–07/09); só com mensagem seria 6,0%
+   (284 ÷ 4.743). Viés só em períodos que incluem 01–07/09.
+3. Badge "Reaberto Nx" na lista (739 conversas) ≠ Reabertura (557): a segunda
+   só conta as que estão resolvidas agora. Por desenho, sem nota na tela.
+4. "Motivo de contato" soma 58 chamados a menos que o total (chamados sem
+   tópico, por desenho); a UI só avisa isso no estado vazio.
+5. `atendente_performance` filtra `operator_nome is not null`, então o TFR de
+   quem respondeu primeiro mas deixou a conversa sem responsável atual fica
+   ~0,2% diferente do cru (Vittor). Efeito pequeno.
+6. Métricas que leem mensagens (`total_mensagens`, espera do cliente, bot,
+   posse Tier C, IA genérica) estão sub-amostradas em 01–07/09 (ver item 1 da
+   lista de achados acima) — não verificadas linha a linha.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
