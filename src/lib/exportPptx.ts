@@ -280,56 +280,74 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
   // Casos individuais (não agregado) — mesma função/critério já usado na
   // aba Atendimentos do Overview (`atendimentos_com_metricas`, ordenar por
   // "tfr" desc), sem RPC nova. Só nome do cliente (sem e-mail/telefone),
-  // por pedido explícito do usuário. Separado em 2 slides (Produtor /
-  // Cliente Final) — um top 5 misto sempre saía dominado por Final
-  // (maioria via bot, TFR humano naturalmente mais longo, sem a mesma
-  // pressão de SLA que Produtor tem), escondendo os casos de Produtor.
-  const slideTopTfr = (titulo: string, casos: typeof data.topTfrProdutor) => {
-    if (casos.length === 0) return;
-    const slide = slideBase(titulo, "Os chamados que mais demoraram até a 1ª resposta humana no período.");
-    const linhasTabela: PptxGenJS.TableRow[] = [
-      [
-        { text: "Cliente", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, fontFace: FONT_BODY } },
-        { text: "Abertura", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, fontFace: FONT_BODY } },
-        { text: "1ª resposta", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, fontFace: FONT_BODY } },
-        { text: "Fechamento", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, fontFace: FONT_BODY } },
-        { text: "TFR útil", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, align: "right", fontFace: FONT_BODY } },
-        { text: "TFR corrido", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, align: "right", fontFace: FONT_BODY } },
-        { text: "Chamado", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, align: "center", fontFace: FONT_BODY } },
-      ],
-      ...casos.map((c) => {
-        const corrido = tfrCorridoSeg(c.current_started_at, c.primeira_resposta_humana_at);
-        return [
-          { text: c.cliente_nome || "—", options: { color: COR.ink, fontSize: 10, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-          { text: fmtDataHora(c.current_started_at), options: { color: COR.inkSoft, fontSize: 9.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-          { text: fmtDataHora(c.primeira_resposta_humana_at), options: { color: COR.inkSoft, fontSize: 9.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-          { text: fmtDataHora(c.resolved_at), options: { color: COR.inkSoft, fontSize: 9.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-          { text: formatDuration(c.tempo_primeira_resposta_seg), options: { color: COR.mint, bold: true, fontSize: 10, align: "right" as const, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-          { text: formatDuration(corrido), options: { color: COR.inkSoft, fontSize: 9.5, align: "right" as const, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-          {
-            text: c.link_chamado ? "Ver ↗" : "—",
-            options: {
-              color: c.link_chamado ? COR.mint : COR.inkFraco, fontSize: 9.5, align: "center" as const, fill: { color: COR.cardBg }, fontFace: FONT_BODY,
-              hyperlink: c.link_chamado ? { url: c.link_chamado } : undefined,
+  // por pedido explícito do usuário. Duas tabelas (Produtor / Cliente
+  // Final) no MESMO slide, uma embaixo da outra — um top 5 misto sempre
+  // saía dominado por Final (maioria via bot, TFR humano naturalmente
+  // mais longo, sem a mesma pressão de SLA que Produtor tem), escondendo
+  // os casos de Produtor; duas tabelas separadas resolvem isso sem
+  // precisar de um slide a mais (pedido explícito do usuário — "mesmo
+  // slide").
+  if (data.topTfrProdutor.length > 0 || data.topTfrFinal.length > 0) {
+    const slide = slideBase("Top 5 — Maiores tempos de 1ª resposta", "Os chamados que mais demoraram até a 1ª resposta humana no período.");
+    const colW = [1.9, 1.55, 1.55, 1.55, 1.25, 1.35, 1.15];
+    const tabelaTopTfr = (casos: typeof data.topTfrProdutor, y: number, rowH: number) => {
+      const linhas: PptxGenJS.TableRow[] = [
+        [
+          { text: "Cliente", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, fontFace: FONT_BODY } },
+          { text: "Abertura", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, fontFace: FONT_BODY } },
+          { text: "1ª resposta", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, fontFace: FONT_BODY } },
+          { text: "Fechamento", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, fontFace: FONT_BODY } },
+          { text: "TFR útil", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, align: "right", fontFace: FONT_BODY } },
+          { text: "TFR corrido", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, align: "right", fontFace: FONT_BODY } },
+          { text: "Chamado", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, align: "center", fontFace: FONT_BODY } },
+        ],
+        ...casos.map((c) => {
+          const corrido = tfrCorridoSeg(c.current_started_at, c.primeira_resposta_humana_at);
+          return [
+            { text: c.cliente_nome || "—", options: { color: COR.ink, fontSize: 8.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
+            { text: fmtDataHora(c.current_started_at), options: { color: COR.inkSoft, fontSize: 8, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
+            { text: fmtDataHora(c.primeira_resposta_humana_at), options: { color: COR.inkSoft, fontSize: 8, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
+            { text: fmtDataHora(c.resolved_at), options: { color: COR.inkSoft, fontSize: 8, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
+            { text: formatDuration(c.tempo_primeira_resposta_seg), options: { color: COR.mint, bold: true, fontSize: 8.5, align: "right" as const, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
+            { text: formatDuration(corrido), options: { color: COR.inkSoft, fontSize: 8, align: "right" as const, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
+            {
+              text: c.link_chamado ? "Ver ↗" : "—",
+              options: {
+                color: c.link_chamado ? COR.mint : COR.inkFraco, fontSize: 8, align: "center" as const, fill: { color: COR.cardBg }, fontFace: FONT_BODY,
+                hyperlink: c.link_chamado ? { url: c.link_chamado } : undefined,
+              },
             },
-          },
-        ];
-      }),
-    ];
-    slide.addTable(linhasTabela, {
-      x: MX, y: 2.0, w: CW,
-      colW: [1.9, 1.6, 1.6, 1.6, 1.3, 1.4, 1.2],
-      border: { type: "solid", color: COR.cardBorder, pt: 0.5 },
-      autoPage: false,
-      valign: "middle",
-    });
+          ];
+        }),
+      ];
+      slide.addTable(linhas, {
+        x: MX, y, w: CW, colW,
+        rowH,
+        border: { type: "solid", color: COR.cardBorder, pt: 0.5 },
+        autoPage: false,
+        valign: "middle",
+      });
+    };
+
+    slide.addText("PRODUTOR", { x: MX, y: 1.32, w: CW, h: 0.26, fontSize: 11, bold: true, color: COR.mint, charSpacing: 0.5, fontFace: FONT_BODY });
+    if (data.topTfrProdutor.length > 0) {
+      tabelaTopTfr(data.topTfrProdutor, 1.6, 0.28);
+    } else {
+      slide.addText("Sem casos no período.", { x: MX, y: 1.62, w: CW, h: 0.3, fontSize: 9, italic: true, color: COR.inkFraco, fontFace: FONT_BODY });
+    }
+
+    slide.addText("CLIENTE FINAL", { x: MX, y: 3.45, w: CW, h: 0.26, fontSize: 11, bold: true, color: COR.mint, charSpacing: 0.5, fontFace: FONT_BODY });
+    if (data.topTfrFinal.length > 0) {
+      tabelaTopTfr(data.topTfrFinal, 3.73, 0.28);
+    } else {
+      slide.addText("Sem casos no período.", { x: MX, y: 3.75, w: CW, h: 0.3, fontSize: 9, italic: true, color: COR.inkFraco, fontFace: FONT_BODY });
+    }
+
     slide.addText(
-      `Mediana de TFR (horas úteis) no período: ${formatDuration(A.percentis?.tfr_p50 ?? null)} — referência pra comparar com os 5 casos acima, que são os piores, não o típico.`,
-      { x: MX, y: 5.4, w: CW, h: 0.4, fontSize: 9.5, color: COR.inkFraco, italic: true, fontFace: FONT_BODY }
+      `Mediana de TFR (horas úteis) no período: ${formatDuration(A.percentis?.tfr_p50 ?? null)} — referência pra comparar com os 5 casos de cada grupo acima, que são os piores, não o típico.`,
+      { x: MX, y: 5.55, w: CW, h: 0.5, fontSize: 9, color: COR.inkFraco, italic: true, fontFace: FONT_BODY }
     );
-  };
-  slideTopTfr("Top 5 — Maiores tempos de 1ª resposta (Produtor)", data.topTfrProdutor);
-  slideTopTfr("Top 5 — Maiores tempos de 1ª resposta (Cliente Final)", data.topTfrFinal);
+  }
 
   // ---------- Avaliações (CSAT) ----------
   {

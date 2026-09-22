@@ -292,61 +292,71 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
           </MetricaGrid>
         </section>
 
-        {/* Separado em duas tabelas (Produtor / Cliente Final) por pedido
-            do usuário — um top 5 misto sempre saía dominado por Final
-            (maioria via bot, TFR humano naturalmente mais longo, sem a
-            mesma pressão de SLA que Produtor tem), escondendo os casos
-            de Produtor que de fato importam pra essa análise. */}
-        {[
-          { titulo: "Top 5 — Maiores tempos de 1ª resposta (Produtor)", casos: data.topTfrProdutor },
-          { titulo: "Top 5 — Maiores tempos de 1ª resposta (Cliente Final)", casos: data.topTfrFinal },
-        ].map(
-          ({ titulo, casos }) =>
-            casos.length > 0 && (
-              <section key={titulo} className="mt-11 print:mt-8">
-                <SecaoHead
-                  titulo={titulo}
-                  tag="novo"
-                  nota={`Mediana do período (útil): ${formatDuration(A.percentis?.tfr_p50 ?? null)} — os 5 abaixo são os piores casos, não o típico.`}
-                />
-                <div className="overflow-hidden rounded-2xl border border-sand-line shadow-card print:break-inside-avoid print:shadow-none">
-                  <table className="w-full text-sm">
-                    <thead className="bg-[#A8F5D0] text-xs uppercase tracking-wide text-[#141414]">
-                      <tr>
-                        <th className="px-3 py-2.5 text-left font-bold">Cliente</th>
-                        <th className="px-3 py-2.5 text-left font-bold">Abertura</th>
-                        <th className="px-3 py-2.5 text-left font-bold">1ª resposta</th>
-                        <th className="px-3 py-2.5 text-left font-bold">Fechamento</th>
-                        <th className="px-3 py-2.5 text-right font-bold">TFR útil</th>
-                        <th className="px-3 py-2.5 text-right font-bold">TFR corrido</th>
-                        <th className="px-3 py-2.5 text-center font-bold">Chamado</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {casos.map((c) => (
-                        <tr key={c.id} className="border-t border-sand-line bg-sand-surface">
-                          <td className="px-3 py-2.5 font-medium text-ink">{c.cliente_nome || "—"}</td>
-                          <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.current_started_at)}</td>
-                          <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.primeira_resposta_humana_at)}</td>
-                          <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.resolved_at)}</td>
-                          <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-[#A8F5D0]">{formatDuration(c.tempo_primeira_resposta_seg)}</td>
-                          <td className="px-3 py-2.5 text-right tabular-nums text-ink/70">{formatDuration(tfrCorridoSeg(c.current_started_at, c.primeira_resposta_humana_at))}</td>
-                          <td className="px-3 py-2.5 text-center">
-                            {c.link_chamado ? (
-                              <a href={c.link_chamado} target="_blank" rel="noreferrer" className="text-[#A8F5D0] underline">
-                                Ver ↗
-                              </a>
-                            ) : (
-                              <span className="text-ink/30">—</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )
+        {/* Uma seção só, duas tabelas (Produtor / Cliente Final) — um top 5
+            misto sempre saía dominado por Final (maioria via bot, TFR
+            humano naturalmente mais longo, sem a mesma pressão de SLA que
+            Produtor tem), escondendo os casos de Produtor que de fato
+            importam pra essa análise; as duas tabelas ficam juntas, sem
+            virar duas seções separadas (pedido explícito do usuário). */}
+        {(data.topTfrProdutor.length > 0 || data.topTfrFinal.length > 0) && (
+          <section className="mt-11 print:mt-8">
+            <SecaoHead
+              titulo="Top 5 — Maiores tempos de 1ª resposta"
+              tag="novo"
+              nota={`Mediana do período (útil): ${formatDuration(A.percentis?.tfr_p50 ?? null)} — os 5 de cada grupo abaixo são os piores casos, não o típico.`}
+            />
+            <div className="flex flex-col gap-6">
+              {[
+                { titulo: "Produtor", casos: data.topTfrProdutor },
+                { titulo: "Cliente Final", casos: data.topTfrFinal },
+              ].map(
+                ({ titulo, casos }) =>
+                  casos.length > 0 && (
+                    <div key={titulo} className="print:break-inside-avoid">
+                      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-[#A8F5D0]" style={FONT_LABEL}>
+                        {titulo}
+                      </p>
+                      <div className="overflow-hidden rounded-2xl border border-sand-line shadow-card print:shadow-none">
+                        <table className="w-full text-sm">
+                          <thead className="bg-[#A8F5D0] text-xs uppercase tracking-wide text-[#141414]">
+                            <tr>
+                              <th className="px-3 py-2.5 text-left font-bold">Cliente</th>
+                              <th className="px-3 py-2.5 text-left font-bold">Abertura</th>
+                              <th className="px-3 py-2.5 text-left font-bold">1ª resposta</th>
+                              <th className="px-3 py-2.5 text-left font-bold">Fechamento</th>
+                              <th className="px-3 py-2.5 text-right font-bold">TFR útil</th>
+                              <th className="px-3 py-2.5 text-right font-bold">TFR corrido</th>
+                              <th className="px-3 py-2.5 text-center font-bold">Chamado</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {casos.map((c) => (
+                              <tr key={c.id} className="border-t border-sand-line bg-sand-surface">
+                                <td className="px-3 py-2.5 font-medium text-ink">{c.cliente_nome || "—"}</td>
+                                <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.current_started_at)}</td>
+                                <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.primeira_resposta_humana_at)}</td>
+                                <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.resolved_at)}</td>
+                                <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-[#A8F5D0]">{formatDuration(c.tempo_primeira_resposta_seg)}</td>
+                                <td className="px-3 py-2.5 text-right tabular-nums text-ink/70">{formatDuration(tfrCorridoSeg(c.current_started_at, c.primeira_resposta_humana_at))}</td>
+                                <td className="px-3 py-2.5 text-center">
+                                  {c.link_chamado ? (
+                                    <a href={c.link_chamado} target="_blank" rel="noreferrer" className="text-[#A8F5D0] underline">
+                                      Ver ↗
+                                    </a>
+                                  ) : (
+                                    <span className="text-ink/30">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )
+              )}
+            </div>
+          </section>
         )}
 
         {A.rankingHumano.length > 0 && (
