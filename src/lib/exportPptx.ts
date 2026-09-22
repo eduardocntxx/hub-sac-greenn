@@ -266,6 +266,16 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
     }
   }
 
+  // ---------- Relógios do atendimento ----------
+  // Logo depois de Velocidade (pedido do usuário) — os dois são sobre
+  // tempo/velocidade do atendimento, fazem mais sentido juntos do que lá
+  // embaixo perto de Reabertura, onde estava antes.
+  metricasSlide("Relógios do atendimento", "Ponto de vista do cliente e cobertura do time.", [
+    { label: "Relógio do cliente", valor: formatDuration(A.percentis?.ttr_media ?? null), delta: deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true), nota: "Mesmo valor de Velocidade, do ponto de vista de quem esperou" },
+    { label: "Relógio de espera do cliente", valor: formatDuration(A.relogioEspera?.minutos_espera_medio != null ? A.relogioEspera.minutos_espera_medio * 60 : null), delta: deltaPercentual(A.relogioEspera?.minutos_espera_medio, P.relogioEspera?.minutos_espera_medio, true), nota: A.relogioEspera ? `${A.relogioEspera.amostras} janelas até resposta humana (bot não conta)` : undefined },
+    { label: "Relógio de trabalho ativo", valor: formatDuration(A.horasExpedienteMin != null ? A.horasExpedienteMin * 60 : null), nota: "Expediente cadastrado do time (cobertura, não presença real)" },
+  ]);
+
   // ---------- Top 5 — maiores tempos de 1ª resposta ----------
   // Casos individuais (não agregado) — mesma função/critério já usado na
   // aba Atendimentos do Overview (`atendimentos_com_metricas`, ordenar por
@@ -431,13 +441,6 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
     { label: "Taxa de reabertura", valor: fmtPct1(A.reabertura?.taxa_pct), delta: deltaPontos(A.reabertura?.taxa_pct, P.reabertura?.taxa_pct, true), nota: A.reabertura ? `${A.reabertura.total_resolvidos} chamados resolvidos` : undefined },
     { label: "Conversas reabertas", valor: fmtNum(A.reabertura?.total_reabertos), delta: deltaPercentual(A.reabertura?.total_reabertos, P.reabertura?.total_reabertos, true) },
     { label: "Eventos de reabertura", valor: fmtNum(A.reabertura?.total_eventos), nota: "Uma conversa pode reabrir mais de uma vez" },
-  ]);
-
-  // ---------- Relógios do atendimento ----------
-  metricasSlide("Relógios do atendimento", "Ponto de vista do cliente e cobertura do time.", [
-    { label: "Relógio do cliente", valor: formatDuration(A.percentis?.ttr_media ?? null), delta: deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true), nota: "Mesmo valor de Velocidade, do ponto de vista de quem esperou" },
-    { label: "Relógio de espera do cliente", valor: formatDuration(A.relogioEspera?.minutos_espera_medio != null ? A.relogioEspera.minutos_espera_medio * 60 : null), delta: deltaPercentual(A.relogioEspera?.minutos_espera_medio, P.relogioEspera?.minutos_espera_medio, true), nota: A.relogioEspera ? `${A.relogioEspera.amostras} janelas até resposta humana (bot não conta)` : undefined },
-    { label: "Relógio de trabalho ativo", valor: formatDuration(A.horasExpedienteMin != null ? A.horasExpedienteMin * 60 : null), nota: "Expediente cadastrado do time (cobertura, não presença real)" },
   ]);
 
   // ---------- NPS (números reais de nps_responses; "temas" continua manual) ----------

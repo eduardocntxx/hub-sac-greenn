@@ -227,7 +227,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
 
         {A.tipoCliente.length > 0 && (
           <section className="mt-11 print:mt-8">
-            <SecaoHead titulo="Por tipo de cliente" tag="crisp" nota="Segmentação real capturada pela Crisp. TFR/TTR em horas úteis — média e mediana (p50, mais resistente a outlier) — com o tempo corrido ao lado." />
+            <SecaoHead titulo="Velocidade" tag="crisp" nota="Segmentação real capturada pela Crisp. TFR/TTR em horas úteis — média e mediana (p50, mais resistente a outlier) — com o tempo corrido ao lado." />
             <MetricaGrid cols={2}>
               {A.tipoCliente.filter((tc) => tc.tipo_cliente !== "Geral").map((tc) => {
                 const prev = P.tipoCliente.find((p) => p.tipo_cliente === tc.tipo_cliente);
@@ -264,6 +264,33 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             </MetricaGrid>
           </section>
         )}
+
+        {/* Achado real em 2026-09-22: o PDF nunca teve essa seção, só o
+            PPTX — mesmos 3 dados já buscados (percentis/relogioEspera/
+            horasExpedienteMin), sem query nova. Logo depois de Velocidade,
+            mesmo lugar que o PPTX usa agora. */}
+        <section className="mt-11 print:mt-8">
+          <SecaoHead titulo="Relógios do atendimento" tag="crisp" nota="Ponto de vista do cliente e cobertura do time." />
+          <MetricaGrid>
+            <MetricaCard
+              label="Relógio do cliente"
+              valor={formatDuration(A.percentis?.ttr_media ?? null)}
+              delta={deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true)}
+              nota="Mesmo valor de Velocidade, do ponto de vista de quem esperou"
+            />
+            <MetricaCard
+              label="Relógio de espera do cliente"
+              valor={formatDuration(A.relogioEspera?.minutos_espera_medio != null ? A.relogioEspera.minutos_espera_medio * 60 : null)}
+              delta={deltaPercentual(A.relogioEspera?.minutos_espera_medio, P.relogioEspera?.minutos_espera_medio, true)}
+              nota={A.relogioEspera ? `${A.relogioEspera.amostras} janelas até resposta humana (bot não conta)` : undefined}
+            />
+            <MetricaCard
+              label="Relógio de trabalho ativo"
+              valor={formatDuration(A.horasExpedienteMin != null ? A.horasExpedienteMin * 60 : null)}
+              nota="Expediente cadastrado do time (cobertura, não presença real)"
+            />
+          </MetricaGrid>
+        </section>
 
         {data.topTfrCasos.length > 0 && (
           <section className="mt-11 print:mt-8">
