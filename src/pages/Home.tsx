@@ -16,6 +16,8 @@ import {
   CheckCircle2,
   Timer,
   Star,
+  Users,
+  Store,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card } from "@/components/ui/Card";
@@ -29,9 +31,15 @@ import {
   fetchMissionProgress,
   fetchDashboardAtendimentoSummary,
   fetchConversasEvolucao,
+  fetchMetricasPorTipoCliente,
 } from "@/services/api";
 import { resolvePeriodo, periodoAnterior } from "@/lib/dateRanges";
-import { formatDurationFromMinutes } from "@/lib/formatDuration";
+import { formatDurationFromMinutes, formatDuration } from "@/lib/formatDuration";
+
+const SEGMENTOS_HOME = [
+  { tipo: "Final", label: "Cliente Final", icon: Users },
+  { tipo: "Produtor", label: "Produtor", icon: Store },
+] as const;
 
 function corConversas() {
   return "bg-forest-500";
@@ -94,6 +102,11 @@ export default function Home() {
   const { data: evolucao, isLoading: loadingEvolucao } = useQuery({
     queryKey: ["conversas-evolucao", inicio, fim, "day"],
     queryFn: () => fetchConversasEvolucao(inicio, fim, "day"),
+    enabled: isAdmin,
+  });
+  const { data: metricasTipoCliente, isLoading: loadingTipoCliente } = useQuery({
+    queryKey: ["metricas-tipo-cliente", "home", inicio, fim],
+    queryFn: () => fetchMetricasPorTipoCliente(inicio, fim),
     enabled: isAdmin,
   });
 
@@ -200,6 +213,55 @@ export default function Home() {
               />
             )}
           </Card>
+
+          <div className="mt-4">
+            <h2 className="mb-3 font-display text-sm font-semibold text-ink">
+              Cliente Final × Produtor
+            </h2>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {SEGMENTOS_HOME.map(({ tipo, label, icon: Icon }) => {
+                const m = metricasTipoCliente?.find((x) => x.tipo_cliente === tipo);
+                return (
+                  <Card key={tipo} className="p-5" accent>
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-forest-50 text-forest-600 dark:bg-forest-500/15 dark:text-forest-300">
+                        <Icon size={16} />
+                      </div>
+                      <p className="font-display text-sm font-semibold text-ink">{label}</p>
+                    </div>
+                    {loadingTipoCliente ? (
+                      <div className="mt-3 h-12 animate-pulse rounded-lg bg-sand-line/50" />
+                    ) : !m ? (
+                      <p className="mt-3 text-sm text-ink/50">Sem chamados no período.</p>
+                    ) : (
+                      <>
+                        <p
+                          className="mt-2 text-xs text-ink/40"
+                          title="Conta todo chamado com essa tag no período, tenha ou não resposta/resolução ainda — por isso pode ser maior que as amostras de TFR/TTR ao lado."
+                        >
+                          {m.chamados} chamados
+                        </p>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <div>
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40">TFR médio</p>
+                            <p className="font-display text-sm font-semibold text-ink">{formatDuration(m.tfr_media_seg)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40">TTR médio</p>
+                            <p className="font-display text-sm font-semibold text-ink">{formatDuration(m.ttr_media_seg)}</p>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </Card>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-xs text-ink/40">
+              Baseado na tag de segmento capturada pelo Crisp (<code>tipo_cliente</code>) — mesma fonte da seção "Por
+              tipo de cliente" do Overview.
+            </p>
+          </div>
         </div>
       )}
 
