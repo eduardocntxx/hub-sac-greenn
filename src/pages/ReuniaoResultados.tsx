@@ -124,10 +124,18 @@ function ultimosPeriodos(granularidade: Granularidade, n: number) {
   return Array.from({ length: n }).map((_, i) => {
     const qua = new Date(quartaAtual);
     qua.setDate(qua.getDate() - i * 7);
-    const ter = new Date(qua);
-    ter.setDate(ter.getDate() + 6);
+    // Rótulo mostra "quarta a quarta" de verdade (ambas as pontas caem
+    // numa quarta-feira) — achado real em 2026-09-22: mostrar o último dia
+    // incluído (terça, qua+6) fazia o rótulo ler "16/09 a 22/09", que o
+    // usuário apontou como incorreto pra uma semana que deveria ir "até
+    // dia 23/09, quarta a quarta". O período de dado em si não muda (os
+    // dados continuam indo até terça 23:59:59, ver limitesDaSemana) — só a
+    // data mostrada no rótulo passa a ser a quarta seguinte (fronteira
+    // exclusiva), igual à convenção comum de "check-in/check-out".
+    const proximaQua = new Date(qua);
+    proximaQua.setDate(proximaQua.getDate() + 7);
     const id = toISODate(qua);
-    const label = `${String(qua.getDate()).padStart(2, "0")}/${String(qua.getMonth() + 1).padStart(2, "0")} a ${String(ter.getDate()).padStart(2, "0")}/${String(ter.getMonth() + 1).padStart(2, "0")}`;
+    const label = `${String(qua.getDate()).padStart(2, "0")}/${String(qua.getMonth() + 1).padStart(2, "0")} a ${String(proximaQua.getDate()).padStart(2, "0")}/${String(proximaQua.getMonth() + 1).padStart(2, "0")}`;
     return { id, label };
   });
 }
@@ -141,7 +149,12 @@ function labelDoPeriodo(granularidade: Granularidade, inicio: Date, fim: Date): 
     return label.charAt(0).toUpperCase() + label.slice(1);
   }
   const fmt = (d: Date) => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
-  return `${fmt(inicio)} a ${fmt(fim)}`;
+  // Mesma correção de ultimosPeriodos(): rótulo mostra a quarta seguinte
+  // (fronteira exclusiva), não o último dia realmente incluído (terça) —
+  // o intervalo de dado usado nas queries (`fim`) não muda.
+  const fimRotulo = new Date(fim);
+  fimRotulo.setDate(fimRotulo.getDate() + 1);
+  return `${fmt(inicio)} a ${fmt(fimRotulo)}`;
 }
 
 function agregarPorPeriodo(csat: { data_hora: string; nota: number | null }[], inicio: Date, fim: Date) {
