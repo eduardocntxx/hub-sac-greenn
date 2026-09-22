@@ -398,12 +398,34 @@ export default function ReuniaoResultados() {
   // horas úteis (modo padrão, mesmo critério do resto do relatório) — o
   // "corrido" de cada caso é calculado no cliente a partir dos dois
   // timestamps (abertura/1ª resposta), não precisa de 2ª chamada.
-  const { data: topTfrAtual } = useQuery({
-    queryKey: ["top-tfr-casos", inicioPeriodo, fimPeriodo],
+  // Separado em duas listas (Produtor / Cliente Final) por pedido do
+  // usuário: um único top 5 misto sempre ficava dominado por "Final"
+  // (a maioria tem TFR longo porque é atendimento majoritariamente por
+  // bot, sem a mesma pressão de SLA humano que Produtor tem) — o time
+  // quer ver os dois grupos separados, não um top 5 só de Final.
+  const { data: topTfrProdutorAtual } = useQuery({
+    queryKey: ["top-tfr-casos", "Produtor", inicioPeriodo, fimPeriodo],
     queryFn: () =>
       fetchAtendimentosComMetricas({
         inicio: inicioPeriodo,
         fim: fimPeriodo,
+        tipoCliente: "Produtor",
+        ordenarPor: "tfr",
+        direcao: "desc",
+        page: 0,
+        pageSize: 5,
+      }),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+
+  const { data: topTfrFinalAtual } = useQuery({
+    queryKey: ["top-tfr-casos", "Final", inicioPeriodo, fimPeriodo],
+    queryFn: () =>
+      fetchAtendimentosComMetricas({
+        inicio: inicioPeriodo,
+        fim: fimPeriodo,
+        tipoCliente: "Final",
         ordenarPor: "tfr",
         direcao: "desc",
         page: 0,
@@ -423,7 +445,8 @@ export default function ReuniaoResultados() {
     csatPorAtendenteDist !== undefined &&
     backlogAtual !== undefined &&
     npsRespostasAtual !== undefined &&
-    topTfrAtual !== undefined;
+    topTfrProdutorAtual !== undefined &&
+    topTfrFinalAtual !== undefined;
 
   const { data: reaberturaAtual } = useQuery({
     queryKey: ["reabertura-resumo", inicioPeriodo, fimPeriodo],
@@ -678,7 +701,8 @@ export default function ReuniaoResultados() {
       },
       csatPorAtendente: perfAtual ?? [],
       csatPorAtendenteDist: csatPorAtendenteDist ?? [],
-      topTfrCasos: topTfrAtual?.rows ?? [],
+      topTfrProdutor: topTfrProdutorAtual?.rows ?? [],
+      topTfrFinal: topTfrFinalAtual?.rows ?? [],
       backlog: backlogAtual ?? [],
       manual: dadosManuais,
     }),
@@ -701,7 +725,8 @@ export default function ReuniaoResultados() {
       csatPorTipoClienteAtual,
       csatPorTipoClienteAnterior,
       csatPorAtendenteDist,
-      topTfrAtual,
+      topTfrProdutorAtual,
+      topTfrFinalAtual,
       reaberturaAtual,
       reaberturaAnterior,
       relogioEsperaAtual,

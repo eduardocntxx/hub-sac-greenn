@@ -85,8 +85,14 @@ export interface ResultadosSacData {
   // função/critério já usado na aba Atendimentos do Overview
   // (`atendimentos_com_metricas`, ordenar por "tfr" desc). Período atual
   // só (é uma lista de casos específicos, não um agregado — não existe
-  // "top 5 do período anterior" pra comparar).
-  topTfrCasos: AtendimentoComMetricas[];
+  // "top 5 do período anterior" pra comparar). Separado em duas listas
+  // (Produtor / Cliente Final) por pedido do usuário — um único top 5
+  // misto sempre ficava dominado por "Final" (maioria atendida só pelo
+  // bot, TFR humano naturalmente mais longo, sem a mesma pressão de SLA
+  // que Produtor tem), escondendo os casos de Produtor que de fato
+  // importam pra essa análise.
+  topTfrProdutor: AtendimentoComMetricas[];
+  topTfrFinal: AtendimentoComMetricas[];
   // Backlog não é escopado por período (é sempre "o que está aberto agora"),
   // por isso fica fora de atual/anterior — não existe "backlog anterior".
   backlog: BacklogFaixa[];

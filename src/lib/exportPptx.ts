@@ -280,13 +280,16 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
   // Casos individuais (não agregado) — mesma função/critério já usado na
   // aba Atendimentos do Overview (`atendimentos_com_metricas`, ordenar por
   // "tfr" desc), sem RPC nova. Só nome do cliente (sem e-mail/telefone),
-  // por pedido explícito do usuário.
-  if (data.topTfrCasos.length > 0) {
-    const slide = slideBase("Top 5 — Maiores tempos de 1ª resposta", "Os chamados que mais demoraram até a 1ª resposta humana no período.");
+  // por pedido explícito do usuário. Separado em 2 slides (Produtor /
+  // Cliente Final) — um top 5 misto sempre saía dominado por Final
+  // (maioria via bot, TFR humano naturalmente mais longo, sem a mesma
+  // pressão de SLA que Produtor tem), escondendo os casos de Produtor.
+  const slideTopTfr = (titulo: string, casos: typeof data.topTfrProdutor) => {
+    if (casos.length === 0) return;
+    const slide = slideBase(titulo, "Os chamados que mais demoraram até a 1ª resposta humana no período.");
     const linhasTabela: PptxGenJS.TableRow[] = [
       [
         { text: "Cliente", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, fontFace: FONT_BODY } },
-        { text: "Tipo", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, fontFace: FONT_BODY } },
         { text: "Abertura", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, fontFace: FONT_BODY } },
         { text: "1ª resposta", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, fontFace: FONT_BODY } },
         { text: "Fechamento", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, fontFace: FONT_BODY } },
@@ -294,11 +297,10 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
         { text: "TFR corrido", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, align: "right", fontFace: FONT_BODY } },
         { text: "Chamado", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, align: "center", fontFace: FONT_BODY } },
       ],
-      ...data.topTfrCasos.map((c) => {
+      ...casos.map((c) => {
         const corrido = tfrCorridoSeg(c.current_started_at, c.primeira_resposta_humana_at);
         return [
           { text: c.cliente_nome || "—", options: { color: COR.ink, fontSize: 10, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
-          { text: c.tipo_cliente || "Sem tipo", options: { color: COR.inkSoft, fontSize: 9.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
           { text: fmtDataHora(c.current_started_at), options: { color: COR.inkSoft, fontSize: 9.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
           { text: fmtDataHora(c.primeira_resposta_humana_at), options: { color: COR.inkSoft, fontSize: 9.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
           { text: fmtDataHora(c.resolved_at), options: { color: COR.inkSoft, fontSize: 9.5, fill: { color: COR.cardBg }, fontFace: FONT_BODY } },
@@ -316,7 +318,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
     ];
     slide.addTable(linhasTabela, {
       x: MX, y: 2.0, w: CW,
-      colW: [1.75, 1.05, 1.5, 1.5, 1.5, 1.3, 1.4, 1.2],
+      colW: [1.9, 1.6, 1.6, 1.6, 1.3, 1.4, 1.2],
       border: { type: "solid", color: COR.cardBorder, pt: 0.5 },
       autoPage: false,
       valign: "middle",
@@ -325,7 +327,9 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
       `Mediana de TFR (horas úteis) no período: ${formatDuration(A.percentis?.tfr_p50 ?? null)} — referência pra comparar com os 5 casos acima, que são os piores, não o típico.`,
       { x: MX, y: 5.4, w: CW, h: 0.4, fontSize: 9.5, color: COR.inkFraco, italic: true, fontFace: FONT_BODY }
     );
-  }
+  };
+  slideTopTfr("Top 5 — Maiores tempos de 1ª resposta (Produtor)", data.topTfrProdutor);
+  slideTopTfr("Top 5 — Maiores tempos de 1ª resposta (Cliente Final)", data.topTfrFinal);
 
   // ---------- Avaliações (CSAT) ----------
   {
