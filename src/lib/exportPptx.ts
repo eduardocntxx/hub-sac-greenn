@@ -45,8 +45,38 @@ const COR = {
 interface CardInfo {
   label: string;
   valor: string;
+  // Versão em runs (número grande + unidade pequena, cada trecho com sua
+  // própria cor/tamanho) pro valor — usada só no card "Relógio de trabalho
+  // ativo" (pedido do usuário: "dias e horas bem pequeno com as cores"),
+  // que mistura 2 unidades (ex: "2d 21h") e ficava difícil de ler como
+  // texto corrido no mesmo tamanho gigante dos outros cards (que só têm 1
+  // valor, tipo "7h 2min 51s"). Quando presente, tem prioridade sobre
+  // `valor` (que continua preenchido, só como fallback/acessibilidade).
+  valorRuns?: PptxGenJS.TextProps[];
   delta?: DeltaInfo;
   nota?: string;
+}
+
+// "2d 21h" → [{texto:"2", grande},{texto:"d", pequena},{texto:" 21", grande},{texto:"h", pequena}]
+// — separa dígito de unidade em cada token pra poder estilizar diferente
+// (número grande e mint, unidade pequena e mais apagada). Só faz sentido
+// pra formatos com mais de uma unidade (dia+hora); um valor de unidade só
+// (ex: "7h 2min 51s") já lê bem no tamanho único de sempre, não precisa
+// desse tratamento.
+function duracaoEmRuns(texto: string, tamanhoNumero: number, tamanhoUnidade: number): PptxGenJS.TextProps[] {
+  const runs: PptxGenJS.TextProps[] = [];
+  const tokens = texto.split(" ");
+  tokens.forEach((tok, i) => {
+    const m = tok.match(/^(\d+)([a-zçã]+)$/i);
+    const prefixo = i > 0 ? " " : "";
+    if (!m) {
+      runs.push({ text: prefixo + tok, options: { fontSize: tamanhoNumero, bold: true, color: COR.mint, fontFace: FONT_DISPLAY } });
+      return;
+    }
+    runs.push({ text: prefixo + m[1], options: { fontSize: tamanhoNumero, bold: true, color: COR.mint, fontFace: FONT_DISPLAY } });
+    runs.push({ text: m[2], options: { fontSize: tamanhoUnidade, bold: true, color: COR.inkSoft, fontFace: FONT_DISPLAY } });
+  });
+  return runs;
 }
 
 function corDelta(delta?: DeltaInfo): string {
@@ -130,17 +160,29 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
     });
     slide.addShape("rect", { x, y, w, h: 0.06, fill: { color: COR.mint }, line: { type: "none" } });
     slide.addText(card.label.toUpperCase(), { x: x + 0.2, y: y + 0.18, w: w - 0.4, h: 0.28, fontSize: 9, bold: true, color: COR.inkSoft, charSpacing: 0.5, fontFace: FONT_BODY });
-    slide.addText(card.valor, { x: x + 0.2, y: y + 0.5, w: w - 0.4, h: 0.6, fontSize: 27, bold: true, color: COR.mint, fontFace: FONT_DISPLAY });
-    let linhaY = y + h - 0.55;
+    if (card.valorRuns) {
+      slide.addText(card.valorRuns, { x: x + 0.2, y: y + 0.5, w: w - 0.4, h: 0.6, valign: "middle" });
+    } else {
+      slide.addText(card.valor, { x: x + 0.2, y: y + 0.5, w: w - 0.4, h: 0.6, fontSize: 27, bold: true, color: COR.mint, fontFace: FONT_DISPLAY });
+    }
+    // Achado real em 2026-09-22 (print do usuário): a nota vazava pra fora
+    // do card quando tinha 2 linhas — a conta antiga (linhaY = y+h-0.55,
+    // +0.3 pro delta, nota com h=0.35) já colocava o fundo da nota em
+    // y+h+0.10, ou seja, sempre 0,10in ALÉM do fundo do próprio card,
+    // mesmo com nota de 1 linha só; com 2 linhas (texto mais longo, comum
+    // nesses cards) vazava bem mais, visível no print. Recalculado pra
+    // sobrar 0,15in de respiro dentro do card mesmo com nota de até 2
+    // linhas (nota_h subiu de 0,35 pra 0,4).
+    let linhaY = y + h - 0.88;
     if (card.delta) {
       slide.addText(card.delta.texto, { x: x + 0.2, y: linhaY, w: w - 0.4, h: 0.28, fontSize: 12, bold: true, color: corDelta(card.delta), fontFace: FONT_BODY });
-      linhaY += 0.3;
+      linhaY += 0.33;
     } else {
       slide.addText("sem comparação", { x: x + 0.2, y: linhaY, w: w - 0.4, h: 0.28, fontSize: 10, color: COR.inkFraco, italic: true, fontFace: FONT_BODY });
-      linhaY += 0.3;
+      linhaY += 0.33;
     }
     if (card.nota) {
-      slide.addText(card.nota, { x: x + 0.2, y: linhaY, w: w - 0.4, h: 0.35, fontSize: 8.5, color: COR.inkFraco, fontFace: FONT_BODY });
+      slide.addText(card.nota, { x: x + 0.2, y: linhaY, w: w - 0.4, h: 0.4, fontSize: 8.5, color: COR.inkFraco, fontFace: FONT_BODY });
     }
   }
 
@@ -321,7 +363,17 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
   metricasSlide("Relógios do atendimento", "Ponto de vista do cliente e cobertura do time.", [
     { label: "Relógio do cliente", valor: formatDuration(A.percentis?.ttr_media ?? null), delta: deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true), nota: "Mesmo valor de Velocidade, do ponto de vista de quem esperou" },
     { label: "Relógio de espera do cliente", valor: formatDuration(A.relogioEspera?.minutos_espera_medio != null ? A.relogioEspera.minutos_espera_medio * 60 : null), delta: deltaPercentual(A.relogioEspera?.minutos_espera_medio, P.relogioEspera?.minutos_espera_medio, true), nota: A.relogioEspera ? `${A.relogioEspera.amostras} janelas até resposta humana (bot não conta)` : undefined },
-    { label: "Relógio de trabalho ativo", valor: formatDuration(A.horasExpedienteMin != null ? A.horasExpedienteMin * 60 : null), nota: "Expediente cadastrado do time (cobertura, não presença real)" },
+    (() => {
+      const valor = formatDuration(A.horasExpedienteMin != null ? A.horasExpedienteMin * 60 : null);
+      // Pedido do usuário: número grande + unidade pequena/mais apagada
+      // (ex: "2" grande + "d" pequeno, " 21" grande + "h" pequeno) — só
+      // esse card mistura 2 unidades (dias+horas) no valor, os outros
+      // cards da tela têm 1 valor só ("7h 2min 51s") e continuam no
+      // tamanho único de sempre.
+      const card: CardInfo = { label: "Relógio de trabalho ativo", valor, nota: "Expediente cadastrado do time (cobertura, não presença real)" };
+      if (valor !== "—") card.valorRuns = duracaoEmRuns(valor, 26, 13);
+      return card;
+    })(),
   ]);
 
   // ---------- Top 5 — maiores tempos de 1ª resposta ----------
