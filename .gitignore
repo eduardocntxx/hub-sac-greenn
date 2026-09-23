@@ -14,3 +14,4 @@ supabase/.temp
 # real de webhook) e outros arquivos avulsos que às vezes caem na raiz do
 # projeto por engano.
 Widget CSAT _ Edu*.json
+n8n_migracoes_sync.json
