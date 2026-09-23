@@ -2,7 +2,6 @@ import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
-  Home,
   LayoutDashboard,
   TrendingUp,
   Target,
@@ -28,8 +27,9 @@ import { usePermissions } from "@/hooks/usePermissions";
 
 // Área disponível para o time de SAC (sempre visível a qualquer colaborador autenticado)
 const sacItems = [
-  { to: "/", label: "Home", icon: Home, end: true },
-  { to: "/meu-painel", label: "Meu Painel", icon: LayoutDashboard },
+  // Home removida em 2026-09-23 — Meu Painel virou a rota padrão ("/"),
+  // por isso o link aponta pra raiz (end:true pra destacar certo).
+  { to: "/", label: "Meu Painel", icon: LayoutDashboard, end: true },
   { to: "/missoes", label: "Missões", icon: Target },
   { to: "/reuniao-resultados", label: "Reunião de Resultados", icon: ClipboardList },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
