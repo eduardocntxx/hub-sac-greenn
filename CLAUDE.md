@@ -5626,6 +5626,62 @@ mesmo tipo de trabalho já feito antes nesta seção pra outras funções
 tempo, registrado como candidato a próxima leva de performance se o
 relatório ainda parecer lento depois deste fix.
 
+**Auditoria pedida pelo usuário em 2026-09-22/23 — "chamados tá contando
+errado": 2 bugs reais achados, os dois em `operador_ranking()` (Ranking de
+operadores do Analytics), 8 outras funções corrigidas por consistência:**
+
+Antes de mexer em qualquer coisa, cross-checei "ontem" entre as funções
+que já deveriam bater (mesmo padrão de auditoria de sempre): `contagem_
+periodo`, `dashboard_atendimento_summary`, `atendimentos_com_metricas`,
+`metricas_por_tipo_cliente`, `velocidade_por_tipo_cliente` e `atendente_
+performance` bateram **exatos** entre si (540 chamados/411 conversas).
+`relogio_posse_periodo` mostrando bem menos (419) **não é bug** — é
+proposital (só conta posse com segmento já fechado/válido, documentado
+desde 17-18/08 nesta seção).
+
+1. **8 funções nunca receberam o `cliente_e_teste()`, vazando teste real
+   pra métrica de produção**: `operador_ranking`, `minhas_conversas_
+   metricas` (Meu Painel!), `analytics_summary`, `analytics_evolucao`,
+   `distribuicao_canal`, `distribuicao_status`, `distribuicao_topico`
+   (Analytics) e `conversas_evolucao` (Home). Todas nasceram/foram
+   reescritas depois do lote original de 12 funções que ganhou o filtro —
+   nunca passaram por essa correção. Medido ano-a-data antes do fix:
+   `operador_ranking` mostrava **Felipe Bertaggi com 63 chamados quando o
+   real é 22** (186% inflado — uma conversa de teste dele sozinha, com
+   `reopened_count_real` alto, respondia pela maior parte), Eduardo
+   Nicolau 205 vs 139 real, bot "IA Greenn" 3674 vs 3624 real; no próprio
+   Meu Painel do Eduardo, 21 das 179 linhas (12%) eram conversa de teste
+   dele mesmo. Corrigido replicando o padrão de sempre (`and not public.
+   cliente_e_teste(coluna_nome, coluna_email)`, mesma assinatura, sem
+   `DROP FUNCTION`) — `atendimento_timeline(p_crisp_id)` e `csat_tempo_
+   real(p_crisp_id)` foram checadas e **descartadas**: são lookup de 1
+   conversa específica (não agregam por cliente), o filtro não se aplica.
+2. **"Ana Franca" duplicada no Ranking do Analytics, achado só na
+   validação do fix acima**: `operador_ranking()` mostrava ela **2 vezes**
+   na tabela, cada linha com o mesmo `total_chamados` inteiro — somar a
+   coluna manualmente contava em dobro (era exatamente esse o teste que
+   expôs o problema pro usuário). Causa: o CTE `csat` agrupava por
+   `(nome, email_atendente)`, e existe 1 avaliação real dela em `csat_
+   results` com `email_atendente` vazio — vira um 2º grupo (`null` conta
+   como grupo à parte), e o `LEFT JOIN` final replica a linha de `tempos`
+   uma vez por grupo batido. Mesma causa raiz (não o mesmo fix) já
+   corrigida em 02/09 num lugar diferente (`fetchDistinctOperadores()`,
+   dedup do filtro de operador) — nunca tinha sido replicada aqui.
+   Corrigido agrupando só por nome (`group by 1`, não `1, 2`) e trocando
+   `email_atendente` por `max(...)` (junta as 2 linhas antigas numa só,
+   com a média/contagem de CSAT combinada de verdade — 22+1=23 avaliações,
+   4,83 de média — em vez de escolher/descartar um dos dois grupos).
+
+Validado com dado real ano-a-data, sessão autenticada real (não MCP/CLI —
+`is_admin()` sempre falso por ali): reconciliei `operador_ranking()` linha
+a linha contra `atendente_performance()` — **14 de 14 atendentes com
+diff=0 e exatamente 1 linha cada**, incluindo Felipe Bertaggi (22=22) e
+Ana Franca (954=954, 1 linha só). `db query --linked` (CLI autenticada,
+ver seção 10 anterior) provou de novo mais rápido que a Management API
+via curl usada no começo desta sessão marathon — mesma técnica de
+impersonação por JWT (`set request.jwt.claims`, sem precisar de `set
+role`) continua necessária pra `is_admin()` resolver certo.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
