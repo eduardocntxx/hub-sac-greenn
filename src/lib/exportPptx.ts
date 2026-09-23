@@ -361,16 +361,21 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
   // tempo/velocidade do atendimento, fazem mais sentido juntos do que lá
   // embaixo perto de Reabertura, onde estava antes.
   metricasSlide("Relógios do atendimento", "Ponto de vista do cliente e cobertura do time.", [
-    { label: "Relógio do cliente", valor: formatDuration(A.percentis?.ttr_media ?? null), delta: deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true), nota: "Mesmo valor de Velocidade, do ponto de vista de quem esperou" },
-    { label: "Relógio de espera do cliente", valor: formatDuration(A.relogioEspera?.minutos_espera_medio != null ? A.relogioEspera.minutos_espera_medio * 60 : null), delta: deltaPercentual(A.relogioEspera?.minutos_espera_medio, P.relogioEspera?.minutos_espera_medio, true), nota: A.relogioEspera ? `${A.relogioEspera.amostras} janelas até resposta humana (bot não conta)` : undefined },
+    { label: "Relógio do cliente", valor: formatDuration(A.percentis?.ttr_media ?? null), delta: deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true, formatDuration), nota: "Mesmo valor de Velocidade, do ponto de vista de quem esperou" },
+    { label: "Relógio de espera do cliente", valor: formatDuration(A.relogioEspera?.minutos_espera_medio != null ? A.relogioEspera.minutos_espera_medio * 60 : null), delta: deltaPercentual(A.relogioEspera?.minutos_espera_medio, P.relogioEspera?.minutos_espera_medio, true, (v) => formatDuration(v * 60)), nota: A.relogioEspera ? `${A.relogioEspera.amostras} janelas até resposta humana (bot não conta)` : undefined },
     (() => {
       const valor = formatDuration(A.horasExpedienteMin != null ? A.horasExpedienteMin * 60 : null);
       // Pedido do usuário: número grande + unidade pequena/mais apagada
       // (ex: "2" grande + "d" pequeno, " 21" grande + "h" pequeno) — só
       // esse card mistura 2 unidades (dias+horas) no valor, os outros
       // cards da tela têm 1 valor só ("7h 2min 51s") e continuam no
-      // tamanho único de sempre.
-      const card: CardInfo = { label: "Relógio de trabalho ativo", valor, nota: "Expediente cadastrado do time (cobertura, não presença real)" };
+      // tamanho único de sempre. Delta adicionado em 2026-09-23 — nunca
+      // tinha sido ligado, mesmo o dado do período anterior já existindo.
+      const card: CardInfo = {
+        label: "Relógio de trabalho ativo", valor,
+        delta: deltaPercentual(A.horasExpedienteMin, P.horasExpedienteMin, false, (v) => formatDuration(v * 60)),
+        nota: "Expediente cadastrado do time (cobertura, não presença real)",
+      };
       if (valor !== "—") card.valorRuns = duracaoEmRuns(valor, 26, 13);
       return card;
     })(),
@@ -458,7 +463,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
     const boasPctPrev = P.csat && P.csat.total > 0 ? (P.csat.boas / P.csat.total) * 100 : null;
     metricasSlide("Avaliações (CSAT)", undefined, [
       { label: "Total de avaliações", valor: fmtNum(A.csat?.total), delta: deltaPercentual(A.csat?.total, P.csat?.total, false), nota: A.reabertura ? `De ${fmtNum(A.reabertura.total_resolvidos)} chamados resolvidos` : undefined },
-      { label: "Avaliações boas (4–5)", valor: fmtPct1(boasPct), delta: deltaPercentual(boasPct, boasPctPrev, false), nota: A.csat ? `${A.csat.boas} de ${A.csat.total}` : undefined },
+      { label: "Avaliações boas (4–5)", valor: fmtPct1(boasPct), delta: deltaPercentual(boasPct, boasPctPrev, false, fmtPct1), nota: A.csat ? `${A.csat.boas} de ${A.csat.total}` : undefined },
       { label: "Avaliações ruins (1–2)", valor: fmtNum(A.csat?.ruins), delta: deltaPercentual(A.csat?.ruins, P.csat?.ruins, true), nota: A.csat ? `${A.csat.neutras} neutras (nota 3)` : undefined },
     ]);
   }
@@ -487,7 +492,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
         metricCard(slide, MX + i * (colW + gap), y, colW, cardH, {
           label: tituloTipo(c.tipo_cliente),
           valor: fmtPct1(boasPct),
-          delta: deltaPercentual(boasPct, boasPctPrev, false),
+          delta: deltaPercentual(boasPct, boasPctPrev, false, fmtPct1),
           nota: `${fmtNum(c.total)} avaliações · ${fmtNum(c.ruins)} ruins`,
         });
       });
@@ -532,7 +537,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
     const slide = metricasSlide("Bot (IA Greenn)", "Triagem automática — separado do ranking humano.", [
       { label: "Chamados", valor: fmtNum(bot?.total_atendimentos) },
       { label: "CSAT médio", valor: bot?.csat_medio != null ? bot.csat_medio.toFixed(2).replace(".", ",") : "—", nota: bot ? `${bot.total_avaliacoes} avaliações` : undefined },
-      { label: "Tempo médio de resposta", valor: formatDuration(A.tempoRespostaBot?.tempo_medio_seg ?? null), nota: A.tempoRespostaBot ? `${A.tempoRespostaBot.amostras} amostras (mediana)` : undefined },
+      { label: "Tempo médio de resposta", valor: formatDuration(A.tempoRespostaBot?.tempo_medio_seg ?? null), delta: deltaPercentual(A.tempoRespostaBot?.tempo_medio_seg, P.tempoRespostaBot?.tempo_medio_seg, true, formatDuration), nota: A.tempoRespostaBot ? `${A.tempoRespostaBot.amostras} amostras (mediana)` : undefined },
     ]);
     if (botDist && botDist.total > 0) {
       slide.addText(
@@ -568,7 +573,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
   metricasSlide("Reabertura", "Conversa resolvida que o cliente reabriu.", [
     { label: "Taxa de reabertura", valor: fmtPct1(A.reabertura?.taxa_pct), delta: deltaPontos(A.reabertura?.taxa_pct, P.reabertura?.taxa_pct, true), nota: A.reabertura ? `${A.reabertura.total_resolvidos} chamados resolvidos` : undefined },
     { label: "Conversas reabertas", valor: fmtNum(A.reabertura?.total_reabertos), delta: deltaPercentual(A.reabertura?.total_reabertos, P.reabertura?.total_reabertos, true) },
-    { label: "Eventos de reabertura", valor: fmtNum(A.reabertura?.total_eventos), nota: "Uma conversa pode reabrir mais de uma vez" },
+    { label: "Eventos de reabertura", valor: fmtNum(A.reabertura?.total_eventos), delta: deltaPercentual(A.reabertura?.total_eventos, P.reabertura?.total_eventos, true), nota: "Uma conversa pode reabrir mais de uma vez" },
   ]);
 
   // ---------- NPS (números reais de nps_responses; "temas" continua manual) ----------
@@ -576,7 +581,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
     const slide = metricasSlide("NPS", "Direto do módulo NPS do Hub — ainda roda com dado de exemplo, sem integração real com HugMe/Crisp.", [
       { label: "Contatados", valor: fmtNum(A.npsResumo?.total), delta: deltaPercentual(A.npsResumo?.total, P.npsResumo?.total, false) },
       { label: "Promotores", valor: fmtNum(A.npsResumo?.promotores), delta: deltaPercentual(A.npsResumo?.promotores, P.npsResumo?.promotores, false) },
-      { label: "Neutros", valor: fmtNum(A.npsResumo?.neutros) },
+      { label: "Neutros", valor: fmtNum(A.npsResumo?.neutros), delta: deltaPercentual(A.npsResumo?.neutros, P.npsResumo?.neutros, false) },
       { label: "Detratores", valor: fmtNum(A.npsResumo?.detratores), delta: deltaPercentual(A.npsResumo?.detratores, P.npsResumo?.detratores, true) },
     ]);
     if (M?.nps.temas) {

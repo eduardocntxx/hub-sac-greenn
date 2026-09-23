@@ -114,22 +114,42 @@ export interface DeltaInfo {
   bom: boolean | null;
 }
 
+// Pedido do usuário em 2026-09-23: o card só mostrava a variação percentual
+// ("-50,0%"), sem o valor absoluto do período anterior do lado — "500
+// chamados, período anterior: -50% (1000)". `formatarAnterior` deixa cada
+// call site escolher como formatar o valor cru do período anterior (conta
+// simples usa o padrão `fmtNum`; duração usa `formatDuration`; métrica que
+// já é percentual usa formatação de %) — sem isso, "1000" apareceria cru
+// pra tudo que não é uma contagem simples.
+const formatarAnteriorPadrao = (v: number) => fmtNum(Math.round(v));
+
 // inverso = true quando "menor é melhor" (tempo, taxa de transferência...)
-export function deltaPercentual(atual: number | null | undefined, anterior: number | null | undefined, inverso: boolean): DeltaInfo | undefined {
+export function deltaPercentual(
+  atual: number | null | undefined,
+  anterior: number | null | undefined,
+  inverso: boolean,
+  formatarAnterior: (v: number) => string = formatarAnteriorPadrao
+): DeltaInfo | undefined {
   if (atual == null || anterior == null || anterior === 0) return undefined;
   const pct = ((atual - anterior) / anterior) * 100;
   const subiu = pct > 0;
   const bom = Math.abs(pct) < 0.5 ? null : inverso ? !subiu : subiu;
   const sinal = pct > 0 ? "+" : pct < 0 ? "-" : "";
-  return { texto: `${sinal}${Math.abs(pct).toFixed(1).replace(".", ",")}%`, bom };
+  return { texto: `${sinal}${Math.abs(pct).toFixed(1).replace(".", ",")}% (${formatarAnterior(anterior)})`, bom };
 }
 
 // Pra métricas que já são percentuais (taxa de reabertura, FCR...) — a
 // variação certa é em pontos percentuais, não "percentual do percentual".
-export function deltaPontos(atual: number | null | undefined, anterior: number | null | undefined, inverso: boolean): DeltaInfo | undefined {
+// Anterior já sai formatado como "%" por padrão (é sempre uma taxa 0-100).
+export function deltaPontos(
+  atual: number | null | undefined,
+  anterior: number | null | undefined,
+  inverso: boolean,
+  formatarAnterior: (v: number) => string = (v) => `${v.toFixed(1).replace(".", ",")}%`
+): DeltaInfo | undefined {
   if (atual == null || anterior == null) return undefined;
   const diff = atual - anterior;
   const bom = Math.abs(diff) < 0.05 ? null : inverso ? diff < 0 : diff > 0;
   const sinal = diff > 0 ? "+" : "";
-  return { texto: `${sinal}${diff.toFixed(1).replace(".", ",")} p.p.`, bom };
+  return { texto: `${sinal}${diff.toFixed(1).replace(".", ",")} p.p. (${formatarAnterior(anterior)})`, bom };
 }

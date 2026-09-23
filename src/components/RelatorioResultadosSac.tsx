@@ -202,13 +202,13 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             <MetricaCard
               label="Tempo até 1ª resposta"
               valor={formatDuration(A.percentis?.tfr_media ?? null)}
-              delta={deltaPercentual(A.percentis?.tfr_media, P.percentis?.tfr_media, true)}
+              delta={deltaPercentual(A.percentis?.tfr_media, P.percentis?.tfr_media, true, formatDuration)}
               nota={A.percentis ? `${A.percentis.tfr_amostras} amostras` : undefined}
             />
             <MetricaCard
               label="Tempo até resolução"
               valor={formatDuration(A.percentis?.ttr_media ?? null)}
-              delta={deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true)}
+              delta={deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true, formatDuration)}
               nota={A.percentis ? `${A.percentis.ttr_amostras} amostras` : undefined}
             />
           </MetricaGrid>
@@ -275,18 +275,19 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             <MetricaCard
               label="Relógio do cliente"
               valor={formatDuration(A.percentis?.ttr_media ?? null)}
-              delta={deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true)}
+              delta={deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true, formatDuration)}
               nota="Mesmo valor de Velocidade, do ponto de vista de quem esperou"
             />
             <MetricaCard
               label="Relógio de espera do cliente"
               valor={formatDuration(A.relogioEspera?.minutos_espera_medio != null ? A.relogioEspera.minutos_espera_medio * 60 : null)}
-              delta={deltaPercentual(A.relogioEspera?.minutos_espera_medio, P.relogioEspera?.minutos_espera_medio, true)}
+              delta={deltaPercentual(A.relogioEspera?.minutos_espera_medio, P.relogioEspera?.minutos_espera_medio, true, (v) => formatDuration(v * 60))}
               nota={A.relogioEspera ? `${A.relogioEspera.amostras} janelas até resposta humana (bot não conta)` : undefined}
             />
             <MetricaCard
               label="Relógio de trabalho ativo"
               valor={formatDuration(A.horasExpedienteMin != null ? A.horasExpedienteMin * 60 : null)}
+              delta={deltaPercentual(A.horasExpedienteMin, P.horasExpedienteMin, false, (v) => formatDuration(v * 60))}
               nota="Expediente cadastrado do time (cobertura, não presença real)"
             />
           </MetricaGrid>
@@ -408,7 +409,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             <MetricaCard
               label="Avaliações boas (4–5)"
               valor={fmtPct1(boasPct)}
-              delta={deltaPercentual(boasPct, boasPctPrev, false)}
+              delta={deltaPercentual(boasPct, boasPctPrev, false, fmtPct1)}
               nota={A.csat ? `${A.csat.boas} de ${A.csat.total}` : undefined}
             />
             <MetricaCard
@@ -468,7 +469,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                       <span className="ml-1 text-sm font-medium text-ink/40" style={{ fontFamily: "Arial, sans-serif" }}>boas</span>
                     </p>
                     <div className="mt-1.5">
-                      <DeltaTexto delta={deltaPercentual(pct, pctPrev, false)} />
+                      <DeltaTexto delta={deltaPercentual(pct, pctPrev, false, fmtPct1)} />
                     </div>
                     <div className="mt-3.5 flex gap-6 border-t border-sand-line pt-3.5">
                       <div>
@@ -499,6 +500,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             <MetricaCard
               label="Tempo médio de resposta"
               valor={formatDuration(A.tempoRespostaBot?.tempo_medio_seg ?? null)}
+              delta={deltaPercentual(A.tempoRespostaBot?.tempo_medio_seg, P.tempoRespostaBot?.tempo_medio_seg, true, formatDuration)}
               nota={A.tempoRespostaBot ? `${A.tempoRespostaBot.amostras} amostras (mediana)` : undefined}
             />
           </MetricaGrid>
@@ -526,6 +528,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             <MetricaCard
               label="Eventos de reabertura"
               valor={fmtNum(A.reabertura?.total_eventos)}
+              delta={deltaPercentual(A.reabertura?.total_eventos, P.reabertura?.total_eventos, true)}
               nota="Uma conversa pode reabrir mais de uma vez"
             />
           </MetricaGrid>
@@ -545,7 +548,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
               valor={fmtNum(A.npsResumo?.promotores)}
               delta={deltaPercentual(A.npsResumo?.promotores, P.npsResumo?.promotores, false)}
             />
-            <MetricaCard label="Neutros" valor={fmtNum(A.npsResumo?.neutros)} />
+            <MetricaCard label="Neutros" valor={fmtNum(A.npsResumo?.neutros)} delta={deltaPercentual(A.npsResumo?.neutros, P.npsResumo?.neutros, false)} />
             <MetricaCard
               label="Detratores"
               valor={fmtNum(A.npsResumo?.detratores)}
