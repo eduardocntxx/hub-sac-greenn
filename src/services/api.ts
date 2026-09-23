@@ -328,12 +328,18 @@ export async function fetchMissionProgress(userId: string): Promise<DbMissionPro
 
 // ---------- CSAT ----------
 
+// Bug real achado em 2026-09-23 (auditoria pedida pelo usuário em Meu
+// Painel): esta função buscava `csat_results` direto por e-mail, sem o
+// mesmo filtro `cliente_e_teste()` que já existe em toda função SQL de
+// agregação (`atendente_performance` etc.) — o próprio Eduardo testando o
+// widget de CSAT contava como avaliação real dele mesmo. Medido: 40
+// avaliações "brutas" pro Eduardo no mês, 23 (57%) eram teste — "boas"
+// saía 80% quando o real é 70,6% (17 avaliações). Corrigido trocando pra
+// `csat_resultados_atendente()`, função SQL nova que já filtra teste (não
+// `security definer` — roda como quem chama, RLS da tabela continua
+// valendo igual antes).
 export async function fetchCsatForUser(email: string): Promise<DbCsatResult[]> {
-  const { data, error } = await client()
-    .from("csat_results")
-    .select("*")
-    .eq("email_atendente", email)
-    .order("data_hora", { ascending: false });
+  const { data, error } = await client().rpc("csat_resultados_atendente", { p_email: email });
   if (error) throw error;
   return (data ?? []) as DbCsatResult[];
 }
