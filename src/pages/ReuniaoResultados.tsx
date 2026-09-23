@@ -32,6 +32,8 @@ import {
   fetchTempoRespostaBot,
   fetchBacklogPorIdade,
   fetchNpsResponses,
+  fetchMigracoesResumo,
+  fetchMigracoesPorPlataforma,
   fetchAtendimentosComMetricas,
   type AtendentePerformanceRow,
 } from "@/services/api";
@@ -392,6 +394,23 @@ export default function ReuniaoResultados() {
   });
   const npsResumoAtual = useMemo(() => (npsRespostasAtual ? resumirNps(npsRespostasAtual) : null), [npsRespostasAtual]);
 
+  // "SAC — Migrações" deixou de ser manual em 2026-09-23 — sincronizado via
+  // n8n a partir da Centralização (gestao-tickets) pra `migracoes_sync` no
+  // Hub SAC. "Por plataforma" só faz sentido no período atual (lista de
+  // casos, mesmo motivo de topTfrProdutor/Final não terem par "anterior").
+  const { data: migracoesAtual } = useQuery({
+    queryKey: ["migracoes-resumo", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchMigracoesResumo(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  const { data: migracoesPorPlataformaAtual } = useQuery({
+    queryKey: ["migracoes-por-plataforma", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchMigracoesPorPlataforma(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+
   // Top 5 maiores tempos de 1ª resposta do período — mesma função/critério
   // já usado na aba Atendimentos do Overview (`atendimentos_com_metricas`,
   // ordenar por "tfr" desc), sem precisar de RPC nova. Ordena por TFR em
@@ -445,6 +464,8 @@ export default function ReuniaoResultados() {
     csatPorAtendenteDist !== undefined &&
     backlogAtual !== undefined &&
     npsRespostasAtual !== undefined &&
+    migracoesAtual !== undefined &&
+    migracoesPorPlataformaAtual !== undefined &&
     topTfrProdutorAtual !== undefined &&
     topTfrFinalAtual !== undefined;
 
@@ -608,6 +629,12 @@ export default function ReuniaoResultados() {
     retry: 1,
   });
   const npsResumoAnterior = useMemo(() => (npsRespostasAnterior ? resumirNps(npsRespostasAnterior) : null), [npsRespostasAnterior]);
+  const { data: migracoesAnterior } = useQuery({
+    queryKey: ["migracoes-resumo", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchMigracoesResumo(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: estagio4Habilitado,
+    retry: 1,
+  });
 
   const estagio5Habilitado =
     estagio4Habilitado &&
@@ -616,7 +643,8 @@ export default function ReuniaoResultados() {
     tipoClienteAnterior !== undefined &&
     csatDistAnterior !== undefined &&
     csatPorTipoClienteAnterior !== undefined &&
-    npsRespostasAnterior !== undefined;
+    npsRespostasAnterior !== undefined &&
+    migracoesAnterior !== undefined;
 
   const { data: reaberturaAnterior } = useQuery({
     queryKey: ["reabertura-resumo", inicioPeriodoAnterior, fimPeriodoAnterior],
@@ -685,6 +713,8 @@ export default function ReuniaoResultados() {
         horasExpedienteMin: horasExpedienteAtual ?? null,
         tempoRespostaBot: tempoBotAtual ?? null,
         npsResumo: npsResumoAtual,
+        migracoes: migracoesAtual ?? null,
+        migracoesPorPlataforma: migracoesPorPlataformaAtual ?? [],
       },
       anterior: {
         contagem: contagemAnterior ?? null,
@@ -698,6 +728,8 @@ export default function ReuniaoResultados() {
         horasExpedienteMin: horasExpedienteAnterior ?? null,
         tempoRespostaBot: tempoBotAnterior ?? null,
         npsResumo: npsResumoAnterior,
+        migracoes: migracoesAnterior ?? null,
+        migracoesPorPlataforma: [],
       },
       csatPorAtendente: perfAtual ?? [],
       csatPorAtendenteDist: csatPorAtendenteDist ?? [],
@@ -737,6 +769,9 @@ export default function ReuniaoResultados() {
       tempoBotAnterior,
       npsResumoAtual,
       npsResumoAnterior,
+      migracoesAtual,
+      migracoesAnterior,
+      migracoesPorPlataformaAtual,
       perfAtual,
       backlogAtual,
       dadosManuais,
@@ -931,16 +966,6 @@ export default function ReuniaoResultados() {
                 <CampoManual label="Nota" value={dadosManuais.raXgrow.nota} onChange={(v) => setDadosManuais((d) => ({ ...d, raXgrow: { ...d.raXgrow, nota: v } }))} placeholder="8,4" />
                 <CampoManual label="Nota anterior" value={dadosManuais.raXgrow.notaAnterior} onChange={(v) => setDadosManuais((d) => ({ ...d, raXgrow: { ...d.raXgrow, notaAnterior: v } }))} placeholder="7,8" />
               </div>
-            </div>
-
-            <div>
-              <h3 className="mb-2 text-sm font-semibold text-ink">SAC — Migrações</h3>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <CampoManual label="Finalizadas" value={dadosManuais.migracoes.finalizadas} onChange={(v) => setDadosManuais((d) => ({ ...d, migracoes: { ...d.migracoes, finalizadas: v } }))} placeholder="5" />
-                <CampoManual label="Em progresso" value={dadosManuais.migracoes.emProgresso} onChange={(v) => setDadosManuais((d) => ({ ...d, migracoes: { ...d.migracoes, emProgresso: v } }))} placeholder="3" />
-                <CampoManual label="Aguardando" value={dadosManuais.migracoes.aguardando} onChange={(v) => setDadosManuais((d) => ({ ...d, migracoes: { ...d.migracoes, aguardando: v } }))} placeholder="3" />
-              </div>
-              <CampoManualArea label="Por plataforma (uma linha por item)" value={dadosManuais.migracoes.plataformas} onChange={(v) => setDadosManuais((d) => ({ ...d, migracoes: { ...d.migracoes, plataformas: v } }))} placeholder={"Migrações Internas - 3\nHotmart - 1\nAppsell - 1"} />
             </div>
 
             <div>

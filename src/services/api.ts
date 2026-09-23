@@ -1117,6 +1117,41 @@ export async function fetchTempoRespostaBot(inicio: Date, fim: Date, canal?: str
   return (data?.[0] ?? null) as TempoRespostaBot | null;
 }
 
+// "SAC — Migrações" deixou de ser manual em 2026-09-23 — sincronizado via
+// n8n a partir do projeto "Centralização" (gestao-tickets, Supabase
+// unuulffumnmkpsogkznx) pra `public.migracoes_sync` no Hub SAC. Ver
+// CLAUDE.md seção 10.
+export interface MigracoesResumo {
+  finalizados: number;
+  em_progresso: number;
+  aguardando: number;
+  cancelados: number;
+  total: number;
+}
+
+export async function fetchMigracoesResumo(inicio: Date, fim: Date): Promise<MigracoesResumo | null> {
+  const { data, error } = await client().rpc("migracoes_resumo", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return (data?.[0] ?? null) as MigracoesResumo | null;
+}
+
+export interface MigracaoPorPlataforma {
+  plataforma: string;
+  total: number;
+}
+
+export async function fetchMigracoesPorPlataforma(inicio: Date, fim: Date): Promise<MigracaoPorPlataforma[]> {
+  const { data, error } = await client().rpc("migracoes_por_plataforma", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return (data ?? []) as MigracaoPorPlataforma[];
+}
+
 export interface ContagemPeriodo {
   total_chamados: number;
   total_conversas: number;

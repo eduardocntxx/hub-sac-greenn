@@ -564,8 +564,47 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
 
         <section className="mt-11 print:mt-8">
           <SecaoHead
+            titulo="SAC — Migrações"
+            tag="novo"
+            nota="Sincronizado da Centralização (gestao-tickets) via n8n — deixou de ser manual em 2026-09-23."
+          />
+          <MetricaGrid>
+            <MetricaCard
+              label="Finalizadas"
+              valor={fmtNum(A.migracoes?.finalizados)}
+              delta={deltaPercentual(A.migracoes?.finalizados, P.migracoes?.finalizados, false)}
+            />
+            <MetricaCard
+              label="Em progresso"
+              valor={fmtNum(A.migracoes?.em_progresso)}
+              delta={deltaPercentual(A.migracoes?.em_progresso, P.migracoes?.em_progresso, false)}
+            />
+            <MetricaCard
+              label="Aguardando"
+              valor={fmtNum(A.migracoes?.aguardando)}
+              delta={deltaPercentual(A.migracoes?.aguardando, P.migracoes?.aguardando, true)}
+              nota={A.migracoes ? `${fmtNum(A.migracoes.cancelados)} cancelados no período` : undefined}
+            />
+          </MetricaGrid>
+          {A.migracoesPorPlataforma.length > 0 && (
+            <div className="mt-3.5 grid grid-cols-3 gap-3 sm:grid-cols-6 print:grid-cols-6">
+              {A.migracoesPorPlataforma.slice(0, 6).map((p) => (
+                <div key={p.plataforma} className="break-inside-avoid rounded-xl border border-sand-line bg-sand-surface px-3 py-2.5">
+                  <p className="truncate text-[9px] font-bold uppercase tracking-wide text-ink/40" title={p.plataforma} style={FONT_LABEL}>{p.plataforma}</p>
+                  <p className="mt-1 text-lg font-extrabold text-[#A8F5D0] tabular-nums" style={FONT_DISPLAY}>{fmtNum(p.total)}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-2 text-[11px] text-ink/40">
+            "Por plataforma" é texto livre na origem (Centralização) — mostrado como veio, sem normalizar nomes duplicados/variantes.
+          </p>
+        </section>
+
+        <section className="mt-11 print:mt-8">
+          <SecaoHead
             titulo="Dados manuais"
-            nota="Reclame Aqui, RA XGROW e Migrações não vêm do Hub — preenchidos na própria tela (botão &quot;Dados manuais&quot;), nada foi estimado aqui."
+            nota="Reclame Aqui e RA XGROW não vêm do Hub — preenchidos na própria tela (botão &quot;Dados manuais&quot;), nada foi estimado aqui."
           />
           <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 print:grid-cols-2">
             <div className="break-inside-avoid rounded-2xl border border-sand-line bg-sand-surface p-5 shadow-card print:shadow-none">
@@ -593,18 +632,6 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                   nota={M?.raXgrow.notaAnterior ? `Nota anterior: ${M.raXgrow.notaAnterior}` : undefined}
                 />
               </div>
-            </div>
-
-            <div className="break-inside-avoid rounded-2xl border border-sand-line bg-sand-surface p-5 shadow-card print:shadow-none">
-              <p className="text-[14.5px] font-semibold text-ink">SAC — Migrações</p>
-              <div className="mt-3 grid grid-cols-3 gap-3">
-                <MetricaCard label="Finalizadas" valor={M?.migracoes.finalizadas || "—"} />
-                <MetricaCard label="Em progresso" valor={M?.migracoes.emProgresso || "—"} />
-                <MetricaCard label="Aguardando" valor={M?.migracoes.aguardando || "—"} />
-              </div>
-              {M?.migracoes.plataformas && (
-                <p className="mt-3 whitespace-pre-line text-[12px] leading-relaxed text-ink/60">{M.migracoes.plataformas}</p>
-              )}
             </div>
           </div>
         </section>

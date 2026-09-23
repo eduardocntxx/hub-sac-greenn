@@ -11,6 +11,8 @@ import type {
   AtendenteCsatDistribuicao,
   CsatDistribuicaoPorTipoCliente,
   AtendimentoComMetricas,
+  MigracoesResumo,
+  MigracaoPorPlataforma,
 } from "@/services/api";
 
 export interface NpsResumo {
@@ -42,19 +44,29 @@ export interface ResultadosSacPeriodoData {
   // Números reais de `nps_responses` (módulo /nps do Hub) pro período —
   // deixou de ser manual em 2026-09-08, ver ManualData abaixo.
   npsResumo: NpsResumo | null;
+  // "SAC — Migrações" deixou de ser manual em 2026-09-23 — sincronizado via
+  // n8n a partir do projeto "Centralização" (gestao-tickets) pra
+  // `public.migracoes_sync` no Hub SAC (ver CLAUDE.md seção 10).
+  // `migracoesPorPlataforma` só faz sentido no período atual (é uma lista
+  // de casos, não um agregado — mesmo motivo de `topTfrProdutor`/`Final`
+  // não terem par "anterior"), mas fica no tipo por período mesmo assim
+  // pra não precisar de um campo solto fora de atual/anterior só pra isso.
+  migracoes: MigracoesResumo | null;
+  migracoesPorPlataforma: MigracaoPorPlataforma[];
 }
 
-// Dado que o Hub não captura (Reclame Aqui, RA XGROW, Migrações) — sempre
-// texto livre, preenchido à mão na Reunião de Resultados e persistido por
-// lá (usePersistedState). Nunca inventar valor aqui: campo vazio vira
-// "—"/nota "sem dado preenchido" no relatório. `nps.temas` continua manual
-// de propósito (resumo qualitativo, sem campo estruturado equivalente em
+// Dado que o Hub não captura (Reclame Aqui, RA XGROW) — sempre texto
+// livre, preenchido à mão na Reunião de Resultados e persistido por lá
+// (usePersistedState). Nunca inventar valor aqui: campo vazio vira "—"/nota
+// "sem dado preenchido" no relatório. `nps.temas` continua manual de
+// propósito (resumo qualitativo, sem campo estruturado equivalente em
 // `nps_responses`) — os 4 números de NPS não são mais manuais, vêm de
-// `npsResumo` (real, calculado a partir de `nps_responses`).
+// `npsResumo` (real, calculado a partir de `nps_responses`). Migrações
+// saiu daqui em 2026-09-23 — também passou a ser real, ver `migracoes`/
+// `migracoesPorPlataforma` acima.
 export interface ManualData {
   reclameAqui: { nota: string; totalReclamacoes: string; deltaPct: string; produtorDestaque: string };
   raXgrow: { totalReclamacoes: string; nota: string; notaAnterior: string };
-  migracoes: { finalizadas: string; emProgresso: string; aguardando: string; plataformas: string };
   nps: { temas: string };
 }
 
@@ -62,7 +74,6 @@ export function manualDataVazia(): ManualData {
   return {
     reclameAqui: { nota: "", totalReclamacoes: "", deltaPct: "", produtorDestaque: "" },
     raXgrow: { totalReclamacoes: "", nota: "", notaAnterior: "" },
-    migracoes: { finalizadas: "", emProgresso: "", aguardando: "", plataformas: "" },
     nps: { temas: "" },
   };
 }

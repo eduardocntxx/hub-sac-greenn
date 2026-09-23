@@ -590,18 +590,32 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
     }
   }
 
-  // ---------- SAC — Migrações (manual) ----------
+  // ---------- SAC — Migrações ----------
+  // Deixou de ser manual em 2026-09-23 — sincronizado via n8n a partir do
+  // projeto "Centralização" (gestao-tickets), tickets com status ligado ao
+  // fluxo de migração. "Por plataforma" é texto livre bem sujo na origem
+  // (ex: "XGrow"/"xgrow"/"Drive"/"Drive Google" como entradas separadas) —
+  // mostrado como veio, sem tentar normalizar/adivinhar.
   {
-    const mg = M?.migracoes;
-    const preenchido = !!(mg && (mg.finalizadas || mg.emProgresso || mg.aguardando || mg.plataformas));
-    const slide = metricasSlide("SAC — Migrações", "Dado manual do time — o Hub não rastreia migração por plataforma.", [
-      { label: "Finalizadas", valor: mg?.finalizadas || "—" },
-      { label: "Em progresso", valor: mg?.emProgresso || "—" },
-      { label: "Aguardando", valor: mg?.aguardando || "—" },
-    ], preenchido ? undefined : "Sem dado preenchido nesta semana — nada foi estimado.");
-    if (mg?.plataformas) {
-      slide.addText("Migrações por plataforma", { x: MX, y: 4.7, w: CW, h: 0.35, fontSize: 13, bold: true, color: COR.ink, fontFace: FONT_BODY });
-      slide.addText(mg.plataformas, { x: MX, y: 5.1, w: CW, h: 1.6, fontSize: 11, color: COR.inkSoft, fontFace: FONT_BODY, valign: "top" });
+    const slide = metricasSlide("SAC — Migrações", "Sincronizado da Centralização (gestao-tickets) via n8n.", [
+      { label: "Finalizadas", valor: fmtNum(A.migracoes?.finalizados), delta: deltaPercentual(A.migracoes?.finalizados, P.migracoes?.finalizados, false) },
+      { label: "Em progresso", valor: fmtNum(A.migracoes?.em_progresso), delta: deltaPercentual(A.migracoes?.em_progresso, P.migracoes?.em_progresso, false) },
+      { label: "Aguardando", valor: fmtNum(A.migracoes?.aguardando), delta: deltaPercentual(A.migracoes?.aguardando, P.migracoes?.aguardando, true), nota: A.migracoes ? `${fmtNum(A.migracoes.cancelados)} cancelados no período` : undefined },
+    ]);
+    const porPlataforma = data.atual.migracoesPorPlataforma.slice(0, 6);
+    if (porPlataforma.length > 0) {
+      const y0 = 4.75;
+      slide.addText("POR PLATAFORMA (TOP 6)", { x: MX, y: y0, w: CW, h: 0.3, fontSize: 10, bold: true, color: COR.inkSoft, charSpacing: 0.5, fontFace: FONT_BODY });
+      const gap = 0.25;
+      const w = (CW - gap * (porPlataforma.length - 1)) / porPlataforma.length;
+      const y = y0 + 0.4;
+      const h = 1.1;
+      porPlataforma.forEach((p, i) => {
+        const x = MX + i * (w + gap);
+        slide.addShape("roundRect", { x, y, w, h, rectRadius: 0.08, fill: { color: COR.cardBg }, line: { color: COR.cardBorder, width: 1 } });
+        slide.addText(p.plataforma.toUpperCase(), { x: x + 0.12, y: y + 0.14, w: w - 0.24, h: 0.6, fontSize: 8, bold: true, color: COR.inkSoft, fontFace: FONT_BODY, valign: "top" });
+        slide.addText(fmtNum(p.total), { x: x + 0.12, y: y + 0.66, w: w - 0.24, h: 0.4, fontSize: 18, bold: true, color: COR.mint, fontFace: FONT_DISPLAY });
+      });
     }
   }
 
