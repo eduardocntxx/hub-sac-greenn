@@ -16,6 +16,7 @@ import { useRealtimeCsat } from "@/hooks/useRealtimeCsat";
 import {
   fetchAnalyticsSummary,
   fetchAnalyticsEvolucao,
+  fetchChamadosEvolucao,
   fetchOperadorRanking,
   fetchDistribuicaoCanal,
   fetchDistribuicaoStatus,
@@ -35,6 +36,13 @@ type RankingCampo = "total_chamados" | "tempo_1resposta_medio" | "tempo_encerram
 
 function corChamados() {
   return "bg-sky-500";
+}
+
+// "Avaliações" tinha a mesma cor de "Chamados" (corChamados, sky) antes de
+// o gráfico de chamados existir de verdade — agora que os dois aparecem
+// lado a lado, cada um precisa da própria cor pra não confundir.
+function corAvaliacoes() {
+  return "bg-forest-500";
 }
 
 function corCsatNota(value: number) {
@@ -121,6 +129,16 @@ export default function Analytics() {
     queryFn: () => fetchAnalyticsEvolucao({ ...filtrosAnalytics, granularidade }),
   });
 
+  // Mesmo recorte (período/canal/granularidade) do gráfico de avaliações
+  // acima, mas contando chamados (crisp_conversations) — pedido do usuário
+  // pra dar pra comparar volume de chamados com volume de avaliações lado
+  // a lado, já que "Avaliações" só conta quem foi avaliado (bem menos que
+  // o total de chamados).
+  const { data: chamadosEvolucao, isLoading: loadingChamadosEvolucao } = useQuery({
+    queryKey: ["chamados-evolucao", inicio, fim, canal, granularidade],
+    queryFn: () => fetchChamadosEvolucao(inicio, fim, granularidade, canal || undefined),
+  });
+
   const { data: ranking, isLoading: loadingRanking } = useQuery({
     queryKey: ["operador-ranking", inicio, fim, canal, estado],
     queryFn: () => fetchOperadorRanking({ inicio, fim, canal: canal || undefined, estado: estado || undefined }),
@@ -165,6 +183,11 @@ export default function Analytics() {
     label: e.periodo.slice(5),
     value: e.media_csat,
     displayValue: e.media_csat.toFixed(1),
+  }));
+  const serieChamados = (chamadosEvolucao ?? []).map((e) => ({
+    label: e.periodo.slice(5),
+    value: e.total_chamados,
+    displayValue: String(e.total_chamados),
   }));
 
   const totalDelta = summary && summaryAnterior && summaryAnterior.total_avaliacoes
@@ -263,17 +286,21 @@ export default function Analytics() {
 
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 p-5 pb-0">
-          <h2 className="font-display text-sm font-semibold text-ink">Evolução de avaliações e CSAT</h2>
+          <h2 className="font-display text-sm font-semibold text-ink">Evolução de chamados, avaliações e CSAT</h2>
           <SegmentedControl
             options={[["day", "Diária"], ["week", "Semanal"], ["month", "Mensal"]] as const}
             value={granularidade}
             onChange={setGranularidade}
           />
         </div>
-        <div className="grid gap-4 p-5 md:grid-cols-2">
+        <div className="grid gap-4 p-5 md:grid-cols-3">
           <div>
-            <p className="mb-2 text-xs font-medium text-ink/50" title="Conta avaliações de CSAT recebidas no período, não conversas/chamados — analytics_evolucao() lê de csat_results.">Avaliações</p>
-            {loadingEvolucao ? <p className="text-sm text-ink/50">Carregando...</p> : serieAvaliacoes.length === 0 ? <p className="text-sm text-ink/50">Sem dados.</p> : <BarChart data={serieAvaliacoes} getColorClass={corChamados} height={128} />}
+            <p className="mb-2 text-xs font-medium text-ink/50" title="Cada ciclo aberto→resolvido no período (uma conversa reaberta soma mais de um chamado) — mesmo critério do resto da plataforma, respeitando o filtro de canal ativo.">Chamados</p>
+            {loadingChamadosEvolucao ? <p className="text-sm text-ink/50">Carregando...</p> : serieChamados.length === 0 ? <p className="text-sm text-ink/50">Sem dados.</p> : <BarChart data={serieChamados} getColorClass={corChamados} height={128} />}
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-medium text-ink/50" title="Conta avaliações de CSAT recebidas no período, não conversas/chamados — por isso costuma ser bem menor que 'Chamados' ao lado.">Avaliações</p>
+            {loadingEvolucao ? <p className="text-sm text-ink/50">Carregando...</p> : serieAvaliacoes.length === 0 ? <p className="text-sm text-ink/50">Sem dados.</p> : <BarChart data={serieAvaliacoes} getColorClass={corAvaliacoes} height={128} />}
           </div>
           <div>
             <p className="mb-2 text-xs font-medium text-ink/50">CSAT médio</p>

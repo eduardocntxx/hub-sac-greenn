@@ -1310,6 +1310,28 @@ export async function fetchAnalyticsEvolucao(
   return (data ?? []) as { periodo: string; media_csat: number; total: number }[];
 }
 
+// "Chamados" (não "avaliações") no mesmo recorte de período/canal do
+// gráfico de evolução acima — pedido do usuário pra poder comparar volume
+// de chamados com volume de avaliações lado a lado. Conta cada ciclo
+// aberto→resolvido (1+reopened_count), igual ao resto da plataforma —
+// diferente de `analytics_evolucao()`, que lê `csat_results` (só quem foi
+// avaliado).
+export async function fetchChamadosEvolucao(
+  inicio: Date,
+  fim: Date,
+  granularidade: "day" | "week" | "month",
+  canal?: string
+): Promise<{ periodo: string; total_chamados: number }[]> {
+  const { data, error } = await client().rpc("chamados_evolucao", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    granularidade,
+    p_canal: canal ?? null,
+  });
+  if (error) throw error;
+  return (data ?? []) as { periodo: string; total_chamados: number }[];
+}
+
 export interface DbAtendenteAlias {
   id: string;
   email_variante: string;
