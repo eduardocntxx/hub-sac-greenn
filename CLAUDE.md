@@ -5682,6 +5682,109 @@ via curl usada no começo desta sessão marathon — mesma técnica de
 impersonação por JWT (`set request.jwt.claims`, sem precisar de `set
 role`) continua necessária pra `is_admin()` resolver certo.
 
+**Diagnóstico em 2026-09-24 — por que temos tão poucas avaliações de
+CSAT (~4,5% das conversas):** funil medido desde 10/09 (sem teste). (1) A
+pesquisa só dispara na resolução, e ~3,2 mil de ~4,3 mil conversas nunca
+foram resolvidas — 1.237 tiveram atendimento humano e ficaram `pending`
+(948 paradas há mais de 2 dias); ~2 mil são só-bot abandonadas. (2) Das
+resolvidas, ~95% recebem a pesquisa (`csat_pending`), mas a resposta
+varia muito por canal: WhatsApp ~31%, chat ~10,5%, e-mail ~3%. Fechamento
+em massa atrasado responde ~6% (15/09: 18/311; 18/09: 16/241) contra
+15–20% em dia normal. **Não usar `csat_pending.respondido`** (subconta);
+resposta real = `exists csat_results where crisp_id = session_id`.
+Alavancas sugeridas (nenhuma implementada): resolver logo após atender,
+auto-resolver por inatividade no n8n, pesquisa no fim do chat com o
+cliente online, nota 1-clique no corpo do e-mail, 1 lembrete no WhatsApp.
+
+**Feature nova em 2026-09-24 — operadores de fora do SAC excluídos das
+métricas (`operator_id_aliases.equipe_sac`):** o cron de sync da Crisp
+grava todos os operadores do workspace, e gente de outras áreas recebe
+conversa real (Comercial Greenn, Ana Clara Zanchett, Paula Pimentel,
+Jaine Martins, Matheus Vaz — confirmados pelo usuário como não-SAC;
+Felipe Bertaggi é o líder do SAC e fica). Coluna nova `equipe_sac boolean
+not null default true` (operador novo do cron nasce `true`; marcar
+`false` à mão via SQL). Helpers `operador_fora_sac(operator_crisp_id)` e
+`csat_atendente_fora_sac(email_atendente)` (SQL `stable`, sem `security
+definer`, sem execute pra anon). Aplicados mecanicamente ao lado de todo
+`and not public.cliente_e_teste(...)` nas 36 funções de métrica (63
+pontos: `cliente_nome` → filtro por `operator_crisp_id` da conversa;
+`cliente`/CSAT → filtro por e-mail), mais `distinct_atendentes_canonico`
+e `csat_envios_por_atendente` à mão. Critério = **operador atual da
+conversa**. Validado como admin (JWT simulado): setembro foi de 8.471 pra
+8.405 chamados (−66, exatamente o volume dos 5), ranking e filtro sem os
+5; tempos nas faixas de antes (dashboard/posse/ranking/tfr_ttr ~1,2–1,6 s
+de mínimo). **Regra ao criar função de métrica nova: repetir o par
+`cliente_e_teste` + `operador_fora_sac`.** Posse: a função original virou
+`_relogio_posse_periodo_base` (intacta) e `relogio_posse_periodo` é agora
+um wrapper SQL com a mesma assinatura que tira do resultado quem tem
+`equipe_sac = false` e o "Mr. Greenn". Transferências SAC↔Comercial/
+Matheus continuam contando (evento real de conversa do SAC).
+Nenhum dos 5 tem avaliação em `csat_results` hoje; `Csat.tsx` agrega
+CSAT no cliente e não usa esse filtro.
+
+**"Mr. Greenn" (`ecdf38cc-f17d-4994-9129-8f8d8bf57570`,
+governanca@greenn.com.br) é a conta de distribuição da Crisp, não
+atendente** — nunca manda mensagem, nunca é dono final nem 1ª resposta;
+só recebe roteamento e repassa (mediana ~20h segurando). Confirmado pelo
+usuário (2026-09-24) como "o bot" do SAC (distinto da IA). Estava inflando
+Transferências (827 de 2.303 eventos de setembro eram ele distribuindo;
+taxa 18,9%) e aparecia na posse humana. Agora entra na lista de exclusão
+de bot de `transferencias_resumo`/`transferencias_casos` (ao lado de
+`ia_greenn` e `b8b993a0-...`) e sai do wrapper de posse. Setembro depois:
+1.472 eventos, 794 conversas transferidas, taxa 9,5%.
+
+**Feature nova em 2026-09-24 — PPTX da RR: CSAT unificado + slide "Por
+que temos poucas avaliações":** os slides "Avaliações (CSAT)" e
+"Avaliações (CSAT) por tipo de cliente" viraram um só (geral em cima, um
+card por tipo embaixo). Slide novo logo depois, sem aumentar a contagem
+de páginas: à esquerda o funil do CSAT por canal (conversas → resolvidas
+→ pesquisa enviada → respondidas, taxa = respondidas ÷ resolvidas, delta
+em p.p.); à direita "Atendido e não resolvido" (conversas do período com
+resposta humana ainda abertas, por dono atual, e quantas estão paradas há
+mais de 48h, gráfico empilhado, bot fora). Duas funções novas, admin-only,
+com os filtros de teste/fora do SAC: `csat_funil_canal(data_inicio,
+data_fim)` e `atendido_nao_resolvido(data_inicio, data_fim)`
+(`fetchCsatFunilCanal`/`fetchAtendidoNaoResolvido`), buscadas pra período
+atual e anterior em `ReuniaoResultados.tsx`. "Anterior" de atendido e não
+resolvido é medido hoje (conversas da semana passada que ainda estão
+abertas agora), não uma foto de como estava na época. Levado também pro
+PDF (`RelatorioResultadosSac.tsx`); as contas (linhas do funil, delta em
+p.p., total sem bot) ficam em `resultadosSac.ts` (`linhasFunil`,
+`resumoAtendido`) pra PPTX e PDF nunca divergirem.
+
+**Regra de CSAT mudou em 2026-09-24 — não existe mais nota neutra:**
+definição do time (via Iuri): boa = 4–5 (Promotor), ruim = 1–3
+(Detrator). Aplicado em `classificacaoPorNota()` (`utils.ts`, tipo
+`ClassificacaoCsat` sem "Neutro"), no filtro de classificação
+(`fetchCsatFiltered`/`fetchCsatForDashboard`, Detrator = `nota <= 3`), na
+página CSAT (KPI "Neutros" e opção de filtro removidos; o nível 3 da
+distribuição por avaliação mantém o rótulo da pesquisa, "Neutro", mas em
+cor de ruim), no Overview (2 cards) e nos relatórios. No banco,
+`csat_distribuicao_notas`, `csat_distribuicao_por_tipo_cliente` e
+`atendente_csat_distribuicao` passaram a contar nota 3 em `ruins`; a
+coluna `neutras` continua no retorno por compatibilidade, sempre 0. NPS
+**não** mudou (tem régua própria, com neutros).
+
+**Auditoria do PPTX da RR em 2026-09-24 (semana 17–23/09, admin via JWT
+simulado, cada número conferido contra conta direta nas tabelas):** batem
+exato: conversas/chamados/mensagens (2.040/2.662/28.594), soma do funil =
+total de conversas, atendido e não resolvido = com resposta humana e não
+resolvido (507), Velocidade "Geral" = `tfr_ttr_percentis` (mesmo TFR/TTR),
+soma dos tipos de cliente = total de chamados, ranking = chamados com
+operador (2.658 = 2.662 − 4 sem operador), CSAT boas + ruins = total.
+Corrigido no texto: NPS dizia "dado de exemplo", mas é real (56 respostas
+do Typeform com `external_id`/`payload`); o tempo do bot é mediana e
+estava rotulado "Tempo médio"; o card "Total de avaliações" mostrava "De
+982 chamados resolvidos" (unidade diferente do funil, que mostra 516
+conversas resolvidas) e virou "pela data da avaliação"; o funil explica que
+"respondidas" (conversas do período) difere do total de avaliações (data
+da avaliação); a tabela de CSAT por atendente diz quantas avaliações ficam
+de fora por não ter atendente identificado (7 na semana: 6 "Não
+identificado" + 1 Mr. Greenn). **Ponto em aberto, não alterado:** a taxa
+de reabertura (`reabertura_resumo`) divide conversas reabertas (257) por
+chamados resolvidos (982, ponderado por 1 + reaberturas). Isso foi
+documentado como escolha em 2026-09-01, mas mistura unidades.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
@@ -5742,6 +5845,7 @@ role`) continua necessária pra `is_admin()` resolver certo.
   nome real com `information_schema.table_constraints` antes de assumir);
   já corrigido nas tabelas de calendário (seção 10, 2026-09-01) e em
   `missions`/`reclame_aqui_cases`/`helpdesks` (anteriormente).
+- **Função nova de métrica sobre conversas**: sempre `and not public.cliente_e_teste(cc.cliente_nome, cc.cliente_email) and not public.operador_fora_sac(cc.operator_crisp_id)` na base (seção 10, 2026-09-24).
 - **`crisp_conversations.canal` para WhatsApp é sempre o URN cru
   `urn:crisp.im:whatsapp:0`, nunca `"WhatsApp"`** (só `csat_results.canal`
   grava a versão formatada — pipeline n8n diferente). Qualquer função nova

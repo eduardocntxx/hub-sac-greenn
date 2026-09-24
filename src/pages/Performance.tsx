@@ -729,10 +729,10 @@ export default function Performance() {
           )}
 
           {csatDist && csatDist.total > 0 && (
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2">
               {tipoClienteFiltro && (
                 <p
-                  className="text-[11px] text-ink/40 sm:col-span-3"
+                  className="text-[11px] text-ink/40 sm:col-span-2"
                   title="CSAT é reconciliado por e-mail do atendente, numa tabela separada (csat_results) que não tem a mesma coluna de tipo de cliente do Crisp — não dá pra aplicar esse filtro aqui sem inventar um vínculo que não existe."
                 >
                   CSAT não respeita o filtro de tipo de cliente — mostra o time inteiro (motivo no hover).
@@ -742,22 +742,17 @@ export default function Performance() {
                 <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Avaliações boas (4–5)</p>
                 <p className="mt-1 font-display text-kpi-lg font-bold text-forest-600">{csatDist.boas}</p>
               </Card>
-              <Card className="border-amber-400/30 bg-amber-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Avaliações neutras (3)</p>
-                <p className="mt-1 font-display text-kpi-lg font-bold text-amber-600">{csatDist.neutras}</p>
-              </Card>
               <Card className="border-rust-400/30 bg-rust-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Avaliações ruins (1–2)</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Avaliações ruins (1–3)</p>
                 <p className="mt-1 font-display text-kpi-lg font-bold text-rust-600">{csatDist.ruins}</p>
               </Card>
-              <Card className="p-4 sm:col-span-3">
+              <Card className="p-4 sm:col-span-2">
                 <BarChart
                   data={[
                     { label: "Boas (4–5)", value: csatDist.boas },
-                    { label: "Neutras (3)", value: csatDist.neutras },
-                    { label: "Ruins (1–2)", value: csatDist.ruins },
+                    { label: "Ruins (1–3)", value: csatDist.ruins },
                   ]}
-                  getColorClass={(_, i) => ["bg-forest-500", "bg-amber-500", "bg-rust-500"][i ?? 0]}
+                  getColorClass={(_, i) => ["bg-forest-500", "bg-rust-500"][i ?? 0]}
                   height={110}
                 />
               </Card>

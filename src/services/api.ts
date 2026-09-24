@@ -519,7 +519,7 @@ export interface CsatFilters {
   topico?: string;
   categoriaCliente?: string;
   nota?: number;
-  classificacaoCsat?: "Promotor" | "Neutro" | "Detrator";
+  classificacaoCsat?: "Promotor" | "Detrator";
   inicio?: Date;
   fim?: Date;
   sortBy?: string;
@@ -597,8 +597,7 @@ export async function fetchCsatFiltered(
   // (ver comentário em types/database.ts) — filtra por nota, nunca por
   // igualdade de texto contra essa coluna.
   if (classificacaoCsat === "Promotor") query = query.gte("nota", 4);
-  else if (classificacaoCsat === "Neutro") query = query.eq("nota", 3);
-  else if (classificacaoCsat === "Detrator") query = query.lte("nota", 2);
+  else if (classificacaoCsat === "Detrator") query = query.lte("nota", 3);
   if (inicio) query = query.gte("data_hora", inicio.toISOString());
   if (fim) query = query.lte("data_hora", fim.toISOString());
 
@@ -626,8 +625,7 @@ export async function fetchCsatForDashboard(
   if (categoriaCliente) query = query.eq("categoria_cliente", categoriaCliente);
   if (nota) query = query.eq("nota", nota);
   if (classificacaoCsat === "Promotor") query = query.gte("nota", 4);
-  else if (classificacaoCsat === "Neutro") query = query.eq("nota", 3);
-  else if (classificacaoCsat === "Detrator") query = query.lte("nota", 2);
+  else if (classificacaoCsat === "Detrator") query = query.lte("nota", 3);
   if (inicio) query = query.gte("data_hora", inicio.toISOString());
   if (fim) query = query.lte("data_hora", fim.toISOString());
 
@@ -1076,6 +1074,78 @@ export async function fetchAtendenteCsatDistribuicao(inicio: Date, fim: Date): P
   });
   if (error) throw error;
   return (data ?? []) as AtendenteCsatDistribuicao[];
+}
+
+export interface CsatEnviosPorAtendente {
+  atendente: string;
+  enviadas: number;
+  respondidas: number;
+}
+
+// Pesquisas de CSAT enviadas no período (`csat_pending`, uma linha por
+// conversa, dono da conversa no momento do envio) × quantas dessas
+// conversas têm avaliação em `csat_results` (ligação por crisp_id —
+// a coluna `respondido` de `csat_pending` subconta, não usar). Admin-only.
+export async function fetchCsatEnviosPorAtendente(inicio: Date, fim: Date): Promise<CsatEnviosPorAtendente[]> {
+  const { data, error } = await client().rpc("csat_envios_por_atendente", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return ((data ?? []) as CsatEnviosPorAtendente[]).map((r) => ({
+    atendente: r.atendente,
+    enviadas: Number(r.enviadas),
+    respondidas: Number(r.respondidas),
+  }));
+}
+
+export interface AtendidoNaoResolvido {
+  atendente: string;
+  abertos: number;
+  parados_48h: number;
+}
+
+// Conversas do período com atendimento humano que continuam abertas, por
+// dono atual (sem resolução o cliente não recebe a pesquisa de CSAT).
+// "Parado" = sem mensagem nova há mais de 48h. Admin-only.
+export async function fetchAtendidoNaoResolvido(inicio: Date, fim: Date): Promise<AtendidoNaoResolvido[]> {
+  const { data, error } = await client().rpc("atendido_nao_resolvido", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return ((data ?? []) as AtendidoNaoResolvido[]).map((r) => ({
+    atendente: r.atendente,
+    abertos: Number(r.abertos),
+    parados_48h: Number(r.parados_48h),
+  }));
+}
+
+export interface CsatFunilCanal {
+  canal: string;
+  conversas: number;
+  com_humano: number;
+  resolvidas: number;
+  enviadas: number;
+  respondidas: number;
+}
+
+// Funil do CSAT por canal: conversas → resolvidas → pesquisa enviada →
+// respondida (ligação por crisp_id). Admin-only.
+export async function fetchCsatFunilCanal(inicio: Date, fim: Date): Promise<CsatFunilCanal[]> {
+  const { data, error } = await client().rpc("csat_funil_canal", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return ((data ?? []) as CsatFunilCanal[]).map((r) => ({
+    canal: r.canal,
+    conversas: Number(r.conversas),
+    com_humano: Number(r.com_humano),
+    resolvidas: Number(r.resolvidas),
+    enviadas: Number(r.enviadas),
+    respondidas: Number(r.respondidas),
+  }));
 }
 
 export interface CsatDistribuicaoPorTipoCliente {

@@ -9,10 +9,13 @@ import type {
   TempoRespostaBot,
   BacklogFaixa,
   AtendenteCsatDistribuicao,
+  CsatEnviosPorAtendente,
   CsatDistribuicaoPorTipoCliente,
   AtendimentoComMetricas,
   MigracoesResumo,
   MigracaoPorPlataforma,
+  CsatFunilCanal,
+  AtendidoNaoResolvido,
 } from "@/services/api";
 
 export interface NpsResumo {
@@ -53,6 +56,12 @@ export interface ResultadosSacPeriodoData {
   // pra não precisar de um campo solto fora de atual/anterior só pra isso.
   migracoes: MigracoesResumo | null;
   migracoesPorPlataforma: MigracaoPorPlataforma[];
+  // Funil do CSAT por canal (conversas → resolvidas → pesquisa enviada →
+  // respondida) e conversas atendidas por humano ainda abertas, por dono.
+  // Os dois explicam o volume baixo de avaliações (slide "Por que temos
+  // poucas avaliações"); o "anterior" serve pros deltas.
+  csatFunil: CsatFunilCanal[];
+  atendidoNaoResolvido: AtendidoNaoResolvido[];
 }
 
 // Dado que o Hub não captura (Reclame Aqui, RA XGROW) — sempre texto
@@ -92,6 +101,8 @@ export interface ResultadosSacData {
   // Período atual só, mesmo motivo de `csatPorAtendente` não ter par
   // "anterior" (nenhuma tela mostra delta pra esse recorte).
   csatPorAtendenteDist: AtendenteCsatDistribuicao[];
+  // Pesquisas enviadas × respondidas por atendente (período atual só).
+  csatEnvios: CsatEnviosPorAtendente[];
   // Top 5 chamados com maior tempo até 1ª resposta no período — mesma
   // função/critério já usado na aba Atendimentos do Overview
   // (`atendimentos_com_metricas`, ordenar por "tfr" desc). Período atual
@@ -163,4 +174,64 @@ export function deltaPontos(
   const bom = Math.abs(diff) < 0.05 ? null : inverso ? diff < 0 : diff > 0;
   const sinal = diff > 0 ? "+" : "";
   return { texto: `${sinal}${diff.toFixed(1).replace(".", ",")} p.p. (${formatarAnterior(anterior)})`, bom };
+}
+
+// ---------- Funil do CSAT / atendido e não resolvido ----------
+// Contas compartilhadas por PPTX e PDF — os dois formatos nunca podem
+// mostrar número diferente pro mesmo período.
+
+const NOME_BOT_RESULTADOS = "IA Greenn";
+
+export function nomeCanal(canal: string): string {
+  if (canal === "chat") return "Chat";
+  if (canal === "email") return "E-mail";
+  return canal;
+}
+
+export function somarFunil(lista: CsatFunilCanal[]): CsatFunilCanal {
+  return lista.reduce(
+    (t, r) => ({
+      canal: "Total",
+      conversas: t.conversas + r.conversas,
+      com_humano: t.com_humano + r.com_humano,
+      resolvidas: t.resolvidas + r.resolvidas,
+      enviadas: t.enviadas + r.enviadas,
+      respondidas: t.respondidas + r.respondidas,
+    }),
+    { canal: "Total", conversas: 0, com_humano: 0, resolvidas: 0, enviadas: 0, respondidas: 0 }
+  );
+}
+
+// Respondidas ÷ resolvidas (em %). null quando não houve resolução.
+export function taxaResposta(r: CsatFunilCanal | undefined): number | null {
+  return r && r.resolvidas > 0 ? (r.respondidas / r.resolvidas) * 100 : null;
+}
+
+// Linhas do funil (canais, maior volume primeiro, até 4) + linha Total,
+// cada uma já com a taxa e o delta em p.p. contra o período anterior.
+export function linhasFunil(atual: CsatFunilCanal[], anterior: CsatFunilCanal[]) {
+  const canais = [...atual].sort((a, b) => b.conversas - a.conversas).slice(0, 4);
+  const total = somarFunil(atual);
+  const totalAnt = anterior.length > 0 ? somarFunil(anterior) : undefined;
+  return [...canais, total].map((r) => {
+    const prev = r.canal === "Total" ? totalAnt : anterior.find((p) => p.canal === r.canal);
+    const taxa = taxaResposta(r);
+    return { ...r, total: r.canal === "Total", taxa, delta: deltaPontos(taxa, taxaResposta(prev), false) };
+  });
+}
+
+// Atendido e não resolvido só com humanos (o bot fica de fora).
+export function resumoAtendido(atual: AtendidoNaoResolvido[], anterior: AtendidoNaoResolvido[]) {
+  const humanos = atual.filter((r) => r.atendente !== NOME_BOT_RESULTADOS);
+  const humanosAnt = anterior.filter((r) => r.atendente !== NOME_BOT_RESULTADOS);
+  const abertos = humanos.reduce((t, r) => t + r.abertos, 0);
+  const abertosAnt = humanosAnt.reduce((t, r) => t + r.abertos, 0);
+  const parados = humanos.reduce((t, r) => t + r.parados_48h, 0);
+  return {
+    porAtendente: [...humanos].sort((a, b) => b.abertos - a.abertos),
+    abertos,
+    parados,
+    paradosPct: abertos > 0 ? (parados / abertos) * 100 : null,
+    deltaAbertos: humanosAnt.length > 0 ? deltaPercentual(abertos, abertosAnt, true) : undefined,
+  };
 }

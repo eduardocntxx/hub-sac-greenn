@@ -8,6 +8,9 @@ import {
   fmtPct1,
   deltaPercentual,
   deltaPontos,
+  linhasFunil,
+  resumoAtendido,
+  nomeCanal,
 } from "@/lib/resultadosSac";
 
 const NOME_BOT = "IA Greenn";
@@ -136,6 +139,9 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
 
   const porTipoChamados = A.tipoCliente.filter((t) => t.tipo_cliente !== "Geral" && t.chamados > 0);
   const csatPorTipo = A.csatPorTipoCliente.filter((c) => c.total > 0);
+  const funil = linhasFunil(A.csatFunil, P.csatFunil);
+  const atendido = resumoAtendido(A.atendidoNaoResolvido, P.atendidoNaoResolvido);
+  const maxAbertos = Math.max(1, ...atendido.porAtendente.map((r) => r.abertos));
 
   return (
     // Relatório sempre no tema próprio (preto + verde-menta), independente
@@ -413,11 +419,51 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
               nota={A.csat ? `${A.csat.boas} de ${A.csat.total}` : undefined}
             />
             <MetricaCard
-              label="Avaliações ruins (1–2)"
+              label="Avaliações ruins (1–3)"
               valor={fmtNum(A.csat?.ruins)}
               delta={deltaPercentual(A.csat?.ruins, P.csat?.ruins, true)}
             />
           </MetricaGrid>
+
+          {csatPorTipo.length > 0 && (
+            <div className="mt-6">
+              <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>
+                Por tipo de cliente — amostra via crisp_id, não a contagem exata
+              </p>
+              <MetricaGrid cols={2}>
+                {csatPorTipo.map((c) => {
+                  const prev = P.csatPorTipoCliente.find((p) => p.tipo_cliente === c.tipo_cliente);
+                  const pct = c.total > 0 ? (c.boas / c.total) * 100 : null;
+                  const pctPrev = prev && prev.total > 0 ? (prev.boas / prev.total) * 100 : null;
+                  return (
+                    <div
+                      key={c.tipo_cliente}
+                      className="break-inside-avoid rounded-2xl border border-sand-line bg-sand-surface p-4 shadow-card print:shadow-none"
+                    >
+                      <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>{tituloTipo(c.tipo_cliente)}</p>
+                      <p className="mt-2 text-2xl font-extrabold tracking-tight text-[#A8F5D0] tabular-nums" style={FONT_DISPLAY}>
+                        {fmtPct1(pct)}
+                        <span className="ml-1 text-sm font-medium text-ink/40" style={{ fontFamily: "Arial, sans-serif" }}>boas</span>
+                      </p>
+                      <div className="mt-1.5">
+                        <DeltaTexto delta={deltaPercentual(pct, pctPrev, false, fmtPct1)} />
+                      </div>
+                      <div className="mt-3.5 flex gap-6 border-t border-sand-line pt-3.5">
+                        <div>
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Total</p>
+                          <p className="mt-0.5 text-sm font-semibold tabular-nums text-ink">{fmtNum(c.total)} avaliações</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Ruins (1–3)</p>
+                          <p className="mt-0.5 text-sm font-semibold tabular-nums text-ink">{fmtNum(c.ruins)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </MetricaGrid>
+            </div>
+          )}
 
           {csatComNota.length > 0 && (
             <div className="mt-3.5 overflow-hidden rounded-2xl border border-sand-line shadow-card print:break-inside-avoid print:shadow-none">
@@ -443,50 +489,78 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
           )}
         </section>
 
-        {csatPorTipo.length > 0 && (
-          <section className="mt-11 print:mt-8">
-            <SecaoHead
-              titulo="Avaliações (CSAT) por tipo de cliente"
-              tag="novo"
-              nota="Amostra via crisp_id — cobre parte das avaliações recentes, crescendo. Não é a contagem exata."
+        <section className="mt-11 print:mt-8">
+          <SecaoHead
+            titulo="Por que temos poucas avaliações"
+            tag="novo"
+            nota="A pesquisa só sai quando a conversa é resolvida — e cada canal responde num ritmo diferente."
+          />
+          <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Funil do CSAT por canal</p>
+          <div className="overflow-hidden rounded-2xl border border-sand-line shadow-card print:break-inside-avoid print:shadow-none">
+            <table className="w-full text-sm">
+              <thead className="bg-[#A8F5D0] text-xs uppercase tracking-wide text-[#141414]">
+                <tr>
+                  <th className="px-4 py-2.5 text-left font-bold">Canal</th>
+                  <th className="px-4 py-2.5 text-right font-bold">Conversas</th>
+                  <th className="px-4 py-2.5 text-right font-bold">Resolvidas</th>
+                  <th className="px-4 py-2.5 text-right font-bold">Pesquisa enviada</th>
+                  <th className="px-4 py-2.5 text-right font-bold">Respondidas</th>
+                  <th className="px-4 py-2.5 text-right font-bold">Taxa de resposta</th>
+                </tr>
+              </thead>
+              <tbody>
+                {funil.map((r) => (
+                  <tr key={r.canal} className={`border-t border-sand-line ${r.total ? "bg-sand-bg font-semibold" : "bg-sand-surface"}`}>
+                    <td className="px-4 py-2.5 font-medium text-ink">{nomeCanal(r.canal)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-ink/70">{fmtNum(r.conversas)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-ink/70">{fmtNum(r.resolvidas)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-ink/70">{fmtNum(r.enviadas)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-ink/70">{fmtNum(r.respondidas)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">
+                      <span className="font-bold text-[#A8F5D0]">{fmtPct1(r.taxa)}</span>
+                      <br />
+                      <DeltaTexto delta={r.delta} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="mb-3 mt-6 text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Atendido e não resolvido</p>
+          <MetricaGrid cols={2}>
+            <MetricaCard
+              label="Abertos com atendimento humano"
+              valor={fmtNum(atendido.abertos)}
+              delta={atendido.deltaAbertos}
+              nota="Conversas do período com resposta humana que continuam abertas"
             />
-            {/* Um card por tipo, mesmo padrão de "Por tipo de cliente" acima
-                (não um bloco de 3 cards por tipo empilhado) — pedido do
-                usuário pra juntar as várias slides/seções de CSAT numa só. */}
-            <MetricaGrid cols={2}>
-              {csatPorTipo.map((c) => {
-                const prev = P.csatPorTipoCliente.find((p) => p.tipo_cliente === c.tipo_cliente);
-                const pct = c.total > 0 ? (c.boas / c.total) * 100 : null;
-                const pctPrev = prev && prev.total > 0 ? (prev.boas / prev.total) * 100 : null;
-                return (
-                  <div
-                    key={c.tipo_cliente}
-                    className="break-inside-avoid rounded-2xl border border-sand-line bg-sand-surface p-4 shadow-card print:shadow-none"
-                  >
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>{tituloTipo(c.tipo_cliente)}</p>
-                    <p className="mt-2 text-2xl font-extrabold tracking-tight text-[#A8F5D0] tabular-nums" style={FONT_DISPLAY}>
-                      {fmtPct1(pct)}
-                      <span className="ml-1 text-sm font-medium text-ink/40" style={{ fontFamily: "Arial, sans-serif" }}>boas</span>
-                    </p>
-                    <div className="mt-1.5">
-                      <DeltaTexto delta={deltaPercentual(pct, pctPrev, false, fmtPct1)} />
-                    </div>
-                    <div className="mt-3.5 flex gap-6 border-t border-sand-line pt-3.5">
-                      <div>
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Total</p>
-                        <p className="mt-0.5 text-sm font-semibold tabular-nums text-ink">{fmtNum(c.total)} avaliações</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Ruins (1–2)</p>
-                        <p className="mt-0.5 text-sm font-semibold tabular-nums text-ink">{fmtNum(c.ruins)}</p>
-                      </div>
-                    </div>
+            <MetricaCard
+              label="Parados há mais de 48h"
+              valor={fmtNum(atendido.parados)}
+              nota={atendido.paradosPct != null ? `${fmtPct1(atendido.paradosPct)} dos abertos · sem mensagem nova há 2 dias` : undefined}
+            />
+          </MetricaGrid>
+          {atendido.porAtendente.length > 0 && (
+            <div className="mt-3.5 space-y-2 rounded-2xl border border-sand-line bg-sand-surface p-4 shadow-card print:break-inside-avoid print:shadow-none">
+              {atendido.porAtendente.map((r) => (
+                <div key={r.atendente} className="flex items-center gap-3 text-sm">
+                  <span className="w-48 shrink-0 truncate font-medium text-ink">{r.atendente}</span>
+                  <div className="flex h-5 flex-1 overflow-hidden rounded-md bg-sand-bg">
+                    <div className="h-full bg-rust-500" style={{ width: `${(r.parados_48h / maxAbertos) * 100}%` }} />
+                    <div className="h-full bg-[#A8F5D0]" style={{ width: `${((r.abertos - r.parados_48h) / maxAbertos) * 100}%` }} />
                   </div>
-                );
-              })}
-            </MetricaGrid>
-          </section>
-        )}
+                  <span className="w-28 shrink-0 text-right tabular-nums text-ink/70">
+                    {fmtNum(r.abertos)} <span className="text-rust-500">({fmtNum(r.parados_48h)} +48h)</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-3 text-[11px] text-ink/40">
+            Funil = conversas iniciadas no período; taxa = respondidas ÷ resolvidas. "Respondidas" pode diferir do Total de avaliações acima, que conta pela data da avaliação. "Atendido e não resolvido" = conversa do período que teve resposta humana e continua aberta, por dono atual; parado = sem mensagem nova há 48h. O período anterior é medido hoje (o que daquela semana ainda está aberto agora).
+          </p>
+        </section>
 
         <section className="mt-11 print:mt-8">
           <SecaoHead titulo="Bot (IA Greenn)" tag="crisp" nota="Triagem automática — separado do ranking humano." />
@@ -498,15 +572,15 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
               nota={bot ? `${bot.total_avaliacoes} avaliações` : undefined}
             />
             <MetricaCard
-              label="Tempo médio de resposta"
+              label="Tempo de resposta (mediana)"
               valor={formatDuration(A.tempoRespostaBot?.tempo_medio_seg ?? null)}
               delta={deltaPercentual(A.tempoRespostaBot?.tempo_medio_seg, P.tempoRespostaBot?.tempo_medio_seg, true, formatDuration)}
-              nota={A.tempoRespostaBot ? `${A.tempoRespostaBot.amostras} amostras (mediana)` : undefined}
+              nota={A.tempoRespostaBot ? `${fmtNum(A.tempoRespostaBot.amostras)} respostas do bot no período` : undefined}
             />
           </MetricaGrid>
           {botDist && botDist.total > 0 && (
             <p className="mt-3 text-[12px] text-ink/50">
-              {botDist.total} avaliações — {botDist.boas} promotor(as), {botDist.neutras} neutra(s), {botDist.ruins} detrator(as)
+              {botDist.total} avaliações — {botDist.boas} boa(s) (4–5), {botDist.ruins} ruim(ns) (1–3)
             </p>
           )}
         </section>
@@ -536,7 +610,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
 
 
         <section className="mt-11 print:mt-8">
-          <SecaoHead titulo="NPS" tag="novo" nota="Direto do módulo NPS do Hub (nps_responses) — ainda roda com dado de exemplo, sem integração real com HugMe/Crisp." />
+          <SecaoHead titulo="NPS" tag="novo" nota="Respostas reais da pesquisa NPS (Typeform), pela data da resposta." />
           <MetricaGrid cols={4}>
             <MetricaCard
               label="Contatados"

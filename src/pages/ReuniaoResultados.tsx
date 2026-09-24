@@ -26,6 +26,9 @@ import {
   fetchCsatDistribuicao,
   fetchCsatDistribuicaoPorTipoCliente,
   fetchAtendenteCsatDistribuicao,
+  fetchCsatEnviosPorAtendente,
+  fetchCsatFunilCanal,
+  fetchAtendidoNaoResolvido,
   fetchReaberturaResumo,
   fetchRelogioEsperaCliente,
   fetchHorasExpedientePeriodo,
@@ -372,6 +375,27 @@ export default function ReuniaoResultados() {
     enabled: estagio1Habilitado,
     retry: 1,
   });
+  // Leve (~0,1s, `csat_pending` tem poucos milhares de linhas).
+  const { data: csatEnvios } = useQuery({
+    queryKey: ["csat-envios-atendente", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchCsatEnviosPorAtendente(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  // Funil do CSAT por canal + atendido e não resolvido (slide "Por que
+  // temos poucas avaliações"). Leves: um group by só sobre o período.
+  const { data: csatFunilAtual } = useQuery({
+    queryKey: ["csat-funil-canal", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchCsatFunilCanal(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  const { data: atendidoNaoResolvidoAtual } = useQuery({
+    queryKey: ["atendido-nao-resolvido", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchAtendidoNaoResolvido(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
   // Backlog não tem filtro de período — é sempre "o que está aberto agora",
   // não faz sentido "backlog do mês passado". Uma busca só, sem par
   // "Anterior".
@@ -462,6 +486,9 @@ export default function ReuniaoResultados() {
     csatDistAtual !== undefined &&
     csatPorTipoClienteAtual !== undefined &&
     csatPorAtendenteDist !== undefined &&
+    csatEnvios !== undefined &&
+    csatFunilAtual !== undefined &&
+    atendidoNaoResolvidoAtual !== undefined &&
     backlogAtual !== undefined &&
     npsRespostasAtual !== undefined &&
     migracoesAtual !== undefined &&
@@ -670,6 +697,18 @@ export default function ReuniaoResultados() {
     enabled: estagio5Habilitado,
     retry: 1,
   });
+  const { data: csatFunilAnterior } = useQuery({
+    queryKey: ["csat-funil-canal", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchCsatFunilCanal(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: estagio5Habilitado,
+    retry: 1,
+  });
+  const { data: atendidoNaoResolvidoAnterior } = useQuery({
+    queryKey: ["atendido-nao-resolvido", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchAtendidoNaoResolvido(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: estagio5Habilitado,
+    retry: 1,
+  });
 
   // "Pronto" = a última onda (5) inteira já resolveu — cobre os gaps entre
   // ondas de propósito (uma query com `enabled: false` nunca fica
@@ -684,7 +723,9 @@ export default function ReuniaoResultados() {
       reaberturaAnterior !== undefined &&
       relogioEsperaAnterior !== undefined &&
       horasExpedienteAnterior !== undefined &&
-      tempoBotAnterior !== undefined
+      tempoBotAnterior !== undefined &&
+      csatFunilAnterior !== undefined &&
+      atendidoNaoResolvidoAnterior !== undefined
     );
 
   const [mostrarRelatorio, setMostrarRelatorio] = useState(false);
@@ -715,6 +756,8 @@ export default function ReuniaoResultados() {
         npsResumo: npsResumoAtual,
         migracoes: migracoesAtual ?? null,
         migracoesPorPlataforma: migracoesPorPlataformaAtual ?? [],
+        csatFunil: csatFunilAtual ?? [],
+        atendidoNaoResolvido: atendidoNaoResolvidoAtual ?? [],
       },
       anterior: {
         contagem: contagemAnterior ?? null,
@@ -730,9 +773,12 @@ export default function ReuniaoResultados() {
         npsResumo: npsResumoAnterior,
         migracoes: migracoesAnterior ?? null,
         migracoesPorPlataforma: [],
+        csatFunil: csatFunilAnterior ?? [],
+        atendidoNaoResolvido: atendidoNaoResolvidoAnterior ?? [],
       },
       csatPorAtendente: perfAtual ?? [],
       csatPorAtendenteDist: csatPorAtendenteDist ?? [],
+      csatEnvios: csatEnvios ?? [],
       topTfrProdutor: topTfrProdutorAtual?.rows ?? [],
       topTfrFinal: topTfrFinalAtual?.rows ?? [],
       backlog: backlogAtual ?? [],
@@ -757,6 +803,7 @@ export default function ReuniaoResultados() {
       csatPorTipoClienteAtual,
       csatPorTipoClienteAnterior,
       csatPorAtendenteDist,
+      csatEnvios,
       topTfrProdutorAtual,
       topTfrFinalAtual,
       reaberturaAtual,
@@ -775,6 +822,10 @@ export default function ReuniaoResultados() {
       perfAtual,
       backlogAtual,
       dadosManuais,
+      csatFunilAtual,
+      csatFunilAnterior,
+      atendidoNaoResolvidoAtual,
+      atendidoNaoResolvidoAnterior,
     ]
   );
 
