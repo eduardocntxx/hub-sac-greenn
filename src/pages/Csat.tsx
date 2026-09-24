@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Download, ArrowUpDown, Star, FileDown, ArrowUpRight, ArrowDownRight, SlidersHorizontal, Check, X } from "lucide-react";
+import { Search, Download, ArrowUpDown, Star, ArrowUpRight, ArrowDownRight, SlidersHorizontal, Check, X } from "lucide-react";
 import { cn, formatDelta, nomesCurtosDisambiguados, classificacaoPorNota } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -18,7 +18,6 @@ import { CsatDetalheDialog } from "@/components/CsatDetalheDialog";
 import { Dialog } from "@/components/ui/Dialog";
 import { exportCsatToCsv } from "@/lib/exportCsv";
 import {
-  PERIODO_LABELS,
   resolvePeriodo,
   periodoAnterior,
   type PeriodoPreset,
@@ -207,8 +206,10 @@ export default function Csat() {
   });
 
   const { data: dashboardRows, isLoading: loadingDashboard } = useQuery({
-    queryKey: ["csat-dashboard", filtrosBase],
-    queryFn: () => fetchCsatForDashboard(filtrosBase),
+    // Dashboard usa só o período (busca e filtros ficam na Planilha) — igual
+    // à comparação com o período anterior logo abaixo.
+    queryKey: ["csat-dashboard", inicio, fim],
+    queryFn: () => fetchCsatForDashboard({ inicio, fim }),
     enabled: aba === "dashboard",
   });
 
@@ -385,7 +386,7 @@ export default function Csat() {
         <div>
           <h1 className="font-display text-display text-ink">CSAT</h1>
           <p className="mt-1 text-sm text-ink/60">
-            Planilha completa e dashboard por colaborador, com filtros e exportação.
+            Dashboard do período por colaborador e planilha completa com filtros e exportação.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -464,6 +465,7 @@ export default function Csat() {
         </Card>
       )}
 
+      {aba === "planilha" && (
       <Card className="flex flex-wrap items-center gap-2 p-3">
         <div className="relative">
           <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink/40" />
@@ -487,6 +489,7 @@ export default function Csat() {
           topicos={topicos}
         />
       </Card>
+      )}
 
       {aba === "planilha" ? (
         <>
@@ -588,44 +591,6 @@ export default function Csat() {
         <EmptyState icon={Star} title="Sem dados no período" description="Ajuste os filtros ou o período selecionado." />
       ) : (
         <>
-          <div className="flex justify-end">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={async () => {
-                // jsPDF (+html2canvas) só baixa quando alguém pede o PDF.
-                const { exportCsatDashboardToPdf } = await import("@/lib/exportPdf");
-                exportCsatDashboardToPdf({
-                  periodoLabel: PERIODO_LABELS[preset],
-                  totalAvaliacoes: porColaborador.reduce((acc, c) => acc + c.total, 0),
-                  porColaborador,
-                });
-              }}
-            >
-              <FileDown size={14} /> Exportar dashboard em PDF
-            </Button>
-          </div>
-          <Card className="p-5">
-            <h2 className="mb-3 font-display text-sm font-semibold text-ink">CSAT por colaborador</h2>
-            <HorizontalBarChart
-              data={(() => {
-                const rotulos = nomesCurtosDisambiguados(colaboradorPorPercentual.map((c) => c.atendente ?? "—"));
-                return colaboradorPorPercentual.map((c, i) => ({
-                  label: `${rotulos[i]} (${c.total})`,
-                  value: c.percentual ?? 0,
-                  displayValue: c.percentual !== null
-                    ? `${c.percentual.toFixed(0)}% · ${c.media?.toFixed(1) ?? "—"}`
-                    : "—",
-                }));
-              })()}
-              getColorClass={corPorFaixa}
-              labelWidth={128}
-              onBarClick={(_, i) => {
-                const c = colaboradorPorPercentual[i];
-                if (c) setAtendenteDetalhe({ chave: c.uid, nome: c.atendente });
-              }}
-            />
-          </Card>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {porColaborador.map((c) => (
             <Card
@@ -687,6 +652,27 @@ export default function Csat() {
             </Card>
           ))}
           </div>
+          <Card className="p-5">
+            <h2 className="mb-3 font-display text-sm font-semibold text-ink">CSAT por colaborador</h2>
+            <HorizontalBarChart
+              data={(() => {
+                const rotulos = nomesCurtosDisambiguados(colaboradorPorPercentual.map((c) => c.atendente ?? "—"));
+                return colaboradorPorPercentual.map((c, i) => ({
+                  label: `${rotulos[i]} (${c.total})`,
+                  value: c.percentual ?? 0,
+                  displayValue: c.percentual !== null
+                    ? `${c.percentual.toFixed(0)}% · ${c.media?.toFixed(1) ?? "—"}`
+                    : "—",
+                }));
+              })()}
+              getColorClass={corPorFaixa}
+              labelWidth={128}
+              onBarClick={(_, i) => {
+                const c = colaboradorPorPercentual[i];
+                if (c) setAtendenteDetalhe({ chave: c.uid, nome: c.atendente });
+              }}
+            />
+          </Card>
         </>
       )}
 
