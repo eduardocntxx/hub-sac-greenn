@@ -8,15 +8,17 @@
      zinc), mais alinhada ao tom minimalista/refinado escolhido. Os nomes
      de classe (ink/sand) foram mantidos — só os valores mudaram — porque
      estão espalhados por centenas de usos no código. */
+  /* Verdee (guia de estilo da Greenn, 2026-09-24): cinzas esverdeados no
+     claro, escala de verde-azulado escuro no escuro. */
   :root {
-    --color-ink: 24 24 27;
-    --color-ink-soft: 113 113 122;
-    --color-ink-tertiary: 161 161 170;
-    --color-sand-bg: 250 250 250;
+    --color-ink: 27 33 36;
+    --color-ink-soft: 102 109 109;
+    --color-ink-tertiary: 153 158 157;
+    --color-sand-bg: 240 242 245;
     --color-sand-surface: 255 255 255;
-    --color-sand-subtle: 244 244 245;
-    --color-sand-line: 228 228 231;
-    --color-sand-line-strong: 212 212 216;
+    --color-sand-subtle: 240 242 245;
+    --color-sand-line: 229 231 231;
+    --color-sand-line-strong: 204 206 206;
     color-scheme: light;
   }
 
@@ -25,14 +27,14 @@
      errado) — resolve "seguir o sistema" em JS, então o CSS só precisa
      saber sobre a classe, nunca de prefers-color-scheme diretamente. */
   .dark {
-    --color-ink: 244 244 245;
-    --color-ink-soft: 161 161 170;
-    --color-ink-tertiary: 113 113 122;
-    --color-sand-bg: 9 9 11;
-    --color-sand-surface: 20 20 23;
-    --color-sand-subtle: 30 30 34;
-    --color-sand-line: 39 39 42;
-    --color-sand-line-strong: 63 63 70;
+    --color-ink: 225 244 243;
+    --color-ink-soft: 143 177 174;
+    --color-ink-tertiary: 95 137 134;
+    --color-sand-bg: 0 12 11;
+    --color-sand-surface: 0 24 22;
+    --color-sand-subtle: 0 35 32;
+    --color-sand-line: 0 47 43;
+    --color-sand-line-strong: 48 98 94;
     color-scheme: dark;
   }
 

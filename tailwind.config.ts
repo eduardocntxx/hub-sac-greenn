@@ -16,14 +16,17 @@ export default {
           tertiary: "rgb(var(--color-ink-tertiary) / <alpha-value>)",
         },
         forest: {
-          50: "#EAFBF6",
-          100: "#C9F0E4",
-          200: "#96E0C8",
-          300: "#5FCFB0",
-          500: "#19BC9C",
-          600: "#149A80",
-          700: "#0F7A65",
-          900: "#0A3D33",
+          // Verdee (guia de estilo da Greenn, 2026-09-24): verde-azulado.
+          50: "#EEFFFE",
+          100: "#E1F4F3",
+          200: "#C8EAE7",
+          300: "#96D4CF",
+          400: "#32A9A0",
+          500: "#009488",
+          600: "#00766D",
+          700: "#005952",
+          800: "#002F2B",
+          900: "#003B36",
         },
         sand: {
           bg: "rgb(var(--color-sand-bg) / <alpha-value>)",
@@ -33,26 +36,26 @@ export default {
           "line-strong": "rgb(var(--color-sand-line-strong) / <alpha-value>)",
         },
         amber: {
-          50: "#FDF3E1",
-          400: "#F7C766",
-          500: "#F5B942",
-          600: "#D69C2B",
-          700: "#9C7420",
+          50: "#FEFCE8",
+          400: "#FADC4A",
+          500: "#F6C819",
+          600: "#E6AF0C",
+          700: "#9E610A",
         },
         rust: {
-          50: "#FCEAEA",
-          100: "#F7C6C6",
-          400: "#EB7373",
-          500: "#E75A5A",
-          600: "#C94848",
-          700: "#963636",
+          50: "#FFF3ED",
+          100: "#FFE3D4",
+          400: "#FF6337",
+          500: "#F02006",
+          600: "#C71307",
+          700: "#9E110E",
         },
         sky: {
-          50: "#EAF2FA",
-          400: "#6BA3D6",
-          500: "#3B82C4",
-          600: "#2E6CA3",
-          700: "#22537E",
+          50: "#EFF6FF",
+          400: "#5EA9FC",
+          500: "#3886F9",
+          600: "#2469EE",
+          700: "#1C43B1",
         },
         violet: {
           50: "#F1EEF9",
@@ -70,8 +73,8 @@ export default {
         // minimalismo refinado. Manter os dois nomes de utilitário (não
         // colapsar em um só) porque ~180 usos de font-display/font-body no
         // código já esperam essas duas classes.
-        display: ["'Sora'", "ui-sans-serif", "system-ui", "sans-serif"],
-        body: ["'Sora'", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["'Plus Jakarta Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
+        body: ["'Plus Jakarta Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       fontSize: {
         display: ["2rem", { lineHeight: "1.25", fontWeight: "700" }],
@@ -88,10 +91,10 @@ export default {
       // anterior usava tinta verde forte e um "glow" decorativo, mais
       // "produto com personalidade" do que minimalista refinado.
       boxShadow: {
-        card: "0 1px 2px rgba(15,23,21,0.04)",
-        "card-hover": "0 4px 12px -4px rgba(15,23,21,0.10)",
-        soft: "0 2px 10px rgba(15,23,21,0.05)",
-        float: "0 12px 32px -12px rgba(15,23,21,0.18)",
+        card: "0 1px 2px rgba(0,24,22,0.04)",
+        "card-hover": "0 4px 12px -4px rgba(0,24,22,0.10)",
+        soft: "0 2px 10px rgba(0,24,22,0.05)",
+        float: "0 12px 32px -12px rgba(0,24,22,0.18)",
       },
       transitionDuration: {
         DEFAULT: "150ms",

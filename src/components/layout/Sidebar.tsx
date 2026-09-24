@@ -19,8 +19,8 @@ import {
   Settings,
   ChevronsLeft,
   ChevronsRight,
-  Leaf,
 } from "lucide-react";
+import logoGreenn from "@/assets/greenn-logo.png";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -65,9 +65,9 @@ function NavItem({
           "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
           isActive
             ? highlight
-              ? "bg-amber-500/90 text-ink"
-              : "bg-forest-500/90 text-white"
-            : "text-white/60 hover:bg-white/5 hover:text-white/90"
+              ? "bg-amber-50 font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"
+              : "bg-forest-100 font-semibold text-forest-700 dark:bg-forest-500/15 dark:text-forest-300"
+            : "text-ink/60 hover:bg-sand-subtle hover:text-ink"
         )
       }
       title={collapsed ? label : undefined}
@@ -79,9 +79,9 @@ function NavItem({
 }
 
 function SectionLabel({ children, collapsed }: { children: string; collapsed: boolean }) {
-  if (collapsed) return <div className="my-2 border-t border-white/10" />;
+  if (collapsed) return <div className="my-2 border-t border-sand-line" />;
   return (
-    <p className="mb-1 mt-4 px-3 text-[10px] font-semibold uppercase tracking-wider text-white/35 first:mt-0">
+    <p className="mb-1 mt-4 px-3 text-[10px] font-semibold uppercase tracking-wider text-ink/40 first:mt-0">
       {children}
     </p>
   );
@@ -101,17 +101,15 @@ export function Sidebar() {
       onMouseEnter={() => !fixado && setCollapsed(false)}
       onMouseLeave={() => !fixado && setCollapsed(true)}
       className={cn(
-        "flex h-screen flex-col overflow-hidden bg-forest-900 text-white/90 transition-[width] duration-300 ease-out",
+        "flex h-screen flex-col overflow-hidden border-r border-sand-line bg-sand-surface text-ink transition-[width] duration-300 ease-out",
         collapsed ? "w-[72px]" : "w-60 shadow-float"
       )}
     >
       <div className="flex h-16 items-center gap-2 px-4">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-forest-500 text-white ring-2 ring-white/10">
-          <Leaf size={18} />
-        </div>
+        <img src={logoGreenn} alt="Greenn" className="h-9 w-9 shrink-0" />
         <span
           className={cn(
-            "font-display text-sm font-semibold tracking-wide transition-opacity duration-200",
+            "font-display text-sm font-bold tracking-tight text-ink transition-opacity duration-200",
             collapsed ? "opacity-0" : "opacity-100"
           )}
         >
@@ -119,7 +117,7 @@ export function Sidebar() {
         </span>
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto scrollbar-dark px-2 py-2">
+      <nav className="flex-1 space-y-1 overflow-y-auto scrollbar-thin px-2 py-2">
         <SectionLabel collapsed={collapsed}>Área SAC</SectionLabel>
         {sacItems.map((item) => (
           <NavItem key={item.to} {...item} collapsed={collapsed} />
@@ -158,7 +156,7 @@ export function Sidebar() {
           });
         }}
         title={fixado ? "Desafixar sidebar" : "Fixar sidebar expandida"}
-        className="m-2 flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs text-white/60 transition-[background-color,color,transform] active:scale-[0.97] hover:bg-white/5 hover:text-white"
+        className="m-2 flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs text-ink/50 transition-[background-color,color,transform] active:scale-[0.97] hover:bg-sand-subtle hover:text-ink"
       >
         {fixado ? <ChevronsLeft size={16} /> : <ChevronsRight size={16} />}
         <span className={cn("transition-opacity duration-200", collapsed ? "opacity-0" : "opacity-100")}>
