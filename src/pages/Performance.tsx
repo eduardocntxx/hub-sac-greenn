@@ -353,7 +353,7 @@ export default function Performance() {
   const { data: reaberturaCasos } = useQuery({
     queryKey: ["reabertura-casos", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchReaberturaCasos(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: isAdmin && !!reaberturaResumo && reaberturaResumo.total_reabertos > 0 && subAba === "qualidade",
+    enabled: isAdmin && !!reaberturaResumo && reaberturaResumo.total_reabertos > 0 && (subAba === "qualidade" || subAba === "pessoas"),
   });
 
   const { data: transferenciasResumo, isLoading: loadingTransferencias } = useQuery({
@@ -491,6 +491,25 @@ export default function Performance() {
 
 
 
+
+  // Reaberturas e transferências por atendente, pra tabela de Produtividade
+  // e posse (Pessoas). Vêm das listas de casos, que só admin acessa.
+  const reaberturaPorAtendenteMap = useMemo(() => {
+    const mapa = new Map<string, number>();
+    (reaberturaCasos ?? []).filter((c) => c.atendente !== "IA Greenn").forEach((c) => {
+      const nome = c.atendente ?? "—";
+      mapa.set(nome, (mapa.get(nome) ?? 0) + 1);
+    });
+    return mapa;
+  }, [reaberturaCasos]);
+  const transferenciasOrigemMap = useMemo(() => {
+    const mapa = new Map<string, number>();
+    (transferenciasCasos ?? []).forEach((c) => {
+      const nome = c.origem ?? "—";
+      mapa.set(nome, (mapa.get(nome) ?? 0) + 1);
+    });
+    return mapa;
+  }, [transferenciasCasos]);
 
   const reaberturaPorMotivo = useMemo(() => {
     const mapa = new Map<string, number>();
@@ -964,6 +983,64 @@ export default function Performance() {
                 )}
               </div>
             </div>
+
+
+            {rankingOrdenado && rankingOrdenado.length > 0 && (
+              <Card className="overflow-hidden">
+                <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-4">
+                  <div>
+                    <h2 className="font-display text-[15px] font-bold text-ink">Produtividade e posse</h2>
+                    <p className="mt-0.5 text-[12.5px] text-ink/50">Volume de trabalho, tempo com o chamado e retrabalho por pessoa</p>
+                  </div>
+                  <details className="relative">
+                    <summary className="flex h-6 w-6 cursor-pointer list-none items-center justify-center rounded-full border border-sand-line-strong text-xs font-bold text-ink/50 transition hover:text-ink [&::-webkit-details-marker]:hidden">?</summary>
+                    <div className="absolute right-0 top-8 z-20 w-80 rounded-xl border border-sand-line-strong bg-sand-surface p-3 text-xs leading-relaxed text-ink/60 shadow-float">
+                      <p><b>Interações:</b> conversas em que a pessoa mandou mensagem no período, inclusive as que começaram antes.</p>
+                      <p className="mt-1.5"><b>Posse:</b> tempo em que o chamado esteve atribuído à pessoa e aberto (trecho resolvido não conta). Por isso "chamados c/ posse" costuma ser menor que "chamados".</p>
+                      <p className="mt-1.5"><b>Atend./hora:</b> chamados ÷ horas de posse. Leia junto com CSAT, 1ª resposta e reabertura, nunca sozinho.</p>
+                      <p className="mt-1.5"><b>Reaberturas e transferências:</b> eventos no período atribuídos à pessoa{isAdmin ? "." : " — visíveis só pra admin."}</p>
+                    </div>
+                  </details>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-sand-subtle text-[11px] uppercase tracking-wide text-ink/50">
+                      <tr>
+                        <th className="px-5 py-3 text-left font-semibold">Atendente</th>
+                        <SortableHeader align="center" field="total_interacoes" label="Interações" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
+                        <SortableHeader align="center" field="total_mensagens" label="Mensagens" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
+                        <th className="px-4 py-3 font-semibold">Tempo de posse</th>
+                        <th className="px-4 py-3 font-semibold">Chamados c/ posse</th>
+                        <th className="px-4 py-3 font-semibold">Posse média</th>
+                        <th className="px-4 py-3 font-semibold">Atend./hora</th>
+                        <th className="px-4 py-3 font-semibold">Reaberturas</th>
+                        <th className="px-4 py-3 font-semibold">Transferências</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rankingOrdenado.map((r) => {
+                        const p = posseMap.get(r.operator_nome);
+                        const horasPosse = p ? p.minutos_posse / 60 : 0;
+                        const atendPorHora = p && horasPosse > 0 ? r.total_atendimentos / horasPosse : null;
+                        return (
+                          <tr key={r.operator_email ?? r.operator_nome} className="border-t border-sand-line text-center">
+                            <td className="px-5 py-3 text-left font-semibold text-ink">{r.operator_nome}</td>
+                            <td className="px-4 py-3 tabular-nums text-ink/70">{r.total_interacoes.toLocaleString("pt-BR")}</td>
+                            <td className="px-4 py-3 tabular-nums text-ink/70">{r.total_mensagens.toLocaleString("pt-BR")}</td>
+                            <td className="px-4 py-3 tabular-nums text-ink/70">{p ? formatDuration(p.minutos_posse * 60) : "—"}</td>
+                            <td className="px-4 py-3 tabular-nums text-ink/70">{p ? p.chamados.toLocaleString("pt-BR") : "—"}</td>
+                            <td className="px-4 py-3 tabular-nums text-ink/70">{p && p.chamados > 0 ? tempoCurto(p.minutos_posse / p.chamados) : "—"}</td>
+                            <td className="px-4 py-3 tabular-nums text-ink/70">{atendPorHora !== null ? atendPorHora.toFixed(1).replace(".", ",") : "—"}</td>
+                            <td className="px-4 py-3 tabular-nums text-ink/70">{isAdmin ? reaberturaPorAtendenteMap.get(r.operator_nome) ?? 0 : "—"}</td>
+                            <td className="px-4 py-3 tabular-nums text-ink/70">{isAdmin ? transferenciasOrigemMap.get(r.operator_nome) ?? 0 : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
 
             </motion.div>
           )}

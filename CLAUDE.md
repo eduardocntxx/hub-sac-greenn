@@ -5882,9 +5882,12 @@ Design, Overview pra todos:**
 - **Overview:** animações (entrada dos indicadores, barras que crescem,
   sublinhado deslizante das sub-abas, respeita "reduzir movimento") e
   sub-aba Pessoas no layout do design (ranking enxuto com 5 colunas, card
-  escuro do bot, volume por pessoa). As colunas extras do ranking antigo
-  (interações, mensagens, posse, atend./hora, reaberturas,
-  transferências) saíram.
+  escuro do bot, volume por pessoa). As 8 colunas extras do ranking antigo
+  (interações, mensagens, tempo de posse, chamados c/ posse, posse média,
+  atend./hora, reaberturas, transferências) voltaram numa tabela própria,
+  "Produtividade e posse", abaixo do ranking; reaberturas/transferências
+  por pessoa saem das listas de casos (admin-only), então aparecem "—" pra
+  colaborador.
 
 ## 12. Convenções de código
 
