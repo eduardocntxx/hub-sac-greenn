@@ -41,6 +41,12 @@
   * {
     @apply border-sand-line;
   }
+  /* Fonte, cor e fundo base no próprio CSS (não só na classe do <body> do
+     index.html) — assim valem também fora do app, como no design system
+     sincronizado com o Claude Design. */
+  body {
+    @apply bg-sand-bg font-body text-ink antialiased;
+  }
   :focus-visible {
     outline: 2px solid theme("colors.forest.500");
     outline-offset: 2px;

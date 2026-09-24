@@ -15,3 +15,5 @@ supabase/.temp
 # projeto por engano.
 Widget CSAT _ Edu*.json
 n8n_migracoes_sync.json
+.ds-sync/
+ds-bundle/
