@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { AppLayout } from "@/layouts/AppLayout";
@@ -9,11 +9,13 @@ import { RouteBoundary } from "@/components/RouteBoundary";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 import Login from "@/pages/Login";
-import Home from "@/pages/Home";
+import MeuPainel from "@/pages/MeuPainel";
 
-// Login e Home ficam no bundle inicial (Login é a 1ª tela de quem não tem
-// sessão; Home é o destino de quase todo login). O resto carrega sob demanda —
-// antes era um único JS de 2,3 MB (669 kB gzip) baixado até na tela de login.
+// Login e Meu Painel ficam no bundle inicial (Login é a 1ª tela de quem não
+// tem sessão; Meu Painel é o destino de quase todo login — Home foi removida
+// em 2026-09-23, Meu Painel virou a rota padrão). O resto carrega sob
+// demanda — antes era um único JS de 2,3 MB (669 kB gzip) baixado até na
+// tela de login.
 const DefinirSenha = lazyWithRetry(() => import("@/pages/DefinirSenha"));
 const Csat = lazyWithRetry(() => import("@/pages/Csat"));
 const ReclameAqui = lazyWithRetry(() => import("@/pages/ReclameAqui"));
@@ -21,9 +23,7 @@ const Nps = lazyWithRetry(() => import("@/pages/Nps"));
 const Performance = lazyWithRetry(() => import("@/pages/Performance"));
 const Helpdesks = lazyWithRetry(() => import("@/pages/Helpdesks"));
 const Calendario = lazyWithRetry(() => import("@/pages/Calendario"));
-const MeuPainel = lazyWithRetry(() => import("@/pages/MeuPainel"));
 const Missoes = lazyWithRetry(() => import("@/pages/Missoes"));
-const Analytics = lazyWithRetry(() => import("@/pages/Analytics"));
 const ReuniaoResultados = lazyWithRetry(() => import("@/pages/ReuniaoResultados"));
 const Cursos = lazyWithRetry(() => import("@/pages/Cursos"));
 const Documentacao = lazyWithRetry(() => import("@/pages/Documentacao"));
@@ -61,10 +61,12 @@ export default function App() {
 
             <Route element={<RequireAuth />}>
               <Route element={<AppLayout />}>
-                <Route index element={<Home />} />
+                <Route index element={<MeuPainel />} />
                 <Route path="meu-painel" element={<MeuPainel />} />
                 <Route path="missoes" element={<Missoes />} />
-                <Route path="analytics" element={<Analytics />} />
+                {/* Analytics excluído em 2026-09-24; o Overview (aberto a todos) substitui. */}
+                <Route path="analytics" element={<Navigate to="/performance" replace />} />
+                <Route path="performance" element={<Performance />} />
                 <Route path="reuniao-resultados" element={<ReuniaoResultados />} />
                 <Route path="cursos" element={<Cursos />} />
                 <Route path="documentacao" element={<Documentacao />} />
@@ -72,9 +74,6 @@ export default function App() {
                 <Route path="outros-links" element={<OutrosLinks />} />
                 <Route path="perfil" element={<Perfil />} />
 
-                <Route element={<AdminOnlyRoute />}>
-                  <Route path="performance" element={<Performance />} />
-                </Route>
                 <Route path="helpdesks" element={<Helpdesks />} />
                 <Route path="calendario" element={<Calendario />} />
 

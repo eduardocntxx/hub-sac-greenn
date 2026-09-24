@@ -5484,6 +5484,203 @@ as $function$
 $function$;
 ```
 
+**Investigação em 2026-09-22 — CPU/Memória do compute em 90%, causa explicada
+(não corrigida — decisão consciente de não fazer upgrade agora):** usuário
+reportou o painel do Supabase mostrando Compute/CPU/Memória em 90%. Primeira
+hipótese (errada, corrigida na hora): achei que a `main` de produção estivesse
+13 dias atrasada sem os fixes de performance — na real minha cópia local do
+git é que estava desatualizada; `b5d9a03` (staleTime padrão + throttle do
+Realtime) e mais uma leva de otimização que eu não conhecia (`PR #11`, lazy
+loading de rotas + exports de PDF/PPTX só ao exportar) **já estavam em
+produção desde 21/09**, um dia antes desse relato. Não fiz nenhum push nessa
+investigação, só sincronizei o git local.
+
+Com isso descartado, medi o banco ao vivo (5 amostras em 15s): ocioso, só a
+replicação do Realtime ativa, sem query pesada rodando naquele instante —
+confirma que o pico visto no painel é intermitente, não um travamento
+contínuo. Causa raiz identificada com números reais do próprio banco, não é
+1 bug pontual:
+- **Banco pequeno (164 MB)**, mas a **máquina é o tier Micro do Supabase**:
+  `shared_buffers` = 224 MB, `work_mem` = ~2,1 MB por operação de
+  ordenação/hash, `max_connections` = 60 — dimensionado pra projeto
+  hobby/dev, não pra dashboard analítico em produção.
+- **O tipo de query que o Hub roda é pesado por natureza**, não é CRUD
+  simples: `relogio_posse_periodo()` tem 25 mil caracteres de SQL (múltiplas
+  CTEs + window functions); `atendente_performance`, `tfr_ttr_percentis`,
+  `atendimento_timeline`, `relogio_espera_cliente`, `motivo_contato_resumo`
+  ficam entre 9 e 13 mil caracteres cada. Cada estágio de ordenação/agregação
+  reivindica seu próprio `work_mem`; com várias dessas rodando quase juntas
+  (Overview/Reunião de Resultados abertos por mais de um admin ao mesmo
+  tempo), a memória soma rápido numa máquina desse tamanho.
+- **Realtime roda 24h em segundo plano** (`pg_stat_replication` confirmou 1
+  conexão `streaming` ativa, lag de 19ms — saudável, mas é overhead fixo,
+  nunca desliga).
+- **n8n escreve continuamente** (Crisp → `crisp_conversations`/
+  `crisp_messages`/`csat_results`), independente de quantos usuários estão
+  olhando o Hub — inclusive disparando gatilhos como o de
+  `cobertura_semanal` a cada escrita.
+
+Não sobrou otimização de SQL/código óbvia pra aplicar — o trabalho de
+performance desta sessão e da anterior (staleTime, throttle, escalonamento
+em ondas da Reunião de Resultados, índices, `piso_ciclo`, cache de
+cobertura semanal, etc.) já cobriu o que dava pra resolver de graça. O
+próximo passo real seria upgrade de compute (Micro → Small/Medium,
+decisão de gasto). **Usuário decidiu conscientemente adiar esse upgrade**
+("não posso comprar até provar que esse projeto tá pronto... ainda tá
+funcionando, então vamo de marcha") — o app segue funcional mesmo nos
+picos, só mais lento; revisitar quando o projeto for validado/aprovado
+oficialmente, não é um problema esquecido.
+
+**Bug grave corrigido em 2026-09-22 — mensagem automática de encerramento
+por inatividade contaminava o TFR (tempo de 1ª resposta) da plataforma
+inteira:** usuário desconfiou de números na tabela nova "Top 5 — Maiores
+tempos de 1ª resposta" (só apareciam chamados de Produtor/Sem tipo, quase
+nunca Final) e pediu auditoria. Achado real: 145 chamados, fechados numa
+varredura em massa por 1 operadora ("Ana") num intervalo de ~1h36 no dia
+18/09/2026, tinham a mensagem-molde **"Boa tarde/noite! Como não
+recebemos novas mensagens neste chamado, iremos encerrá-lo..."** (macro de
+auto-encerramento por inatividade, disparada em lote) sendo lida por
+`_primeiras_respostas_humanas()` como se fosse a 1ª resposta humana de
+verdade ao cliente — produzindo TFR de 11 a 17 **dias** pra chamados que
+na real nunca tiveram resposta humana nenhuma antes do fechamento
+automático. Confirmado nos dois caminhos da função: tanto na coluna
+`crisp_conversations.first_human_response_at` (gravada pelo n8n em tempo
+real) quanto no fallback por `crisp_messages` — o n8n não distingue essa
+mensagem-molde de uma resposta humana genuína de conteúdo, mesma categoria
+dos bugs de detecção de bot por substring já corrigidos antes nesta seção
+(2026-08-18).
+
+Como `_primeiras_respostas_humanas()` é a fonte de TODO TFR da plataforma
+(9 consumidoras diretas: `atendente_performance`, `atendimentos_com_metricas`,
+`dashboard_atendimento_summary`, `metricas_por_tipo_cliente`,
+`minhas_conversas_metricas`, `motivo_contato_resumo`, `operador_ranking`,
+`tfr_ttr_percentis`, `velocidade_por_tipo_cliente`), esse achado não era
+só da tabela nova — Ranking, Velocidade, Overview, Meu Painel e Reunião de
+Resultados todos mostravam TFR inflado pra esses 145 casos. A contagem de
+"chamados" em si foi auditada em paralelo e confirmada correta (6.489
+conversas + 1.197 reaberturas = 7.686 chamados nos últimos 30 dias, bate
+exato com a fórmula `sum(1+reopened_count)` documentada) — não era um
+problema de contagem, só de TFR.
+
+Corrigido adicionando a mesma exclusão (`content ilike '%não recebemos
+novas mensagens neste chamado%'`) nos dois caminhos da função — quando o
+único "1º atendente humano" detectado é essa mensagem-molde, a função
+agora não retorna nada pra esse chamado (mesmo padrão de honestidade já
+usado em toda a plataforma: `TFR "—"` em vez de inventar um valor), a
+menos que exista uma mensagem humana genuína depois dela. Validado: os 3
+casos de teste originais (`session_8cfbb238...`, `session_6fa93979...`,
+`session_aefdbb93...`) passaram a não retornar nenhuma linha (correto —
+nenhum tinha resposta humana real além da macro); o top 10 de TFR dos
+últimos 30 dias, antes dominado por Produtor, ficou bem mais equilibrado
+(5 Final, 2 Produtor, 3 Sem tipo) depois do fix.
+
+**Pendência — fix real é do lado do n8n, não aplicado por mim** (sem
+acesso a essa ferramenta nesta sessão): o node que grava
+`first_human_response_at`/dispara o webhook de `message:send` precisa da
+mesma exclusão por conteúdo (ou, melhor, reconhecer esse macro/quick-reply
+como um tipo de mensagem próprio, não confundir com resposta humana de
+conteúdo) — o fix aplicado aqui corrige a LEITURA (toda consulta feita a
+partir de agora), mas se o n8n continuar gravando a coluna errada pra
+novos casos desse tipo, o fallback por mensagem (que também tem a mesma
+exclusão) segue protegendo, então não é urgente, mas vale registrar como
+melhoria pendente do pipeline externo.
+
+**Bug de performance corrigido em 2026-09-22 (mesmo dia, mais tarde) —
+`atendimentos_com_metricas()` calculava `tempo_ativo_seg` pra TODO chamado
+do período, não só pros que o `LIMIT` final devolvia:** usuário reportou
+"tá demorando pra carregar os dados e exportar" na Reunião de Resultados.
+Medido com uma função de debug temporária (cópia com `is_admin()`
+trocado por `true`, criada e apagada na mesma investigação — sessão real
+via MCP ignora RLS, mesma lição já documentada nesta seção): a chamada
+usada pela tabela "Top 5" (`p_ordenar_por='tfr', p_limit=5`, janela de 7
+dias) levava **10 segundos e 54 mil buffer hits** só pra devolver 5
+linhas. Causa: `tempo_ativo_seg` (chama `atendimento_timeline()`, função
+por-conversa moderadamente cara) ficava no `SELECT` final, avaliado pra
+cada linha de `calc` (todo chamado do período) **antes** do `order by ...
+limit` ser aplicado — o `LIMIT` só cortava o resultado depois de já ter
+pago o custo caro pra todo mundo.
+
+Corrigido isolando `tempo_ativo_seg` do resto: nova CTE `pagina` faz o
+`order by`/`limit`/`offset`/agregados de janela (`count(*) over()`,
+`sum(...) over()`) só com colunas baratas, e um `select` externo (sobre
+`pagina`, já limitada a `p_limit` linhas) é quem calcula
+`tempo_ativo_seg` — a função só paga o preço caro pras linhas que de fato
+vão ser devolvidas, não pra todo o período. Validado bit-a-bit contra a
+versão antiga (0 divergências) em 4 cenários (`recentes` limit 1000/60d,
+`tfr desc` limit 5/14d, `tfr asc` limit 1000, `tempo_resolucao`/
+`tempo_aberto` com offset) antes de aplicar em produção. Resultado: **10s
+→ 3,1s** (~3x) pro caso do Top 5.
+
+**Pendência — ainda sobra ~3s de custo inerente, não resolvido**: mesmo
+depois do fix, os 54 mil buffer hits praticamente não mudaram — o
+`tempo_ativo_seg` era só parte do problema. O resto do custo vem de
+`_primeiras_respostas_humanas()`/`reopened_count_real_periodo()` (varrem
+`crisp_messages`/`crisp_conversation_state_history`/
+`operator_routing_history` pro período inteiro, mesmo cálculo caro que já
+serve outras 8 funções da plataforma) — não é um custo introduzido pela
+tabela Top 5, é o piso já existente de QUALQUER chamada dessa função
+(inclusive a aba Atendimentos do Overview, que sempre pagou esse preço,
+só nunca foi medido isoladamente até agora). Otimizar isso exigiria o
+mesmo tipo de trabalho já feito antes nesta seção pra outras funções
+(cache por dia, técnica gap-and-island) — não feito agora por escopo/
+tempo, registrado como candidato a próxima leva de performance se o
+relatório ainda parecer lento depois deste fix.
+
+**Auditoria pedida pelo usuário em 2026-09-22/23 — "chamados tá contando
+errado": 2 bugs reais achados, os dois em `operador_ranking()` (Ranking de
+operadores do Analytics), 8 outras funções corrigidas por consistência:**
+
+Antes de mexer em qualquer coisa, cross-checei "ontem" entre as funções
+que já deveriam bater (mesmo padrão de auditoria de sempre): `contagem_
+periodo`, `dashboard_atendimento_summary`, `atendimentos_com_metricas`,
+`metricas_por_tipo_cliente`, `velocidade_por_tipo_cliente` e `atendente_
+performance` bateram **exatos** entre si (540 chamados/411 conversas).
+`relogio_posse_periodo` mostrando bem menos (419) **não é bug** — é
+proposital (só conta posse com segmento já fechado/válido, documentado
+desde 17-18/08 nesta seção).
+
+1. **8 funções nunca receberam o `cliente_e_teste()`, vazando teste real
+   pra métrica de produção**: `operador_ranking`, `minhas_conversas_
+   metricas` (Meu Painel!), `analytics_summary`, `analytics_evolucao`,
+   `distribuicao_canal`, `distribuicao_status`, `distribuicao_topico`
+   (Analytics) e `conversas_evolucao` (Home). Todas nasceram/foram
+   reescritas depois do lote original de 12 funções que ganhou o filtro —
+   nunca passaram por essa correção. Medido ano-a-data antes do fix:
+   `operador_ranking` mostrava **Felipe Bertaggi com 63 chamados quando o
+   real é 22** (186% inflado — uma conversa de teste dele sozinha, com
+   `reopened_count_real` alto, respondia pela maior parte), Eduardo
+   Nicolau 205 vs 139 real, bot "IA Greenn" 3674 vs 3624 real; no próprio
+   Meu Painel do Eduardo, 21 das 179 linhas (12%) eram conversa de teste
+   dele mesmo. Corrigido replicando o padrão de sempre (`and not public.
+   cliente_e_teste(coluna_nome, coluna_email)`, mesma assinatura, sem
+   `DROP FUNCTION`) — `atendimento_timeline(p_crisp_id)` e `csat_tempo_
+   real(p_crisp_id)` foram checadas e **descartadas**: são lookup de 1
+   conversa específica (não agregam por cliente), o filtro não se aplica.
+2. **"Ana Franca" duplicada no Ranking do Analytics, achado só na
+   validação do fix acima**: `operador_ranking()` mostrava ela **2 vezes**
+   na tabela, cada linha com o mesmo `total_chamados` inteiro — somar a
+   coluna manualmente contava em dobro (era exatamente esse o teste que
+   expôs o problema pro usuário). Causa: o CTE `csat` agrupava por
+   `(nome, email_atendente)`, e existe 1 avaliação real dela em `csat_
+   results` com `email_atendente` vazio — vira um 2º grupo (`null` conta
+   como grupo à parte), e o `LEFT JOIN` final replica a linha de `tempos`
+   uma vez por grupo batido. Mesma causa raiz (não o mesmo fix) já
+   corrigida em 02/09 num lugar diferente (`fetchDistinctOperadores()`,
+   dedup do filtro de operador) — nunca tinha sido replicada aqui.
+   Corrigido agrupando só por nome (`group by 1`, não `1, 2`) e trocando
+   `email_atendente` por `max(...)` (junta as 2 linhas antigas numa só,
+   com a média/contagem de CSAT combinada de verdade — 22+1=23 avaliações,
+   4,83 de média — em vez de escolher/descartar um dos dois grupos).
+
+Validado com dado real ano-a-data, sessão autenticada real (não MCP/CLI —
+`is_admin()` sempre falso por ali): reconciliei `operador_ranking()` linha
+a linha contra `atendente_performance()` — **14 de 14 atendentes com
+diff=0 e exatamente 1 linha cada**, incluindo Felipe Bertaggi (22=22) e
+Ana Franca (954=954, 1 linha só). `db query --linked` (CLI autenticada,
+ver seção 10 anterior) provou de novo mais rápido que a Management API
+via curl usada no começo desta sessão marathon — mesma técnica de
+impersonação por JWT (`set request.jwt.claims`, sem precisar de `set
+role`) continua necessária pra `is_admin()` resolver certo.
 **Auditoria das funções do Overview (2026-09-21) — o que estava errado e foi
 corrigido:** método = cruzar cada RPC das ~24 usadas pelo Overview com as
 demais e com um recálculo independente nas tabelas cruas, logado como admin
@@ -5538,6 +5735,212 @@ PPTX da Reunião de Resultados testado em Node (14/14/12 slides, zip íntegro,
 6. Métricas que leem mensagens (`total_mensagens`, espera do cliente, bot,
    posse Tier C, IA genérica) estão sub-amostradas em 01–07/09 (ver item 1 da
    lista de achados acima) — não verificadas linha a linha.
+
+**Diagnóstico em 2026-09-24 — por que temos tão poucas avaliações de
+CSAT (~4,5% das conversas):** funil medido desde 10/09 (sem teste). (1) A
+pesquisa só dispara na resolução, e ~3,2 mil de ~4,3 mil conversas nunca
+foram resolvidas — 1.237 tiveram atendimento humano e ficaram `pending`
+(948 paradas há mais de 2 dias); ~2 mil são só-bot abandonadas. (2) Das
+resolvidas, ~95% recebem a pesquisa (`csat_pending`), mas a resposta
+varia muito por canal: WhatsApp ~31%, chat ~10,5%, e-mail ~3%. Fechamento
+em massa atrasado responde ~6% (15/09: 18/311; 18/09: 16/241) contra
+15–20% em dia normal. **Não usar `csat_pending.respondido`** (subconta);
+resposta real = `exists csat_results where crisp_id = session_id`.
+Alavancas sugeridas (nenhuma implementada): resolver logo após atender,
+auto-resolver por inatividade no n8n, pesquisa no fim do chat com o
+cliente online, nota 1-clique no corpo do e-mail, 1 lembrete no WhatsApp.
+
+**Feature nova em 2026-09-24 — operadores de fora do SAC excluídos das
+métricas (`operator_id_aliases.equipe_sac`):** o cron de sync da Crisp
+grava todos os operadores do workspace, e gente de outras áreas recebe
+conversa real (Comercial Greenn, Ana Clara Zanchett, Paula Pimentel,
+Jaine Martins, Matheus Vaz — confirmados pelo usuário como não-SAC;
+Felipe Bertaggi é o líder do SAC e fica). Coluna nova `equipe_sac boolean
+not null default true` (operador novo do cron nasce `true`; marcar
+`false` à mão via SQL). Helpers `operador_fora_sac(operator_crisp_id)` e
+`csat_atendente_fora_sac(email_atendente)` (SQL `stable`, sem `security
+definer`, sem execute pra anon). Aplicados mecanicamente ao lado de todo
+`and not public.cliente_e_teste(...)` nas 36 funções de métrica (63
+pontos: `cliente_nome` → filtro por `operator_crisp_id` da conversa;
+`cliente`/CSAT → filtro por e-mail), mais `distinct_atendentes_canonico`
+e `csat_envios_por_atendente` à mão. Critério = **operador atual da
+conversa**. Validado como admin (JWT simulado): setembro foi de 8.471 pra
+8.405 chamados (−66, exatamente o volume dos 5), ranking e filtro sem os
+5; tempos nas faixas de antes (dashboard/posse/ranking/tfr_ttr ~1,2–1,6 s
+de mínimo). **Regra ao criar função de métrica nova: repetir o par
+`cliente_e_teste` + `operador_fora_sac`.** Posse: a função original virou
+`_relogio_posse_periodo_base` (intacta) e `relogio_posse_periodo` é agora
+um wrapper SQL com a mesma assinatura que tira do resultado quem tem
+`equipe_sac = false` e o "Mr. Greenn". Transferências SAC↔Comercial/
+Matheus continuam contando (evento real de conversa do SAC).
+Nenhum dos 5 tem avaliação em `csat_results` hoje; `Csat.tsx` agrega
+CSAT no cliente e não usa esse filtro.
+
+**"Mr. Greenn" (`ecdf38cc-f17d-4994-9129-8f8d8bf57570`,
+governanca@greenn.com.br) é a conta de distribuição da Crisp, não
+atendente** — nunca manda mensagem, nunca é dono final nem 1ª resposta;
+só recebe roteamento e repassa (mediana ~20h segurando). Confirmado pelo
+usuário (2026-09-24) como "o bot" do SAC (distinto da IA). Estava inflando
+Transferências (827 de 2.303 eventos de setembro eram ele distribuindo;
+taxa 18,9%) e aparecia na posse humana. Agora entra na lista de exclusão
+de bot de `transferencias_resumo`/`transferencias_casos` (ao lado de
+`ia_greenn` e `b8b993a0-...`) e sai do wrapper de posse. Setembro depois:
+1.472 eventos, 794 conversas transferidas, taxa 9,5%.
+
+**Feature nova em 2026-09-24 — PPTX da RR: CSAT unificado + slide "Por
+que temos poucas avaliações":** os slides "Avaliações (CSAT)" e
+"Avaliações (CSAT) por tipo de cliente" viraram um só (geral em cima, um
+card por tipo embaixo). Slide novo logo depois, sem aumentar a contagem
+de páginas: à esquerda o funil do CSAT por canal (conversas → resolvidas
+→ pesquisa enviada → respondidas, taxa = respondidas ÷ resolvidas, delta
+em p.p.); à direita "Atendido e não resolvido" (conversas do período com
+resposta humana ainda abertas, por dono atual, e quantas estão paradas há
+mais de 48h, gráfico empilhado, bot fora). Duas funções novas, admin-only,
+com os filtros de teste/fora do SAC: `csat_funil_canal(data_inicio,
+data_fim)` e `atendido_nao_resolvido(data_inicio, data_fim)`
+(`fetchCsatFunilCanal`/`fetchAtendidoNaoResolvido`), buscadas pra período
+atual e anterior em `ReuniaoResultados.tsx`. "Anterior" de atendido e não
+resolvido é medido hoje (conversas da semana passada que ainda estão
+abertas agora), não uma foto de como estava na época. Levado também pro
+PDF (`RelatorioResultadosSac.tsx`); as contas (linhas do funil, delta em
+p.p., total sem bot) ficam em `resultadosSac.ts` (`linhasFunil`,
+`resumoAtendido`) pra PPTX e PDF nunca divergirem.
+
+**Regra de CSAT mudou em 2026-09-24 — não existe mais nota neutra:**
+definição do time (via Iuri): boa = 4–5 (Promotor), ruim = 1–3
+(Detrator). Aplicado em `classificacaoPorNota()` (`utils.ts`, tipo
+`ClassificacaoCsat` sem "Neutro"), no filtro de classificação
+(`fetchCsatFiltered`/`fetchCsatForDashboard`, Detrator = `nota <= 3`), na
+página CSAT (KPI "Neutros" e opção de filtro removidos; o nível 3 da
+distribuição por avaliação mantém o rótulo da pesquisa, "Neutro", mas em
+cor de ruim), no Overview (2 cards) e nos relatórios. No banco,
+`csat_distribuicao_notas`, `csat_distribuicao_por_tipo_cliente` e
+`atendente_csat_distribuicao` passaram a contar nota 3 em `ruins`; a
+coluna `neutras` continua no retorno por compatibilidade, sempre 0. NPS
+**não** mudou (tem régua própria, com neutros).
+
+**Auditoria do PPTX da RR em 2026-09-24 (semana 17–23/09, admin via JWT
+simulado, cada número conferido contra conta direta nas tabelas):** batem
+exato: conversas/chamados/mensagens (2.040/2.662/28.594), soma do funil =
+total de conversas, atendido e não resolvido = com resposta humana e não
+resolvido (507), Velocidade "Geral" = `tfr_ttr_percentis` (mesmo TFR/TTR),
+soma dos tipos de cliente = total de chamados, ranking = chamados com
+operador (2.658 = 2.662 − 4 sem operador), CSAT boas + ruins = total.
+Corrigido no texto: NPS dizia "dado de exemplo", mas é real (56 respostas
+do Typeform com `external_id`/`payload`); o tempo do bot é mediana e
+estava rotulado "Tempo médio"; o card "Total de avaliações" mostrava "De
+982 chamados resolvidos" (unidade diferente do funil, que mostra 516
+conversas resolvidas) e virou "pela data da avaliação"; o funil explica que
+"respondidas" (conversas do período) difere do total de avaliações (data
+da avaliação); a tabela de CSAT por atendente diz quantas avaliações ficam
+de fora por não ter atendente identificado (7 na semana: 6 "Não
+identificado" + 1 Mr. Greenn). **Ponto em aberto, não alterado:** a taxa
+de reabertura (`reabertura_resumo`) divide conversas reabertas (257) por
+chamados resolvidos (982, ponderado por 1 + reaberturas). Isso foi
+documentado como escolha em 2026-09-01, mas mistura unidades.
+
+**Regra de reabertura mudou em 2026-09-24 — resposta à pesquisa de CSAT
+não é mais reabertura (afeta "chamados" na plataforma inteira):**
+auditoria da semana 17–23/09 mostrou que a regra antiga
+(`reopened_count_real_periodo`: qualquer mensagem, do cliente ou do
+operador, depois da reabertura) contava o cliente respondendo a pesquisa
+(minutos ou horas depois de resolver) e reabertura sem mensagem do cliente.
+Regra nova, na mesma função (todas as 16 funções que usam `coalesce(
+reopened_count_real, reopened_count, 0)` herdam): só conta se, depois da
+transição resolved → pending/unresolved, o **cliente** manda mensagem que
+não seja resposta à pesquisa. Resposta à pesquisa = cita "Como você avalia
+o atendimento" (botões do chat/WhatsApp) ou chega em até 24h depois de uma
+mensagem da pesquisa (`greenn_csat`, "Como você avalia o atendimento",
+"Obrigado pela sua avaliação", link `crisp.beta.limited/rate`, "Feedback
+em um clique"/"Feedback rápido") sem outra mensagem de operador no meio:
+cobre nota por e-mail e comentário pedido após nota baixa. Limitação
+conhecida: cliente que usa o campo de comentário pra relatar problema novo
+é tratado como resposta à pesquisa. Conversa sem nenhuma mensagem guardada
+(ex: as apagadas à mão de 01–07/09) não gera linha e cai no
+`reopened_count` antigo pelo coalesce, em vez de zerar. **Taxa de
+reabertura** (`reabertura_resumo`/`reabertura_por_tipo_cliente`) passou a
+ser conversas reabertas ÷ conversas resolvidas ao menos uma vez
+(`first_resolved_at` ou `resolved_at`; antes só `resolved_at`, que some
+quando a conversa reabre, então quem reabriu e seguia aberto ficava fora),
+com `total_resolvidos` em conversas; `reabertura_casos` usa o mesmo filtro.
+Efeito na semana 17–23/09: chamados 2.662 → 2.289, conversas reabertas
+330 → 145, eventos 616 → 241, taxa 26,2% → 24,7% (145/587). Batem entre
+si: `contagem_periodo`, `velocidade_por_tipo_cliente` e
+`dashboard_atendimento_summary` (2.289), ranking 2.285 (4 sem atendente),
+`reabertura_casos` = 145. Backup das definições antigas guardado na sessão
+(scratchpad `reab_fns_backup.json`), não versionado.
+
+**Redesenho da aba Dashboard do Overview em 2026-09-24** (aprovado a
+partir de uma prévia estática publicada como Artifact): topo com 5
+indicadores e variação contra o período anterior (chamados, conversas
+resolvidas ao menos uma vez, CSAT % boas, mediana da 1ª resposta,
+reabertura; com filtro de tipo de cliente usa a linha daquele tipo das
+funções `velocidade_por_tipo_cliente`/`reabertura_por_tipo_cliente`);
+bloco "Precisa de atenção" (atendido e não resolvido por atendente, que
+abre as conversas abertas dele; funil do CSAT por canal; backlog por
+idade, que abre a faixa); e as ~14 seções antigas movidas, sem reescrever
+os cálculos, para as sub-abas Pessoas (bot + ranking), Velocidade
+(velocidade + relógios), Qualidade (CSAT + reabertura + FCR) e Fluxo
+(transferências + motivo + volume por dia/hora). Cada sub-aba só busca os
+próprios dados quando está aberta (`overview:subAba`). Blocos novos em
+`src/pages/overview/OverviewBlocos.tsx` (`SaudeKpi`, `PrecisaAtencao`,
+`SecaoHead` com "?" de definição, `CsatRuinsDialog`). Títulos padronizados
+e gráficos numa cor só. **Card "Ruins (1–3)" abre um pop-up** com as
+avaliações ruins (nota, cliente, atendente, canal, data, comentário
+completo, "Ver chamado"; clique abre o `CsatDetalheDialog`) via
+`csat_ruins_periodo(data_inicio, data_fim, p_atendente_nomes)`, função
+nova com os mesmos filtros de `csat_distribuicao_notas` — lista e card
+sempre batem (validado: 13 = 13; filtrando Vittor, 5 = 5). O
+`Performance.tsx` continua um arquivo grande: as seções antigas não foram
+separadas em arquivos próprios. **Achado não tratado:** FCR aparece 100%
+com zero recontato em 556 conversas na semana 17–23/09 — improvável,
+precisa de investigação em `fcr_recontato_resumo`.
+
+**Leva de 2026-09-24 (tarde) — visual Verdee, design system no Claude
+Design, Overview pra todos:**
+- **Visual Verdee no app inteiro** (guia de estilo da Greenn "Verdee |
+  Guia de Estilo", arquivo Figma local): `forest-*` virou a escala
+  verde-azulada (#EEFFFE…#003B36, primária `forest-500` #009488),
+  `rust`/`amber`/`sky` nas escalas do guia, neutros claros cinza-esverdeados
+  (fundo #F0F2F5, texto #1B2124) e escuros na escala verde-azulada escura
+  (#000C0B/#001816), fonte **Plus Jakarta Sans** (substitui Sora). Sidebar
+  clara com o símbolo da Greenn (`src/assets/greenn-logo.png`). O `body`
+  recebe fonte/cor/fundo pelo próprio `index.css`. PPTX e PDF da RR também
+  foram pro Verdee escuro (fundo #001816, acento #64BFB8, Plus Jakarta
+  Sans — no PowerPoint a fonte precisa estar instalada).
+- **Design system sincronizado com o Claude Design** (`/design-sync`,
+  projeto "Hub SAC Greenn Design System", `fb5d839c-…`,
+  https://claude.ai/design/p/fb5d839c-bd78-4b9d-acc4-ef49b9ec76ab): os 19
+  componentes de `src/components/ui` (bundle `window.HubSac`), CSS =
+  Tailwind compilado do Hub, prévias em claro e escuro. Tudo sobre como
+  refazer está em `.design-sync/NOTES.md` (pasta no `.gitignore`, só
+  local). Bug achado no caminho: `SegmentedControl` escondia a pílula do
+  item ativo no tema claro (faltava `isolate`) — corrigido no app.
+- **CSAT:** Dashboard sem busca/filtros/exportar (usa só o período, nos
+  dois lados da comparação); gráfico "CSAT por colaborador" abaixo dos
+  cards. Busca, filtros e CSV seguem na Planilha.
+- **Overview aberto a todo colaborador ativo e aprovado** (decisão do
+  usuário): `/performance` saiu do `AdminOnlyRoute`, está no menu SAC.
+  Colaborador vê só a aba Dashboard; abas Atendimentos/IA genérica,
+  pop-ups e listas de conversas/clientes seguem admin-only. No banco,
+  `pode_ver_overview()` (admin, ou usuário com `ativo` e `aprovado`)
+  substituiu `is_admin()` nas 17 funções AGREGADAS do Dashboard
+  (contagem, velocidade, ranking, posse, espera, backlog por idade,
+  funil, atendido e não resolvido, reabertura por tipo, transferências
+  resumo, FCR, motivos, volume, bot, distribuição de CSAT, listas de
+  filtro); as que listam conversa/cliente (`atendimentos_com_metricas`,
+  `*_casos`, `csat_ruins_periodo`, `resposta_generica_*`) continuam
+  `is_admin()`. Testado com a sessão do Vittor (colaborador): Dashboard
+  com dados, listas vazias.
+- **Página Analytics excluída**; `/analytics` redireciona pro Overview.
+- **Overview:** animações (entrada dos indicadores, barras que crescem,
+  sublinhado deslizante das sub-abas, respeita "reduzir movimento") e
+  sub-aba Pessoas no layout do design (ranking enxuto com 5 colunas, card
+  escuro do bot, volume por pessoa). As 8 colunas extras do ranking antigo
+  (interações, mensagens, tempo de posse, chamados c/ posse, posse média,
+  atend./hora, reaberturas, transferências) saíram. Chegaram a voltar numa
+  tabela "Produtividade e posse" e foram removidas de novo a pedido do
+  usuário no mesmo dia.
 
 ## 12. Convenções de código
 
@@ -5599,6 +6002,7 @@ PPTX da Reunião de Resultados testado em Node (14/14/12 slides, zip íntegro,
   nome real com `information_schema.table_constraints` antes de assumir);
   já corrigido nas tabelas de calendário (seção 10, 2026-09-01) e em
   `missions`/`reclame_aqui_cases`/`helpdesks` (anteriormente).
+- **Função nova de métrica sobre conversas**: sempre `and not public.cliente_e_teste(cc.cliente_nome, cc.cliente_email) and not public.operador_fora_sac(cc.operator_crisp_id)` na base (seção 10, 2026-09-24).
 - **`crisp_conversations.canal` para WhatsApp é sempre o URN cru
   `urn:crisp.im:whatsapp:0`, nunca `"WhatsApp"`** (só `csat_results.canal`
   grava a versão formatada — pipeline n8n diferente). Qualquer função nova

@@ -119,6 +119,7 @@ export function AtendimentoDetalheDialog({ atendimento: c, onClose }: Atendiment
           c.avaliado ? (
             <Badge tone="success" className="gap-1" title="Existe uma avaliação de CSAT vinculada diretamente a esse chamado.">
               <Star size={12} className="fill-current" /> Avaliado
+              {c.nota_avaliacao != null && ` — nota ${c.nota_avaliacao}`}
             </Badge>
           ) : (
             <Badge

@@ -11,7 +11,6 @@ import type {
   DbUser,
   DbModule,
   DbUserPermission,
-  DbUserStatus,
   CollaboratorStatus,
   DbCourseProgress,
   DbReclameAquiCase,
@@ -329,12 +328,18 @@ export async function fetchMissionProgress(userId: string): Promise<DbMissionPro
 
 // ---------- CSAT ----------
 
+// Bug real achado em 2026-09-23 (auditoria pedida pelo usuário em Meu
+// Painel): esta função buscava `csat_results` direto por e-mail, sem o
+// mesmo filtro `cliente_e_teste()` que já existe em toda função SQL de
+// agregação (`atendente_performance` etc.) — o próprio Eduardo testando o
+// widget de CSAT contava como avaliação real dele mesmo. Medido: 40
+// avaliações "brutas" pro Eduardo no mês, 23 (57%) eram teste — "boas"
+// saía 80% quando o real é 70,6% (17 avaliações). Corrigido trocando pra
+// `csat_resultados_atendente()`, função SQL nova que já filtra teste (não
+// `security definer` — roda como quem chama, RLS da tabela continua
+// valendo igual antes).
 export async function fetchCsatForUser(email: string): Promise<DbCsatResult[]> {
-  const { data, error } = await client()
-    .from("csat_results")
-    .select("*")
-    .eq("email_atendente", email)
-    .order("data_hora", { ascending: false });
+  const { data, error } = await client().rpc("csat_resultados_atendente", { p_email: email });
   if (error) throw error;
   return (data ?? []) as DbCsatResult[];
 }
@@ -448,13 +453,28 @@ export async function revokePermission(userId: string, moduleId: string) {
 
 // ---------- Status dos colaboradores (Home) ----------
 
-export async function fetchUserStatuses(): Promise<DbUserStatus[]> {
-  const { data, error } = await client()
-    .from("user_status")
-    .select("*, users(*)")
-    .order("updated_at", { ascending: false });
+export interface ColaboradorStatusInfo {
+  id: string;
+  user_id: string;
+  status: CollaboratorStatus;
+  horario_inicio: string | null;
+  horario_fim: string | null;
+  updated_at: string;
+  nome: string;
+  cargo: string | null;
+}
+
+// RPC security definer em vez de select("*, users(*)") direto: a policy de
+// SELECT de public.users só libera a própria linha pra quem não é admin
+// (users_select_own_or_admin), então o embed implícito vinha null pra
+// qualquer colega que não fosse o próprio usuário logado — Colaboradores
+// Online só "funcionava" pra admin, nunca detectado porque só o admin
+// tinha testado até um colaborador de verdade logar (ver CLAUDE.md).
+// Expõe só nome/cargo, nada sensível (email, auth_id, jornada de trabalho).
+export async function fetchUserStatuses(): Promise<ColaboradorStatusInfo[]> {
+  const { data, error } = await client().rpc("colaboradores_online");
   if (error) throw error;
-  return (data ?? []) as DbUserStatus[];
+  return (data ?? []) as ColaboradorStatusInfo[];
 }
 
 export async function upsertMyStatus(userId: string, status: CollaboratorStatus) {
@@ -499,7 +519,7 @@ export interface CsatFilters {
   topico?: string;
   categoriaCliente?: string;
   nota?: number;
-  classificacaoCsat?: "Promotor" | "Neutro" | "Detrator";
+  classificacaoCsat?: "Promotor" | "Detrator";
   inicio?: Date;
   fim?: Date;
   sortBy?: string;
@@ -577,8 +597,7 @@ export async function fetchCsatFiltered(
   // (ver comentário em types/database.ts) — filtra por nota, nunca por
   // igualdade de texto contra essa coluna.
   if (classificacaoCsat === "Promotor") query = query.gte("nota", 4);
-  else if (classificacaoCsat === "Neutro") query = query.eq("nota", 3);
-  else if (classificacaoCsat === "Detrator") query = query.lte("nota", 2);
+  else if (classificacaoCsat === "Detrator") query = query.lte("nota", 3);
   if (inicio) query = query.gte("data_hora", inicio.toISOString());
   if (fim) query = query.lte("data_hora", fim.toISOString());
 
@@ -606,8 +625,7 @@ export async function fetchCsatForDashboard(
   if (categoriaCliente) query = query.eq("categoria_cliente", categoriaCliente);
   if (nota) query = query.eq("nota", nota);
   if (classificacaoCsat === "Promotor") query = query.gte("nota", 4);
-  else if (classificacaoCsat === "Neutro") query = query.eq("nota", 3);
-  else if (classificacaoCsat === "Detrator") query = query.lte("nota", 2);
+  else if (classificacaoCsat === "Detrator") query = query.lte("nota", 3);
   if (inicio) query = query.gte("data_hora", inicio.toISOString());
   if (fim) query = query.lte("data_hora", fim.toISOString());
 
@@ -698,7 +716,7 @@ export async function fetchTfrTtrPercentis(
 export interface RelogioPosse {
   atendente: string;
   minutos_posse: number;
-  conversas: number;
+  chamados: number;
 }
 
 // Só considera chamados já resolvidos no período — pra chamado ainda
@@ -908,6 +926,55 @@ export interface MetricaTipoCliente {
   ttr_media_seg: number | null;
 }
 
+// "Geral" (time inteiro, sem filtro de tag) + 1 linha por tipo_cliente real
+// (+"Sem tipo") — média E mediana, horas úteis E corridas juntas, sem
+// precisar de toggle nem de chamada em dobro. Usada só pelos cards
+// segmentados de Velocidade do Overview — não confundir com
+// MetricaTipoCliente (fetchMetricasPorTipoCliente), usada por outras 3
+// telas (Home, Meu Painel, PPTX da Reunião de Resultados).
+export interface VelocidadePorTipoCliente {
+  tipo_cliente: string; // "Geral" | tag real | "Sem tipo"
+  chamados: number;
+  tfr_media_uteis_seg: number | null;
+  tfr_p50_uteis_seg: number | null;
+  tfr_media_corridas_seg: number | null;
+  tfr_p50_corridas_seg: number | null;
+  ttr_media_uteis_seg: number | null;
+  ttr_p50_uteis_seg: number | null;
+  ttr_media_corridas_seg: number | null;
+  ttr_p50_corridas_seg: number | null;
+}
+
+export async function fetchVelocidadePorTipoCliente(inicio: Date, fim: Date, canal?: string, atendenteNomes?: string[]): Promise<VelocidadePorTipoCliente[]> {
+  const { data, error } = await client().rpc("velocidade_por_tipo_cliente", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_canal: canal ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+  });
+  if (error) throw error;
+  return (data ?? []) as VelocidadePorTipoCliente[];
+}
+
+export interface ReaberturaPorTipoCliente {
+  tipo_cliente: string; // "Geral" | tag real | "Sem tipo"
+  total_resolvidos: number;
+  total_reabertos: number;
+  taxa_pct: number | null;
+  total_eventos: number;
+}
+
+export async function fetchReaberturaPorTipoCliente(inicio: Date, fim: Date, canal?: string, atendenteNomes?: string[]): Promise<ReaberturaPorTipoCliente[]> {
+  const { data, error } = await client().rpc("reabertura_por_tipo_cliente", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_canal: canal ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+  });
+  if (error) throw error;
+  return (data ?? []) as ReaberturaPorTipoCliente[];
+}
+
 // Um card por tipo_cliente que existir DE VERDADE no período — não é uma
 // lista fixa de segmentos; quando o pipeline capturar um segmento novo,
 // aparece aqui automaticamente, sem precisar mexer no código.
@@ -985,19 +1052,193 @@ export async function fetchCsatDistribuicao(inicio: Date, fim: Date, canal?: str
   return (data?.[0] ?? null) as CsatDistribuicao | null;
 }
 
+export interface AtendenteCsatDistribuicao {
+  atendente: string;
+  total: number;
+  boas: number;
+  neutras: number;
+  ruins: number;
+}
+
+// Boas/neutras/ruins por atendente (mesma chave de junção já usada em
+// `atendente_performance()`: `csat_results.atendente` bate direto contra o
+// nome canônico do operador) — usado no Ranking (CSAT%) e no card do Bot
+// (Promotor/Neutro/Detrator) da Reunião de Resultados. Sem par "Anterior":
+// nenhuma tela mostra delta pra esse recorte, mesmo padrão de
+// `csatPorAtendente`/`atendente_performance`, que também não tem versão do
+// período anterior.
+export async function fetchAtendenteCsatDistribuicao(inicio: Date, fim: Date): Promise<AtendenteCsatDistribuicao[]> {
+  const { data, error } = await client().rpc("atendente_csat_distribuicao", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return (data ?? []) as AtendenteCsatDistribuicao[];
+}
+
+export interface CsatEnviosPorAtendente {
+  atendente: string;
+  enviadas: number;
+  respondidas: number;
+}
+
+// Pesquisas de CSAT enviadas no período (`csat_pending`, uma linha por
+// conversa, dono da conversa no momento do envio) × quantas dessas
+// conversas têm avaliação em `csat_results` (ligação por crisp_id —
+// a coluna `respondido` de `csat_pending` subconta, não usar). Admin-only.
+export async function fetchCsatEnviosPorAtendente(inicio: Date, fim: Date): Promise<CsatEnviosPorAtendente[]> {
+  const { data, error } = await client().rpc("csat_envios_por_atendente", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return ((data ?? []) as CsatEnviosPorAtendente[]).map((r) => ({
+    atendente: r.atendente,
+    enviadas: Number(r.enviadas),
+    respondidas: Number(r.respondidas),
+  }));
+}
+
+export interface AtendidoNaoResolvido {
+  atendente: string;
+  abertos: number;
+  parados_48h: number;
+}
+
+// Conversas do período com atendimento humano que continuam abertas, por
+// dono atual (sem resolução o cliente não recebe a pesquisa de CSAT).
+// "Parado" = sem mensagem nova há mais de 48h. Admin-only.
+export async function fetchAtendidoNaoResolvido(inicio: Date, fim: Date): Promise<AtendidoNaoResolvido[]> {
+  const { data, error } = await client().rpc("atendido_nao_resolvido", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return ((data ?? []) as AtendidoNaoResolvido[]).map((r) => ({
+    atendente: r.atendente,
+    abertos: Number(r.abertos),
+    parados_48h: Number(r.parados_48h),
+  }));
+}
+
+// Avaliações ruins (nota 1–3) do período, com os mesmos filtros do card de
+// distribuição (sem teste, sem fora do SAC, atendente via e-mail do alias).
+// Pior nota primeiro. Admin-only.
+export async function fetchCsatRuins(inicio: Date, fim: Date, atendenteNomes?: string[]): Promise<DbCsatResult[]> {
+  const { data, error } = await client().rpc("csat_ruins_periodo", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+  });
+  if (error) throw error;
+  return (data ?? []) as DbCsatResult[];
+}
+
+export interface CsatFunilCanal {
+  canal: string;
+  conversas: number;
+  com_humano: number;
+  resolvidas: number;
+  enviadas: number;
+  respondidas: number;
+}
+
+// Funil do CSAT por canal: conversas → resolvidas → pesquisa enviada →
+// respondida (ligação por crisp_id). Admin-only.
+export async function fetchCsatFunilCanal(inicio: Date, fim: Date): Promise<CsatFunilCanal[]> {
+  const { data, error } = await client().rpc("csat_funil_canal", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return ((data ?? []) as CsatFunilCanal[]).map((r) => ({
+    canal: r.canal,
+    conversas: Number(r.conversas),
+    com_humano: Number(r.com_humano),
+    resolvidas: Number(r.resolvidas),
+    enviadas: Number(r.enviadas),
+    respondidas: Number(r.respondidas),
+  }));
+}
+
+export interface CsatDistribuicaoPorTipoCliente {
+  tipo_cliente: string; // tag real (ex: "Produtor"/"Final") ou "Sem tipo"
+  total: number;
+  boas: number;
+  neutras: number;
+  ruins: number;
+}
+
+// CSAT é reconciliado por e-mail, não por operator_crisp_id — não tem
+// relação nenhuma com `tipo_cliente` nativamente (decisão arquitetural, ver
+// CLAUDE.md seção 21). Isso só existe via o vínculo direto
+// `csat_results.crisp_id = crisp_conversations.crisp_id`, populado pelo n8n
+// só a partir de 26/08/2026 (~40%+ das avaliações recentes, crescendo) —
+// é uma AMOSTRA, não a contagem exata de CSAT por tipo de cliente.
+export async function fetchCsatDistribuicaoPorTipoCliente(inicio: Date, fim: Date): Promise<CsatDistribuicaoPorTipoCliente[]> {
+  const { data, error } = await client().rpc("csat_distribuicao_por_tipo_cliente", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return (data ?? []) as CsatDistribuicaoPorTipoCliente[];
+}
+
 export interface TempoRespostaBot {
   amostras: number;
   tempo_medio_seg: number | null;
 }
 
-export async function fetchTempoRespostaBot(inicio: Date, fim: Date, canal?: string): Promise<TempoRespostaBot | null> {
+export async function fetchTempoRespostaBot(inicio: Date, fim: Date, canal?: string, tipoCliente?: string): Promise<TempoRespostaBot | null> {
   const { data, error } = await client().rpc("tempo_resposta_bot", {
     data_inicio: inicio.toISOString(),
     data_fim: fim.toISOString(),
     p_canal: canal ?? null,
+    p_tipo_cliente: tipoCliente ?? null,
   });
   if (error) throw error;
   return (data?.[0] ?? null) as TempoRespostaBot | null;
+}
+
+// "SAC — Migrações" deixou de ser manual em 2026-09-23 — sincronizado via
+// n8n a partir do projeto "Centralização" (gestao-tickets, Supabase
+// unuulffumnmkpsogkznx) pra `public.migracoes_sync` no Hub SAC. Ver
+// CLAUDE.md seção 10.
+export interface MigracoesResumo {
+  finalizados: number;
+  em_progresso: number;
+  aguardando: number;
+  cancelados: number;
+  total: number;
+  // SLA vem de `v_ticket_sla` (Centralização) — "na" (sem SLA ativo,
+  // geralmente ticket já finalizado/cancelado) não entra aqui de propósito,
+  // só os 3 estados que importam pra quem ainda está em aberto.
+  sla_ok: number;
+  sla_risco: number;
+  sla_atrasado: number;
+}
+
+export async function fetchMigracoesResumo(inicio: Date, fim: Date): Promise<MigracoesResumo | null> {
+  const { data, error } = await client().rpc("migracoes_resumo", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return (data?.[0] ?? null) as MigracoesResumo | null;
+}
+
+export interface MigracaoPorPlataforma {
+  plataforma: string;
+  total: number;
+}
+
+export async function fetchMigracoesPorPlataforma(inicio: Date, fim: Date): Promise<MigracaoPorPlataforma[]> {
+  const { data, error } = await client().rpc("migracoes_por_plataforma", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return (data ?? []) as MigracaoPorPlataforma[];
 }
 
 export interface ContagemPeriodo {
@@ -1021,6 +1262,24 @@ export async function fetchContagemPeriodo(inicio: Date, fim: Date, canal?: stri
 export interface BacklogFaixa {
   faixa: string;
   total: number;
+}
+
+export interface VolumeDiaHora {
+  dia_semana: number; // 0=domingo .. 6=sábado (extract(dow), mesma convenção de cobertura_semanal)
+  hora: number; // 0-23, horário de Brasília
+  chamados: number;
+}
+
+export async function fetchVolumeDiaHora(inicio: Date, fim: Date, canal?: string, atendenteNomes?: string[], tipoCliente?: string): Promise<VolumeDiaHora[]> {
+  const { data, error } = await client().rpc("volume_dia_hora", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_canal: canal ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+    p_tipo_cliente: tipoCliente ?? null,
+  });
+  if (error) throw error;
+  return (data ?? []) as VolumeDiaHora[];
 }
 
 export async function fetchBacklogPorIdade(canal?: string, atendenteNomes?: string[], tipoCliente?: string): Promise<BacklogFaixa[]> {
@@ -1173,6 +1432,28 @@ export async function fetchAnalyticsEvolucao(
   });
   if (error) throw error;
   return (data ?? []) as { periodo: string; media_csat: number; total: number }[];
+}
+
+// "Chamados" (não "avaliações") no mesmo recorte de período/canal do
+// gráfico de evolução acima — pedido do usuário pra poder comparar volume
+// de chamados com volume de avaliações lado a lado. Conta cada ciclo
+// aberto→resolvido (1+reopened_count), igual ao resto da plataforma —
+// diferente de `analytics_evolucao()`, que lê `csat_results` (só quem foi
+// avaliado).
+export async function fetchChamadosEvolucao(
+  inicio: Date,
+  fim: Date,
+  granularidade: "day" | "week" | "month",
+  canal?: string
+): Promise<{ periodo: string; total_chamados: number }[]> {
+  const { data, error } = await client().rpc("chamados_evolucao", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    granularidade,
+    p_canal: canal ?? null,
+  });
+  if (error) throw error;
+  return (data ?? []) as { periodo: string; total_chamados: number }[];
 }
 
 export interface DbAtendenteAlias {
@@ -1993,7 +2274,15 @@ export interface AtendimentoComMetricas {
   // como false mesmo tendo nota real — é um falso-negativo conhecido, não
   // um bug: nunca dá falso-positivo.
   avaliado: boolean;
+  // Nota (1-5) da avaliação vinculada via crisp_id, quando avaliado=true.
+  // Mesma limitação do falso-negativo documentada acima em "avaliado".
+  nota_avaliacao: number | null;
   total_count: number;
+  // Soma de 1+reopened_count de todo o conjunto filtrado (não só a página
+  // atual) — janela, igual total_count. "Conversas" (total_count) é 1 por
+  // crisp_id; "Chamados" pondera reabertura — os dois podem divergir bastante
+  // quando há muita reabertura no período/atendente filtrado.
+  total_chamados: number;
 }
 
 export interface AtendimentoTimelineEntry {
@@ -2034,7 +2323,7 @@ export interface AtendimentosMetricasFilters {
 
 export async function fetchAtendimentosComMetricas(
   f: AtendimentosMetricasFilters
-): Promise<{ rows: AtendimentoComMetricas[]; count: number }> {
+): Promise<{ rows: AtendimentoComMetricas[]; count: number; totalChamados: number }> {
   const { page = 0, pageSize = 15 } = f;
   const { data, error } = await client().rpc("atendimentos_com_metricas", {
     data_inicio: f.inicio.toISOString(),
@@ -2054,7 +2343,7 @@ export async function fetchAtendimentosComMetricas(
   });
   if (error) throw error;
   const rows = (data ?? []) as AtendimentoComMetricas[];
-  return { rows, count: rows[0]?.total_count ?? 0 };
+  return { rows, count: rows[0]?.total_count ?? 0, totalChamados: rows[0]?.total_chamados ?? 0 };
 }
 
 // Busca todas as páginas (ignora f.page/f.pageSize) — usada só pra

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Search, Home, LayoutDashboard, Target, BarChart3, ClipboardList,
+  Search, LayoutDashboard, Target, ClipboardList,
   GraduationCap, BookOpen, Megaphone, Wrench, CalendarDays, Link2,
   Star, MessageSquareWarning, Gauge, Settings, TrendingUp, User,
 } from "lucide-react";
@@ -12,16 +12,16 @@ import { usePermissions } from "@/hooks/usePermissions";
 interface Item {
   label: string;
   to: string;
-  icon: typeof Home;
+  icon: typeof LayoutDashboard;
   adminOnly?: boolean;
   perm?: string;
 }
 
+// Home removida em 2026-09-23 — Meu Painel virou a rota padrão ("/").
 const ITEMS: Item[] = [
-  { label: "Home", to: "/", icon: Home },
   { label: "Meu Painel", to: "/meu-painel", icon: LayoutDashboard },
   { label: "Missões", to: "/missoes", icon: Target },
-  { label: "Analytics", to: "/analytics", icon: BarChart3 },
+  { label: "Overview", to: "/performance", icon: TrendingUp },
   { label: "Reunião de Resultados", to: "/reuniao-resultados", icon: ClipboardList },
   { label: "Cursos", to: "/cursos", icon: GraduationCap },
   { label: "Documentação", to: "/documentacao", icon: BookOpen },
@@ -32,7 +32,6 @@ const ITEMS: Item[] = [
   { label: "CSAT", to: "/csat", icon: Star, perm: "csat" },
   { label: "Reclame Aqui", to: "/reclame-aqui", icon: MessageSquareWarning, perm: "reclame_aqui" },
   { label: "NPS", to: "/nps", icon: Gauge, perm: "nps" },
-  { label: "Overview", to: "/performance", icon: TrendingUp, adminOnly: true },
   { label: "Administração", to: "/admin", icon: Settings, adminOnly: true },
   { label: "Perfil", to: "/perfil", icon: User },
 ];

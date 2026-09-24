@@ -24,7 +24,10 @@ export function SegmentedControl<T extends string>({
   return (
     <div
       className={cn(
-        "inline-flex h-9 items-center gap-0.5 rounded-lg bg-sand-subtle p-1",
+        // `isolate`: a pílula do item ativo usa -z-10; sem um contexto de
+        // empilhamento próprio ela ia parar atrás do fundo do grupo e o
+        // texto branco do item ativo sumia no tema claro.
+        "isolate inline-flex h-9 items-center gap-0.5 rounded-lg bg-sand-subtle p-1",
         className
       )}
     >

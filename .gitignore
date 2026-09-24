@@ -4,7 +4,12 @@ dist
 .env.local
 *.tsbuildinfo
 .vercel
-.design-sync
+# design-sync: versiona config, notas, convenções e prévias; ignora o gerado
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
+.design-sync/*.log
+.design-sync/hub-styles.css
 
 # Estado local da Supabase CLI (link do projeto, cache de versões) — nunca
 # tem segredo de verdade, mas é específico da máquina, não do projeto.
@@ -14,3 +19,6 @@ supabase/.temp
 # real de webhook) e outros arquivos avulsos que às vezes caem na raiz do
 # projeto por engano.
 Widget CSAT _ Edu*.json
+n8n_migracoes_sync.json
+.ds-sync/
+ds-bundle/

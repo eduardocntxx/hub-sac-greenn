@@ -1,0 +1,26 @@
+{
+  "projectId": "fb5d839c-bd78-4b9d-acc4-ef49b9ec76ab",
+  "shape": "package",
+  "pkg": "hub-sac-greenn",
+  "globalName": "HubSac",
+  "srcDir": "src/components/ui",
+  "tsconfig": "tsconfig.json",
+  "cssEntry": ".design-sync/hub-styles.css",
+  "buildCmd": "npm run build && (echo '@import url(\"https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap\");'; cat dist/assets/index-*.css) > .design-sync/hub-styles.css",
+  "overrides": {
+    "Dialog": {
+      "cardMode": "single",
+      "viewport": "900x520"
+    },
+    "Kpi": {
+      "cardMode": "column"
+    },
+    "SegmentedControl": {
+      "cardMode": "column"
+    },
+    "SortableHeader": {
+      "cardMode": "column"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}

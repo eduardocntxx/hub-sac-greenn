@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Download, ArrowUpDown, Star, FileDown, ArrowUpRight, ArrowDownRight, SlidersHorizontal, Check, X } from "lucide-react";
+import { Search, Download, ArrowUpDown, Star, ArrowUpRight, ArrowDownRight, SlidersHorizontal, Check, X } from "lucide-react";
 import { cn, formatDelta, nomesCurtosDisambiguados, classificacaoPorNota } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -18,7 +18,6 @@ import { CsatDetalheDialog } from "@/components/CsatDetalheDialog";
 import { Dialog } from "@/components/ui/Dialog";
 import { exportCsatToCsv } from "@/lib/exportCsv";
 import {
-  PERIODO_LABELS,
   resolvePeriodo,
   periodoAnterior,
   type PeriodoPreset,
@@ -43,7 +42,6 @@ function calcularCsat(notas: number[]) {
 const CLASSIFICACAO_OPTIONS = [
   ["", "Todas as classificações"],
   ["Promotor", "Promotor"],
-  ["Neutro", "Neutro"],
   ["Detrator", "Detrator"],
 ] as const;
 
@@ -52,7 +50,7 @@ interface CsatFiltrosState {
   topico: string;
   categoriaCliente: string;
   nota: string;
-  classificacaoCsat: "" | "Promotor" | "Neutro" | "Detrator";
+  classificacaoCsat: "" | "Promotor" | "Detrator";
 }
 
 function FiltrosPopover({
@@ -172,7 +170,7 @@ export default function Csat() {
   const [topico, setTopico] = usePersistedState("csat:topico", "");
   const [categoriaCliente, setCategoriaCliente] = usePersistedState("csat:categoriaCliente", "");
   const [nota, setNota] = usePersistedState("csat:nota", "");
-  const [classificacaoCsat, setClassificacaoCsat] = usePersistedState<"" | "Promotor" | "Neutro" | "Detrator">("csat:classificacaoCsat", "");
+  const [classificacaoCsat, setClassificacaoCsat] = usePersistedState<"" | "Promotor" | "Detrator">("csat:classificacaoCsat", "");
   const [sortBy, setSortBy] = useState("data_hora");
   const [sortAsc, setSortAsc] = useState(false);
   const [page, setPage] = useState(0);
@@ -193,7 +191,9 @@ export default function Csat() {
     topico: topico || undefined,
     categoriaCliente: categoriaCliente || undefined,
     nota: nota ? Number(nota) : undefined,
-    classificacaoCsat: classificacaoCsat || undefined,
+    // "Neutro" pode estar salvo no navegador de antes da regra sem neutra
+    // (2026-09-24) — qualquer valor fora de Promotor/Detrator vira "sem filtro".
+    classificacaoCsat: classificacaoCsat === "Promotor" || classificacaoCsat === "Detrator" ? classificacaoCsat : undefined,
     inicio,
     fim,
   };
@@ -206,8 +206,10 @@ export default function Csat() {
   });
 
   const { data: dashboardRows, isLoading: loadingDashboard } = useQuery({
-    queryKey: ["csat-dashboard", filtrosBase],
-    queryFn: () => fetchCsatForDashboard(filtrosBase),
+    // Dashboard usa só o período (busca e filtros ficam na Planilha) — igual
+    // à comparação com o período anterior logo abaixo.
+    queryKey: ["csat-dashboard", inicio, fim],
+    queryFn: () => fetchCsatForDashboard({ inicio, fim }),
     enabled: aba === "dashboard",
   });
 
@@ -260,17 +262,16 @@ export default function Csat() {
   const porColaborador = useMemo(() => {
     const map = new Map<
       string,
-      { atendente: string; notas: number[]; ultima: string; promotores: number; neutros: number; detratores: number }
+      { atendente: string; notas: number[]; ultima: string; promotores: number; detratores: number }
     >();
     (dashboardRows ?? []).forEach((r) => {
       const { chave, atendente } = normalizarChave(r.email_atendente, r.atendente);
       if (!chave) return;
       const entry =
-        map.get(chave) ?? { atendente, notas: [], ultima: r.data_hora, promotores: 0, neutros: 0, detratores: 0 };
+        map.get(chave) ?? { atendente, notas: [], ultima: r.data_hora, promotores: 0, detratores: 0 };
       if (r.nota !== null) entry.notas.push(r.nota);
       const classificacao = classificacaoPorNota(r.nota);
       if (classificacao === "Promotor") entry.promotores++;
-      else if (classificacao === "Neutro") entry.neutros++;
       else if (classificacao === "Detrator") entry.detratores++;
       if (new Date(r.data_hora) > new Date(entry.ultima)) entry.ultima = r.data_hora;
       map.set(chave, entry);
@@ -295,7 +296,6 @@ export default function Csat() {
           ultima: v.ultima,
           evolucao,
           promotores: v.promotores,
-          neutros: v.neutros,
           detratores: v.detratores,
         };
       })
@@ -336,9 +336,8 @@ export default function Csat() {
     const notas = rows.map((r) => r.nota).filter((n): n is number => n !== null);
     const { positivoPct: csatPercent, media: mediaNotas } = calcularCsat(notas);
     const promotores = rows.filter((r) => classificacaoPorNota(r.nota) === "Promotor").length;
-    const neutros = rows.filter((r) => classificacaoPorNota(r.nota) === "Neutro").length;
     const detratores = rows.filter((r) => classificacaoPorNota(r.nota) === "Detrator").length;
-    return { total, csatPercent, mediaNotas, promotores, neutros, detratores };
+    return { total, csatPercent, mediaNotas, promotores, detratores };
   }, [dashboardRows]);
 
   const resumoAnterior = useMemo(() => {
@@ -347,9 +346,8 @@ export default function Csat() {
     const notas = rows.map((r) => r.nota).filter((n): n is number => n !== null);
     const { positivoPct: csatPercent } = calcularCsat(notas);
     const promotores = rows.filter((r) => classificacaoPorNota(r.nota) === "Promotor").length;
-    const neutros = rows.filter((r) => classificacaoPorNota(r.nota) === "Neutro").length;
     const detratores = rows.filter((r) => classificacaoPorNota(r.nota) === "Detrator").length;
-    return { total, csatPercent, promotores, neutros, detratores };
+    return { total, csatPercent, promotores, detratores };
   }, [dashboardAnterior]);
 
   // Distribuição por nível de avaliação (1 a 5), não só os 3 buckets de
@@ -359,7 +357,8 @@ export default function Csat() {
   const NIVEL_POR_NOTA: Record<number, { label: string; cor: string }> = {
     5: { label: "Muito satisfeito", cor: "bg-forest-600" },
     4: { label: "Satisfeito", cor: "bg-forest-300" },
-    3: { label: "Neutro", cor: "bg-amber-500" },
+    // Rótulo da pesquisa (Crisp) pra nota 3 — conta como ruim desde 2026-09-24.
+    3: { label: "Neutro", cor: "bg-rust-400" },
     2: { label: "Insatisfeito", cor: "bg-rust-400" },
     1: { label: "Muito insatisfeito", cor: "bg-rust-600" },
   };
@@ -387,7 +386,7 @@ export default function Csat() {
         <div>
           <h1 className="font-display text-display text-ink">CSAT</h1>
           <p className="mt-1 text-sm text-ink/60">
-            Planilha completa e dashboard por colaborador, com filtros e exportação.
+            Dashboard do período por colaborador e planilha completa com filtros e exportação.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -437,12 +436,7 @@ export default function Csat() {
             value={`${resumoAtual.promotores} / ${resumoAtual.total ? ((resumoAtual.promotores / resumoAtual.total) * 100).toFixed(0) : 0}%`}
             delta={deltaRelativo(resumoAtual.promotores, resumoAnterior.promotores)}
             valueClassName="text-forest-600"
-          />
-          <Kpi
-            label="Neutros"
-            value={`${resumoAtual.neutros} / ${resumoAtual.total ? ((resumoAtual.neutros / resumoAtual.total) * 100).toFixed(0) : 0}%`}
-            delta={deltaRelativo(resumoAtual.neutros, resumoAnterior.neutros)}
-            valueClassName="text-amber-600"
+            meta="notas 4 e 5"
           />
           <Kpi
             label="Detratores"
@@ -450,6 +444,7 @@ export default function Csat() {
             delta={deltaRelativo(resumoAtual.detratores, resumoAnterior.detratores)}
             invertDeltaColor
             valueClassName="text-rust-600"
+            meta="notas 1 a 3"
           />
         </div>
       )}
@@ -458,7 +453,7 @@ export default function Csat() {
         <Card className="p-5">
           <h2 className="font-display text-sm font-semibold text-ink">Distribuição por avaliação</h2>
           <p className="mt-1 text-xs text-ink/40">
-            Cada um dos 5 níveis da pesquisa (nota 1 a 5) — mais granular que Promotores/Neutros/Detratores acima.
+            Cada um dos 5 níveis da pesquisa (nota 1 a 5) — mais granular que Promotores (4–5) e Detratores (1–3) acima.
           </p>
           <div className="mt-4">
             <HorizontalBarChart
@@ -470,6 +465,7 @@ export default function Csat() {
         </Card>
       )}
 
+      {aba === "planilha" && (
       <Card className="flex flex-wrap items-center gap-2 p-3">
         <div className="relative">
           <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink/40" />
@@ -493,6 +489,7 @@ export default function Csat() {
           topicos={topicos}
         />
       </Card>
+      )}
 
       {aba === "planilha" ? (
         <>
@@ -594,44 +591,6 @@ export default function Csat() {
         <EmptyState icon={Star} title="Sem dados no período" description="Ajuste os filtros ou o período selecionado." />
       ) : (
         <>
-          <div className="flex justify-end">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={async () => {
-                // jsPDF (+html2canvas) só baixa quando alguém pede o PDF.
-                const { exportCsatDashboardToPdf } = await import("@/lib/exportPdf");
-                exportCsatDashboardToPdf({
-                  periodoLabel: PERIODO_LABELS[preset],
-                  totalAvaliacoes: porColaborador.reduce((acc, c) => acc + c.total, 0),
-                  porColaborador,
-                });
-              }}
-            >
-              <FileDown size={14} /> Exportar dashboard em PDF
-            </Button>
-          </div>
-          <Card className="p-5">
-            <h2 className="mb-3 font-display text-sm font-semibold text-ink">CSAT por colaborador</h2>
-            <HorizontalBarChart
-              data={(() => {
-                const rotulos = nomesCurtosDisambiguados(colaboradorPorPercentual.map((c) => c.atendente ?? "—"));
-                return colaboradorPorPercentual.map((c, i) => ({
-                  label: `${rotulos[i]} (${c.total})`,
-                  value: c.percentual ?? 0,
-                  displayValue: c.percentual !== null
-                    ? `${c.percentual.toFixed(0)}% · ${c.media?.toFixed(1) ?? "—"}`
-                    : "—",
-                }));
-              })()}
-              getColorClass={corPorFaixa}
-              labelWidth={128}
-              onBarClick={(_, i) => {
-                const c = colaboradorPorPercentual[i];
-                if (c) setAtendenteDetalhe({ chave: c.uid, nome: c.atendente });
-              }}
-            />
-          </Card>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {porColaborador.map((c) => (
             <Card
@@ -679,12 +638,6 @@ export default function Csat() {
                       </dd>
                     </div>
                     <div className="flex items-center justify-between">
-                      <dt className="text-ink/50">Neutros</dt>
-                      <dd className="font-semibold text-amber-600">
-                        {c.neutros} / {c.total ? ((c.neutros / c.total) * 100).toFixed(0) : 0}%
-                      </dd>
-                    </div>
-                    <div className="flex items-center justify-between">
                       <dt className="text-ink/50">Detratores</dt>
                       <dd className="font-semibold text-rust-600">
                         {c.detratores} / {c.total ? ((c.detratores / c.total) * 100).toFixed(0) : 0}%
@@ -699,6 +652,27 @@ export default function Csat() {
             </Card>
           ))}
           </div>
+          <Card className="p-5">
+            <h2 className="mb-3 font-display text-sm font-semibold text-ink">CSAT por colaborador</h2>
+            <HorizontalBarChart
+              data={(() => {
+                const rotulos = nomesCurtosDisambiguados(colaboradorPorPercentual.map((c) => c.atendente ?? "—"));
+                return colaboradorPorPercentual.map((c, i) => ({
+                  label: `${rotulos[i]} (${c.total})`,
+                  value: c.percentual ?? 0,
+                  displayValue: c.percentual !== null
+                    ? `${c.percentual.toFixed(0)}% · ${c.media?.toFixed(1) ?? "—"}`
+                    : "—",
+                }));
+              })()}
+              getColorClass={corPorFaixa}
+              labelWidth={128}
+              onBarClick={(_, i) => {
+                const c = colaboradorPorPercentual[i];
+                if (c) setAtendenteDetalhe({ chave: c.uid, nome: c.atendente });
+              }}
+            />
+          </Card>
         </>
       )}
 

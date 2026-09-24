@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useQuery, useQueryClient, useIsFetching } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Download, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Kpi } from "@/components/ui/Kpi";
@@ -22,19 +22,30 @@ import {
   fetchAtendentePerformance,
   fetchContagemPeriodo,
   fetchTfrTtrPercentis,
-  fetchMetricasPorTipoCliente,
+  fetchVelocidadePorTipoCliente,
   fetchCsatDistribuicao,
+  fetchCsatDistribuicaoPorTipoCliente,
+  fetchAtendenteCsatDistribuicao,
+  fetchCsatEnviosPorAtendente,
+  fetchCsatFunilCanal,
+  fetchAtendidoNaoResolvido,
   fetchReaberturaResumo,
-  fetchTransferenciasResumo,
-  fetchFcrRecontatoResumo,
   fetchRelogioEsperaCliente,
   fetchHorasExpedientePeriodo,
   fetchTempoRespostaBot,
   fetchBacklogPorIdade,
+  fetchNpsResponses,
+  fetchMigracoesResumo,
+  fetchMigracoesPorPlataforma,
+  fetchAtendimentosComMetricas,
   type AtendentePerformanceRow,
 } from "@/services/api";
 import { formatDuration } from "@/lib/formatDuration";
-import { manualDataVazia, type ResultadosSacData, type ManualData } from "@/lib/resultadosSac";
+// exportRRHistoricoToPdf/exportRRUnicaToPdf/exportResultadosSacToPptx são
+// sempre importados dinamicamente (`await import(...)`) dentro do próprio
+// clique — pptxgenjs/jspdf só baixam quando alguém de fato exporta, não no
+// bundle inicial da página (ver PR#11, "lazy loading de rotas").
+import { manualDataVazia, type ResultadosSacData, type ManualData, type NpsResumo } from "@/lib/resultadosSac";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { RelatorioResultadosSac } from "@/components/RelatorioResultadosSac";
 
@@ -48,18 +59,31 @@ function media(vals: (number | null)[]) {
   return validos.length ? validos.reduce((a, b) => a + b, 0) / validos.length : null;
 }
 
+function resumirNps(respostas: { classificacao: "Promotor" | "Neutro" | "Detrator" }[]): NpsResumo {
+  return {
+    total: respostas.length,
+    promotores: respostas.filter((r) => r.classificacao === "Promotor").length,
+    neutros: respostas.filter((r) => r.classificacao === "Neutro").length,
+    detratores: respostas.filter((r) => r.classificacao === "Detrator").length,
+  };
+}
+
 function toISODate(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-// Sexta-feira da semana de referência — a Reunião de Resultados roda toda
-// sexta, então a semana do relatório é sexta a sexta (sex–qui, 7 dias),
-// não segunda a domingo. Sempre volta pra sexta-feira mais recente
-// (ou fica no lugar, se `d` já for sexta).
-function fridayOf(d: Date) {
+// Quarta-feira da semana de referência — a Reunião de Resultados roda toda
+// quarta, então a semana do relatório é quarta a quarta (qua–ter, 7 dias),
+// não segunda a domingo. Sempre volta pra quarta-feira mais recente
+// (ou fica no lugar, se `d` já for quarta). Mudou de sexta pra quarta em
+// 2026-09-22 (pedido do usuário) — era `fridayOf`/`(dia + 2) % 7`, a mesma
+// fórmula generalizada pra qualquer dia de referência X é
+// `(dia - X + 7) % 7`; pra quarta (X=3, contando domingo=0) isso vira
+// `(dia + 4) % 7`.
+function quartaOf(d: Date) {
   const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const dia = date.getDay();
-  date.setDate(date.getDate() - ((dia + 2) % 7));
+  date.setDate(date.getDate() - ((dia + 4) % 7));
   return date;
 }
 
@@ -101,14 +125,22 @@ function ultimosPeriodos(granularidade: Granularidade, n: number) {
       return { id, label: label.charAt(0).toUpperCase() + label.slice(1) };
     });
   }
-  const sextaAtual = fridayOf(new Date());
+  const quartaAtual = quartaOf(new Date());
   return Array.from({ length: n }).map((_, i) => {
-    const sex = new Date(sextaAtual);
-    sex.setDate(sex.getDate() - i * 7);
-    const qui = new Date(sex);
-    qui.setDate(qui.getDate() + 6);
-    const id = toISODate(sex);
-    const label = `${String(sex.getDate()).padStart(2, "0")}/${String(sex.getMonth() + 1).padStart(2, "0")} a ${String(qui.getDate()).padStart(2, "0")}/${String(qui.getMonth() + 1).padStart(2, "0")}`;
+    const qua = new Date(quartaAtual);
+    qua.setDate(qua.getDate() - i * 7);
+    // Rótulo mostra "quarta a quarta" de verdade (ambas as pontas caem
+    // numa quarta-feira) — achado real em 2026-09-22: mostrar o último dia
+    // incluído (terça, qua+6) fazia o rótulo ler "16/09 a 22/09", que o
+    // usuário apontou como incorreto pra uma semana que deveria ir "até
+    // dia 23/09, quarta a quarta". O período de dado em si não muda (os
+    // dados continuam indo até terça 23:59:59, ver limitesDaSemana) — só a
+    // data mostrada no rótulo passa a ser a quarta seguinte (fronteira
+    // exclusiva), igual à convenção comum de "check-in/check-out".
+    const proximaQua = new Date(qua);
+    proximaQua.setDate(proximaQua.getDate() + 7);
+    const id = toISODate(qua);
+    const label = `${String(qua.getDate()).padStart(2, "0")}/${String(qua.getMonth() + 1).padStart(2, "0")} a ${String(proximaQua.getDate()).padStart(2, "0")}/${String(proximaQua.getMonth() + 1).padStart(2, "0")}`;
     return { id, label };
   });
 }
@@ -122,7 +154,12 @@ function labelDoPeriodo(granularidade: Granularidade, inicio: Date, fim: Date): 
     return label.charAt(0).toUpperCase() + label.slice(1);
   }
   const fmt = (d: Date) => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
-  return `${fmt(inicio)} a ${fmt(fim)}`;
+  // Mesma correção de ultimosPeriodos(): rótulo mostra a quarta seguinte
+  // (fronteira exclusiva), não o último dia realmente incluído (terça) —
+  // o intervalo de dado usado nas queries (`fim`) não muda.
+  const fimRotulo = new Date(fim);
+  fimRotulo.setDate(fimRotulo.getDate() + 1);
+  return `${fmt(inicio)} a ${fmt(fimRotulo)}`;
 }
 
 function agregarPorPeriodo(csat: { data_hora: string; nota: number | null }[], inicio: Date, fim: Date) {
@@ -184,7 +221,11 @@ export default function ReuniaoResultados() {
   const { user, isAdmin } = useAuth();
   const queryClient = useQueryClient();
 
-  const [granularidade, setGranularidade] = useState<Granularidade>("mensal");
+  // Padrão sempre semanal, com a semana atual — pedido explícito do
+  // usuário em 2026-09-22 (a RR roda toda quarta, ver `quartaOf()` acima).
+  // Não é persistido de propósito (`useState`, não `usePersistedState`):
+  // o padrão é fixo, não "lembrar a última escolha".
+  const [granularidade, setGranularidade] = useState<Granularidade>("semanal");
   const periodos = useMemo(() => ultimosPeriodos(granularidade, 6), [granularidade]);
   const [periodo, setPeriodo] = useState(periodos[0].id);
   const [salvo, setSalvo] = useState(false);
@@ -250,17 +291,259 @@ export default function ReuniaoResultados() {
     [conversasAnterior]
   );
 
+  // ── Onda 0 (imediata) ── só o que os KPIs do topo e a tabela
+  // "Detalhamento por atendente" (sempre visível, sem abrir o relatório)
+  // precisam pra renderizar.
+  //
   // Admin usa essa tela pra levar o resultado do TIME pra reunião, não o
   // próprio (que geralmente é 0 — admin não atende ticket em nome próprio).
   const { data: teamSummary, isLoading: loadingTeamSummary } = useQuery({
     queryKey: ["dashboard-atendimento-summary", inicioPeriodo, fimPeriodo],
     queryFn: () => fetchDashboardAtendimentoSummary(inicioPeriodo, fimPeriodo),
     enabled: isAdmin,
+    retry: 1,
   });
+  // Detalhamento por atendente (chamados/avaliações x período anterior) —
+  // usa a mesma janela (mensal/semanal) selecionada no header da página.
+  const { data: perfAtual, isLoading: loadingPerfAtual } = useQuery({
+    queryKey: ["atendente-performance", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchAtendentePerformance(inicioPeriodo, fimPeriodo),
+    enabled: isAdmin,
+    retry: 1,
+  });
+
+  // ── Escalonamento em 6 ondas menores (2026-09-22) ──────────────────────
+  // Achado real: "não consigo baixar o PPTX/PDF, tá muito lento". A versão
+  // anterior já separava "atual" de "anterior" em 2 ondas (ver histórico),
+  // mas cada onda ainda disparava ~13 RPCs pesadas de uma vez — e várias
+  // delas levam de 2 a 7s isoladas, sem nenhuma concorrência (medido no
+  // pg_stat_statements do projeto, auditoria de 2026-09-21). No compute
+  // Micro (CPU compartilhada) do Hub SAC, isso é contenção pesada o
+  // bastante pra estourar o statement_timeout — e com `retry: 1` (ver
+  // abaixo) uma falha aí não é mais tão cara, mas o pico de concorrência em
+  // si continuava alto. Agora cada onda só libera a próxima depois que TODA
+  // a anterior já resolveu (`!== undefined`, não `isLoading`, porque
+  // `enabled: false` nunca chega a ficar "loading") — pico cai de ~13 pra
+  // no máximo 6 consultas ao mesmo tempo, ao custo de mais tempo total até
+  // o relatório ficar pronto (aceitável: só os botões "Baixar PDF/PPTX"
+  // dependem disso, os KPIs do topo já vêm da onda 0 acima).
+  const estagio1Habilitado = isAdmin && teamSummary !== undefined && perfAtual !== undefined;
+
+  const { data: contagemAtual } = useQuery({
+    queryKey: ["contagem-periodo", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchContagemPeriodo(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  const { data: percentisAtual } = useQuery({
+    queryKey: ["tfr-ttr-percentis", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchTfrTtrPercentis(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  // Chave própria ("velocidade-tipo-cliente", não "metricas-tipo-cliente")
+  // — mesmo par de datas poderia colidir no cache do TanStack Query com a
+  // chave já usada por Home/Meu Painel (`fetchMetricasPorTipoCliente`),
+  // que tem um formato de linha diferente (`velocidade_por_tipo_cliente()`
+  // traz uteis+corridas juntos, ver seção 10 do CLAUDE.md) — nunca
+  // reaproveitar a mesma chave pra fonte de dado diferente.
+  const { data: tipoClienteAtual } = useQuery({
+    queryKey: ["velocidade-tipo-cliente", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchVelocidadePorTipoCliente(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  const { data: csatDistAtual } = useQuery({
+    queryKey: ["csat-distribuicao", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchCsatDistribuicao(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  // CSAT por tipo de cliente (amostra via crisp_id) e CSAT por atendente
+  // com boas/neutras/ruins (Bot + CSAT% no Ranking) — sem par "Anterior"
+  // pro segundo (mesmo motivo de `csatPorAtendente`/`atendente_performance`
+  // não terem: nenhuma tela mostra delta pra esse recorte).
+  const { data: csatPorTipoClienteAtual } = useQuery({
+    queryKey: ["csat-tipo-cliente", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchCsatDistribuicaoPorTipoCliente(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  const { data: csatPorAtendenteDist } = useQuery({
+    queryKey: ["csat-atendente-distribuicao", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchAtendenteCsatDistribuicao(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  // Leve (~0,1s, `csat_pending` tem poucos milhares de linhas).
+  const { data: csatEnvios } = useQuery({
+    queryKey: ["csat-envios-atendente", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchCsatEnviosPorAtendente(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  // Funil do CSAT por canal + atendido e não resolvido (slide "Por que
+  // temos poucas avaliações"). Leves: um group by só sobre o período.
+  const { data: csatFunilAtual } = useQuery({
+    queryKey: ["csat-funil-canal", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchCsatFunilCanal(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  const { data: atendidoNaoResolvidoAtual } = useQuery({
+    queryKey: ["atendido-nao-resolvido", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchAtendidoNaoResolvido(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  // Backlog não tem filtro de período — é sempre "o que está aberto agora",
+  // não faz sentido "backlog do mês passado". Uma busca só, sem par
+  // "Anterior".
+  const { data: backlogAtual } = useQuery({
+    queryKey: ["backlog-por-idade"],
+    queryFn: () => fetchBacklogPorIdade(),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  // NPS deixou de ser manual em 2026-09-08 — números reais de
+  // `nps_responses` (módulo /nps já existe no Hub, só o resumo qualitativo
+  // continua digitado à mão, ver ManualData). Agregado no cliente (mesmo
+  // padrão já usado em Nps.tsx), volume baixo o bastante pra não precisar
+  // de função SQL própria.
+  const { data: npsRespostasAtual } = useQuery({
+    queryKey: ["nps-responses", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchNpsResponses({ inicio: inicioPeriodo, fim: fimPeriodo }),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  const npsResumoAtual = useMemo(() => (npsRespostasAtual ? resumirNps(npsRespostasAtual) : null), [npsRespostasAtual]);
+
+  // "SAC — Migrações" deixou de ser manual em 2026-09-23 — sincronizado via
+  // n8n a partir da Centralização (gestao-tickets) pra `migracoes_sync` no
+  // Hub SAC. "Por plataforma" só faz sentido no período atual (lista de
+  // casos, mesmo motivo de topTfrProdutor/Final não terem par "anterior").
+  const { data: migracoesAtual } = useQuery({
+    queryKey: ["migracoes-resumo", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchMigracoesResumo(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+  const { data: migracoesPorPlataformaAtual } = useQuery({
+    queryKey: ["migracoes-por-plataforma", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchMigracoesPorPlataforma(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+
+  // Top 5 maiores tempos de 1ª resposta do período — mesma função/critério
+  // já usado na aba Atendimentos do Overview (`atendimentos_com_metricas`,
+  // ordenar por "tfr" desc), sem precisar de RPC nova. Ordena por TFR em
+  // horas úteis (modo padrão, mesmo critério do resto do relatório) — o
+  // "corrido" de cada caso é calculado no cliente a partir dos dois
+  // timestamps (abertura/1ª resposta), não precisa de 2ª chamada.
+  // Separado em duas listas (Produtor / Cliente Final) por pedido do
+  // usuário: um único top 5 misto sempre ficava dominado por "Final"
+  // (a maioria tem TFR longo porque é atendimento majoritariamente por
+  // bot, sem a mesma pressão de SLA humano que Produtor tem) — o time
+  // quer ver os dois grupos separados, não um top 5 só de Final.
+  const { data: topTfrProdutorAtual } = useQuery({
+    queryKey: ["top-tfr-casos", "Produtor", inicioPeriodo, fimPeriodo],
+    queryFn: () =>
+      fetchAtendimentosComMetricas({
+        inicio: inicioPeriodo,
+        fim: fimPeriodo,
+        tipoCliente: "Produtor",
+        ordenarPor: "tfr",
+        direcao: "desc",
+        page: 0,
+        pageSize: 5,
+      }),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+
+  const { data: topTfrFinalAtual } = useQuery({
+    queryKey: ["top-tfr-casos", "Final", inicioPeriodo, fimPeriodo],
+    queryFn: () =>
+      fetchAtendimentosComMetricas({
+        inicio: inicioPeriodo,
+        fim: fimPeriodo,
+        tipoCliente: "Final",
+        ordenarPor: "tfr",
+        direcao: "desc",
+        page: 0,
+        pageSize: 5,
+      }),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
+
+  const estagio2Habilitado =
+    estagio1Habilitado &&
+    contagemAtual !== undefined &&
+    percentisAtual !== undefined &&
+    tipoClienteAtual !== undefined &&
+    csatDistAtual !== undefined &&
+    csatPorTipoClienteAtual !== undefined &&
+    csatPorAtendenteDist !== undefined &&
+    csatEnvios !== undefined &&
+    csatFunilAtual !== undefined &&
+    atendidoNaoResolvidoAtual !== undefined &&
+    backlogAtual !== undefined &&
+    npsRespostasAtual !== undefined &&
+    migracoesAtual !== undefined &&
+    migracoesPorPlataformaAtual !== undefined &&
+    topTfrProdutorAtual !== undefined &&
+    topTfrFinalAtual !== undefined;
+
+  const { data: reaberturaAtual } = useQuery({
+    queryKey: ["reabertura-resumo", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchReaberturaResumo(inicioPeriodo, fimPeriodo),
+    enabled: estagio2Habilitado,
+    retry: 1,
+  });
+  const { data: relogioEsperaAtual } = useQuery({
+    queryKey: ["relogio-espera-cliente", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchRelogioEsperaCliente(inicioPeriodo, fimPeriodo),
+    enabled: estagio2Habilitado,
+    retry: 1,
+  });
+  const { data: horasExpedienteAtual } = useQuery({
+    queryKey: ["horas-expediente-periodo", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchHorasExpedientePeriodo(inicioPeriodo, fimPeriodo),
+    enabled: estagio2Habilitado,
+    retry: 1,
+  });
+  const { data: tempoBotAtual } = useQuery({
+    queryKey: ["tempo-resposta-bot", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchTempoRespostaBot(inicioPeriodo, fimPeriodo),
+    enabled: estagio2Habilitado,
+    retry: 1,
+  });
+
+  const estagio2Pronto =
+    estagio2Habilitado &&
+    reaberturaAtual !== undefined &&
+    relogioEsperaAtual !== undefined &&
+    horasExpedienteAtual !== undefined &&
+    tempoBotAtual !== undefined;
+
+  // "Período anterior" só começa depois que TODO o período atual carregou
+  // (estagio2Pronto) — evita competir pelo mesmo compute Micro enquanto o
+  // atual ainda está em voo.
+  const anteriorHabilitado = isAdmin && estagio2Pronto;
+
   const { data: teamSummaryAnterior } = useQuery({
     queryKey: ["dashboard-atendimento-summary", inicioPeriodoAnterior, fimPeriodoAnterior],
     queryFn: () => fetchDashboardAtendimentoSummary(inicioPeriodoAnterior, fimPeriodoAnterior),
-    enabled: isAdmin,
+    enabled: anteriorHabilitado,
+    retry: 1,
+  });
+  const { data: perfAnterior } = useQuery({
+    queryKey: ["atendente-performance", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchAtendentePerformance(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: anteriorHabilitado,
+    retry: 1,
   });
 
   const csatValor = isAdmin ? teamSummary?.csat_medio ?? 0 : atual.media;
@@ -269,12 +552,26 @@ export default function ReuniaoResultados() {
       ? ((csatValor - teamSummaryAnterior.csat_medio) / teamSummaryAnterior.csat_medio) * 100
       : 0
     : csatDelta;
-  const atendimentosValor = isAdmin ? teamSummary?.total_conversas ?? 0 : atual.total;
-  const atendimentosDeltaValor = isAdmin
+  // "Conversas" = 1 por conversa do Crisp (time: total_conversas; colaborador:
+  // contagem de avaliações CSAT do período, métrica diferente mas é o que
+  // essa tela sempre mostrou pro self-review). "Chamados" só existe pro time
+  // (pondera reabertura) — não há conceito de "chamados pessoais" aqui.
+  const conversasValor = isAdmin ? teamSummary?.total_conversas ?? 0 : atual.total;
+  const conversasDeltaValor = isAdmin
     ? teamSummaryAnterior?.total_conversas
-      ? ((atendimentosValor - teamSummaryAnterior.total_conversas) / teamSummaryAnterior.total_conversas) * 100
+      ? ((conversasValor - teamSummaryAnterior.total_conversas) / teamSummaryAnterior.total_conversas) * 100
       : 0
     : atendimentosDelta;
+  const chamadosValor = teamSummary?.total_chamados ?? 0;
+  const chamadosDeltaValor = teamSummaryAnterior?.total_chamados
+    ? ((chamadosValor - teamSummaryAnterior.total_chamados) / teamSummaryAnterior.total_chamados) * 100
+    : 0;
+  // Valor persistido em rr_history.atendimentos ao salvar: pro time, chamados
+  // (pondera reabertura, é a definição oficial de "chamado" da plataforma);
+  // pro colaborador, continua sendo a contagem de avaliações (nunca existiu
+  // "chamados" pessoal pra essa métrica).
+  const atendimentosParaSalvar = isAdmin ? chamadosValor : conversasValor;
+  const atendimentosDeltaParaSalvar = isAdmin ? chamadosDeltaValor : conversasDeltaValor;
   const carregandoPrincipais = isAdmin ? loadingTeamSummary : loadingCsat;
 
   const tempoResolucaoSeg = isAdmin
@@ -291,19 +588,6 @@ export default function ReuniaoResultados() {
     tempoResolucaoSeg !== null && tempoResolucaoAnteriorSeg
       ? ((tempoResolucaoSeg - tempoResolucaoAnteriorSeg) / tempoResolucaoAnteriorSeg) * 100
       : undefined;
-
-  // Detalhamento por atendente (chamados/avaliações x período anterior) —
-  // usa a mesma janela (mensal/semanal) selecionada no header da página.
-  const { data: perfAtual, isLoading: loadingPerfAtual } = useQuery({
-    queryKey: ["atendente-performance", inicioPeriodo, fimPeriodo],
-    queryFn: () => fetchAtendentePerformance(inicioPeriodo, fimPeriodo),
-    enabled: isAdmin,
-  });
-  const { data: perfAnterior } = useQuery({
-    queryKey: ["atendente-performance", inicioPeriodoAnterior, fimPeriodoAnterior],
-    queryFn: () => fetchAtendentePerformance(inicioPeriodoAnterior, fimPeriodoAnterior),
-    enabled: isAdmin,
-  });
 
   const perfComparativo = useMemo(() => {
     const anteriorPorNome = new Map<string, AtendentePerformanceRow>();
@@ -333,147 +617,116 @@ export default function ReuniaoResultados() {
     [perfAnterior]
   );
 
-  // Métricas do relatório "Resultados SAC" (Chamados, Por tipo de cliente,
-  // CSAT, Reabertura, Transferências, FCR/Recontato) pro período selecionado
-  // nesta página — usadas só pelo botão "Baixar PDF" abaixo. Admin-only:
-  // são agregados do time inteiro, mesma barreira já aplicada em
-  // teamSummary/perfAtual nesta página (as funções SQL também exigem
-  // is_admin() por trás, então pedir sem admin só voltaria vazio mesmo).
-  const { data: contagemAtual } = useQuery({
-    queryKey: ["contagem-periodo", inicioPeriodo, fimPeriodo],
-    queryFn: () => fetchContagemPeriodo(inicioPeriodo, fimPeriodo),
-    enabled: isAdmin,
-  });
+  const estagio4Habilitado = anteriorHabilitado && teamSummaryAnterior !== undefined && perfAnterior !== undefined;
+
   const { data: contagemAnterior } = useQuery({
     queryKey: ["contagem-periodo", inicioPeriodoAnterior, fimPeriodoAnterior],
     queryFn: () => fetchContagemPeriodo(inicioPeriodoAnterior, fimPeriodoAnterior),
-    enabled: isAdmin,
-  });
-
-  const { data: percentisAtual } = useQuery({
-    queryKey: ["tfr-ttr-percentis", inicioPeriodo, fimPeriodo],
-    queryFn: () => fetchTfrTtrPercentis(inicioPeriodo, fimPeriodo),
-    enabled: isAdmin,
+    enabled: estagio4Habilitado,
+    retry: 1,
   });
   const { data: percentisAnterior } = useQuery({
     queryKey: ["tfr-ttr-percentis", inicioPeriodoAnterior, fimPeriodoAnterior],
     queryFn: () => fetchTfrTtrPercentis(inicioPeriodoAnterior, fimPeriodoAnterior),
-    enabled: isAdmin,
-  });
-
-  const { data: tipoClienteAtual } = useQuery({
-    queryKey: ["metricas-tipo-cliente", inicioPeriodo, fimPeriodo],
-    queryFn: () => fetchMetricasPorTipoCliente(inicioPeriodo, fimPeriodo),
-    enabled: isAdmin,
+    enabled: estagio4Habilitado,
+    retry: 1,
   });
   const { data: tipoClienteAnterior } = useQuery({
-    queryKey: ["metricas-tipo-cliente", inicioPeriodoAnterior, fimPeriodoAnterior],
-    queryFn: () => fetchMetricasPorTipoCliente(inicioPeriodoAnterior, fimPeriodoAnterior),
-    enabled: isAdmin,
-  });
-
-  const { data: csatDistAtual } = useQuery({
-    queryKey: ["csat-distribuicao", inicioPeriodo, fimPeriodo],
-    queryFn: () => fetchCsatDistribuicao(inicioPeriodo, fimPeriodo),
-    enabled: isAdmin,
+    queryKey: ["velocidade-tipo-cliente", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchVelocidadePorTipoCliente(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: estagio4Habilitado,
+    retry: 1,
   });
   const { data: csatDistAnterior } = useQuery({
     queryKey: ["csat-distribuicao", inicioPeriodoAnterior, fimPeriodoAnterior],
     queryFn: () => fetchCsatDistribuicao(inicioPeriodoAnterior, fimPeriodoAnterior),
-    enabled: isAdmin,
+    enabled: estagio4Habilitado,
+    retry: 1,
+  });
+  const { data: csatPorTipoClienteAnterior } = useQuery({
+    queryKey: ["csat-tipo-cliente", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchCsatDistribuicaoPorTipoCliente(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: estagio4Habilitado,
+    retry: 1,
+  });
+  const { data: npsRespostasAnterior } = useQuery({
+    queryKey: ["nps-responses", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchNpsResponses({ inicio: inicioPeriodoAnterior, fim: fimPeriodoAnterior }),
+    enabled: estagio4Habilitado,
+    retry: 1,
+  });
+  const npsResumoAnterior = useMemo(() => (npsRespostasAnterior ? resumirNps(npsRespostasAnterior) : null), [npsRespostasAnterior]);
+  const { data: migracoesAnterior } = useQuery({
+    queryKey: ["migracoes-resumo", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchMigracoesResumo(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: estagio4Habilitado,
+    retry: 1,
   });
 
-  const { data: reaberturaAtual } = useQuery({
-    queryKey: ["reabertura-resumo", inicioPeriodo, fimPeriodo],
-    queryFn: () => fetchReaberturaResumo(inicioPeriodo, fimPeriodo),
-    enabled: isAdmin,
-  });
+  const estagio5Habilitado =
+    estagio4Habilitado &&
+    contagemAnterior !== undefined &&
+    percentisAnterior !== undefined &&
+    tipoClienteAnterior !== undefined &&
+    csatDistAnterior !== undefined &&
+    csatPorTipoClienteAnterior !== undefined &&
+    npsRespostasAnterior !== undefined &&
+    migracoesAnterior !== undefined;
+
   const { data: reaberturaAnterior } = useQuery({
     queryKey: ["reabertura-resumo", inicioPeriodoAnterior, fimPeriodoAnterior],
     queryFn: () => fetchReaberturaResumo(inicioPeriodoAnterior, fimPeriodoAnterior),
-    enabled: isAdmin,
-  });
-
-  const { data: transferenciasAtual } = useQuery({
-    queryKey: ["transferencias-resumo", inicioPeriodo, fimPeriodo],
-    queryFn: () => fetchTransferenciasResumo(inicioPeriodo, fimPeriodo),
-    enabled: isAdmin,
-  });
-  const { data: transferenciasAnterior } = useQuery({
-    queryKey: ["transferencias-resumo", inicioPeriodoAnterior, fimPeriodoAnterior],
-    queryFn: () => fetchTransferenciasResumo(inicioPeriodoAnterior, fimPeriodoAnterior),
-    enabled: isAdmin,
-  });
-
-  const { data: fcrAtual } = useQuery({
-    queryKey: ["fcr-recontato-resumo", inicioPeriodo, fimPeriodo],
-    queryFn: () => fetchFcrRecontatoResumo(inicioPeriodo, fimPeriodo),
-    enabled: isAdmin,
-  });
-  const { data: fcrAnterior } = useQuery({
-    queryKey: ["fcr-recontato-resumo", inicioPeriodoAnterior, fimPeriodoAnterior],
-    queryFn: () => fetchFcrRecontatoResumo(inicioPeriodoAnterior, fimPeriodoAnterior),
-    enabled: isAdmin,
-  });
-
-  const { data: relogioEsperaAtual } = useQuery({
-    queryKey: ["relogio-espera-cliente", inicioPeriodo, fimPeriodo],
-    queryFn: () => fetchRelogioEsperaCliente(inicioPeriodo, fimPeriodo),
-    enabled: isAdmin,
+    enabled: estagio5Habilitado,
+    retry: 1,
   });
   const { data: relogioEsperaAnterior } = useQuery({
     queryKey: ["relogio-espera-cliente", inicioPeriodoAnterior, fimPeriodoAnterior],
     queryFn: () => fetchRelogioEsperaCliente(inicioPeriodoAnterior, fimPeriodoAnterior),
-    enabled: isAdmin,
-  });
-
-  const { data: horasExpedienteAtual } = useQuery({
-    queryKey: ["horas-expediente-periodo", inicioPeriodo, fimPeriodo],
-    queryFn: () => fetchHorasExpedientePeriodo(inicioPeriodo, fimPeriodo),
-    enabled: isAdmin,
+    enabled: estagio5Habilitado,
+    retry: 1,
   });
   const { data: horasExpedienteAnterior } = useQuery({
     queryKey: ["horas-expediente-periodo", inicioPeriodoAnterior, fimPeriodoAnterior],
     queryFn: () => fetchHorasExpedientePeriodo(inicioPeriodoAnterior, fimPeriodoAnterior),
-    enabled: isAdmin,
-  });
-
-  const { data: tempoBotAtual } = useQuery({
-    queryKey: ["tempo-resposta-bot", inicioPeriodo, fimPeriodo],
-    queryFn: () => fetchTempoRespostaBot(inicioPeriodo, fimPeriodo),
-    enabled: isAdmin,
+    enabled: estagio5Habilitado,
+    retry: 1,
   });
   const { data: tempoBotAnterior } = useQuery({
     queryKey: ["tempo-resposta-bot", inicioPeriodoAnterior, fimPeriodoAnterior],
     queryFn: () => fetchTempoRespostaBot(inicioPeriodoAnterior, fimPeriodoAnterior),
-    enabled: isAdmin,
+    enabled: estagio5Habilitado,
+    retry: 1,
+  });
+  const { data: csatFunilAnterior } = useQuery({
+    queryKey: ["csat-funil-canal", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchCsatFunilCanal(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: estagio5Habilitado,
+    retry: 1,
+  });
+  const { data: atendidoNaoResolvidoAnterior } = useQuery({
+    queryKey: ["atendido-nao-resolvido", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchAtendidoNaoResolvido(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: estagio5Habilitado,
+    retry: 1,
   });
 
-  // Backlog não tem filtro de período — é sempre "o que está aberto agora",
-  // não faz sentido "backlog do mês passado". Uma busca só, sem comparação.
-  const { data: backlogAtual } = useQuery({
-    queryKey: ["backlog-por-idade"],
-    queryFn: () => fetchBacklogPorIdade(),
-    enabled: isAdmin,
-  });
-
-  // Todas as queries que alimentam `dadosRelatorio` (PDF/PPTX) — nenhuma
-  // delas aparece em outro KPI da tela, então trocar de período/granularidade
-  // não dá nenhum sinal visual de que elas ainda estão em voo. Sem esse
-  // gate, clicar em "Baixar PDF/PPTX" logo depois de trocar o período gera
-  // um arquivo com os campos em branco (achado real: exportação da semana
-  // atual saiu com "Total de chamados/conversas/mensagens" todos "—",
-  // porque os `useQuery` de `contagemAtual` etc. ainda não tinham resolvido
-  // no momento do clique).
-  const RELATORIO_QUERY_KEYS = [
-    "contagem-periodo", "tfr-ttr-percentis", "metricas-tipo-cliente", "csat-distribuicao",
-    "reabertura-resumo", "transferencias-resumo", "fcr-recontato-resumo",
-    "relogio-espera-cliente", "horas-expediente-periodo", "tempo-resposta-bot",
-    "backlog-por-idade", "atendente-performance",
-  ];
-  const relatorioCarregando = useIsFetching({
-    predicate: (q) => RELATORIO_QUERY_KEYS.includes(q.queryKey[0] as string),
-  }) > 0;
+  // "Pronto" = a última onda (5) inteira já resolveu — cobre os gaps entre
+  // ondas de propósito (uma query com `enabled: false` nunca fica
+  // "isLoading"/"fetching", então checar só isso deixaria o botão "liberado"
+  // nos intervalos entre ondas, com o relatório ainda incompleto; foi
+  // exatamente esse tipo de gap que já causou PDF/PPTX com campos em branco
+  // — ver ROADMAP/histórico). Substitui o antigo `useIsFetching`.
+  const relatorioCarregando =
+    isAdmin &&
+    !(
+      estagio5Habilitado &&
+      reaberturaAnterior !== undefined &&
+      relogioEsperaAnterior !== undefined &&
+      horasExpedienteAnterior !== undefined &&
+      tempoBotAnterior !== undefined &&
+      csatFunilAnterior !== undefined &&
+      atendidoNaoResolvidoAnterior !== undefined
+    );
 
   const [mostrarRelatorio, setMostrarRelatorio] = useState(false);
   const [exportandoPptx, setExportandoPptx] = useState(false);
@@ -495,12 +748,16 @@ export default function ReuniaoResultados() {
         tipoCliente: tipoClienteAtual ?? [],
         rankingHumano: rankingHumanoAtual,
         csat: csatDistAtual ?? null,
+        csatPorTipoCliente: csatPorTipoClienteAtual ?? [],
         reabertura: reaberturaAtual ?? null,
-        transferencias: transferenciasAtual ?? null,
-        fcr: fcrAtual ?? null,
         relogioEspera: relogioEsperaAtual ?? null,
         horasExpedienteMin: horasExpedienteAtual ?? null,
         tempoRespostaBot: tempoBotAtual ?? null,
+        npsResumo: npsResumoAtual,
+        migracoes: migracoesAtual ?? null,
+        migracoesPorPlataforma: migracoesPorPlataformaAtual ?? [],
+        csatFunil: csatFunilAtual ?? [],
+        atendidoNaoResolvido: atendidoNaoResolvidoAtual ?? [],
       },
       anterior: {
         contagem: contagemAnterior ?? null,
@@ -508,14 +765,22 @@ export default function ReuniaoResultados() {
         tipoCliente: tipoClienteAnterior ?? [],
         rankingHumano: rankingHumanoAnterior,
         csat: csatDistAnterior ?? null,
+        csatPorTipoCliente: csatPorTipoClienteAnterior ?? [],
         reabertura: reaberturaAnterior ?? null,
-        transferencias: transferenciasAnterior ?? null,
-        fcr: fcrAnterior ?? null,
         relogioEspera: relogioEsperaAnterior ?? null,
         horasExpedienteMin: horasExpedienteAnterior ?? null,
         tempoRespostaBot: tempoBotAnterior ?? null,
+        npsResumo: npsResumoAnterior,
+        migracoes: migracoesAnterior ?? null,
+        migracoesPorPlataforma: [],
+        csatFunil: csatFunilAnterior ?? [],
+        atendidoNaoResolvido: atendidoNaoResolvidoAnterior ?? [],
       },
       csatPorAtendente: perfAtual ?? [],
+      csatPorAtendenteDist: csatPorAtendenteDist ?? [],
+      csatEnvios: csatEnvios ?? [],
+      topTfrProdutor: topTfrProdutorAtual?.rows ?? [],
+      topTfrFinal: topTfrFinalAtual?.rows ?? [],
       backlog: backlogAtual ?? [],
       manual: dadosManuais,
     }),
@@ -535,21 +800,32 @@ export default function ReuniaoResultados() {
       rankingHumanoAnterior,
       csatDistAtual,
       csatDistAnterior,
+      csatPorTipoClienteAtual,
+      csatPorTipoClienteAnterior,
+      csatPorAtendenteDist,
+      csatEnvios,
+      topTfrProdutorAtual,
+      topTfrFinalAtual,
       reaberturaAtual,
       reaberturaAnterior,
-      transferenciasAtual,
-      transferenciasAnterior,
-      fcrAtual,
-      fcrAnterior,
       relogioEsperaAtual,
       relogioEsperaAnterior,
       horasExpedienteAtual,
       horasExpedienteAnterior,
       tempoBotAtual,
       tempoBotAnterior,
+      npsResumoAtual,
+      npsResumoAnterior,
+      migracoesAtual,
+      migracoesAnterior,
+      migracoesPorPlataformaAtual,
       perfAtual,
       backlogAtual,
       dadosManuais,
+      csatFunilAtual,
+      csatFunilAnterior,
+      atendidoNaoResolvidoAtual,
+      atendidoNaoResolvidoAnterior,
     ]
   );
 
@@ -643,8 +919,8 @@ export default function ReuniaoResultados() {
         periodo: periodos.find((p) => p.id === periodo)?.label ?? periodo,
         csat: Number(csatValor.toFixed(2)),
         csat_variacao: Number(csatDeltaValor.toFixed(1)),
-        atendimentos: atendimentosValor,
-        atendimentos_variacao: Number(atendimentosDeltaValor.toFixed(1)),
+        atendimentos: atendimentosParaSalvar,
+        atendimentos_variacao: Number(atendimentosDeltaParaSalvar.toFixed(1)),
         tempo_medio: tempoResolucaoSeg !== null ? formatDuration(tempoResolucaoSeg) : null,
         tempo_medio_variacao: tempoResolucaoDelta !== undefined ? Number(tempoResolucaoDelta.toFixed(1)) : null,
         meta_batida: csatValor >= 4.5,
@@ -705,25 +981,7 @@ export default function ReuniaoResultados() {
           </select>
           {isAdmin && (
             <Button variant="secondary" disabled={relatorioCarregando} onClick={() => setMostrarRelatorio(true)}>
-              <Download size={14} /> {relatorioCarregando ? "Carregando dados..." : "Baixar PDF"}
-            </Button>
-          )}
-          {isAdmin && (
-            <Button
-              variant="secondary"
-              disabled={exportandoPptx || relatorioCarregando}
-              onClick={async () => {
-                setExportandoPptx(true);
-                try {
-                  // pptxgenjs só baixa quando alguém exporta.
-                  const { exportResultadosSacToPptx } = await import("@/lib/exportPptx");
-                  await exportResultadosSacToPptx(dadosRelatorio);
-                } finally {
-                  setExportandoPptx(false);
-                }
-              }}
-            >
-              <Download size={14} /> {exportandoPptx ? "Gerando..." : relatorioCarregando ? "Carregando dados..." : "Baixar PPTX"}
+              <Download size={14} /> {relatorioCarregando ? "Carregando dados..." : "Exportar"}
             </Button>
           )}
           {isAdmin && (
@@ -762,40 +1020,41 @@ export default function ReuniaoResultados() {
             </div>
 
             <div>
-              <h3 className="mb-2 text-sm font-semibold text-ink">SAC — Migrações</h3>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <CampoManual label="Finalizadas" value={dadosManuais.migracoes.finalizadas} onChange={(v) => setDadosManuais((d) => ({ ...d, migracoes: { ...d.migracoes, finalizadas: v } }))} placeholder="5" />
-                <CampoManual label="Em progresso" value={dadosManuais.migracoes.emProgresso} onChange={(v) => setDadosManuais((d) => ({ ...d, migracoes: { ...d.migracoes, emProgresso: v } }))} placeholder="3" />
-                <CampoManual label="Aguardando" value={dadosManuais.migracoes.aguardando} onChange={(v) => setDadosManuais((d) => ({ ...d, migracoes: { ...d.migracoes, aguardando: v } }))} placeholder="3" />
-              </div>
-              <CampoManualArea label="Por plataforma (uma linha por item)" value={dadosManuais.migracoes.plataformas} onChange={(v) => setDadosManuais((d) => ({ ...d, migracoes: { ...d.migracoes, plataformas: v } }))} placeholder={"Migrações Internas - 3\nHotmart - 1\nAppsell - 1"} />
-            </div>
-
-            <div>
-              <h3 className="mb-2 text-sm font-semibold text-ink">Dados NPS</h3>
-              <div className="grid gap-3 sm:grid-cols-4">
-                <CampoManual label="Contatados" value={dadosManuais.nps.contatados} onChange={(v) => setDadosManuais((d) => ({ ...d, nps: { ...d.nps, contatados: v } }))} placeholder="2/2" />
-                <CampoManual label="Detratores" value={dadosManuais.nps.detratores} onChange={(v) => setDadosManuais((d) => ({ ...d, nps: { ...d.nps, detratores: v } }))} placeholder="1" />
-                <CampoManual label="Neutros" value={dadosManuais.nps.neutros} onChange={(v) => setDadosManuais((d) => ({ ...d, nps: { ...d.nps, neutros: v } }))} placeholder="0" />
-                <CampoManual label="Promotores" value={dadosManuais.nps.promotores} onChange={(v) => setDadosManuais((d) => ({ ...d, nps: { ...d.nps, promotores: v } }))} placeholder="5" />
-              </div>
+              <h3 className="mb-2 text-sm font-semibold text-ink">
+                Dados NPS <span className="font-normal text-ink/40">— contatados/promotores/neutros/detratores agora vêm automático do módulo NPS, só "Temas" é manual</span>
+              </h3>
               <CampoManualArea label="Temas mais abordados" value={dadosManuais.nps.temas} onChange={(v) => setDadosManuais((d) => ({ ...d, nps: { ...d.nps, temas: v } }))} placeholder="[Checkout] Cliente relata demora de 6 a 10s no Pix/cartão..." />
             </div>
           </CardContent>
         </Card>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className={isAdmin ? "grid gap-4 sm:grid-cols-2 lg:grid-cols-4" : "grid gap-4 sm:grid-cols-3"}>
         <Kpi
           label={isAdmin ? "CSAT do time" : "CSAT do período"}
           value={carregandoPrincipais ? "..." : csatValor.toFixed(1)}
           delta={csatDeltaValor}
         />
-        <Kpi
-          label={isAdmin ? "Atendimentos do time" : "Atendimentos avaliados"}
-          value={carregandoPrincipais ? "..." : String(atendimentosValor)}
-          delta={atendimentosDeltaValor}
-        />
+        {isAdmin ? (
+          <>
+            <Kpi
+              label="Total de conversas"
+              value={carregandoPrincipais ? "..." : String(conversasValor)}
+              delta={conversasDeltaValor}
+            />
+            <Kpi
+              label="Total de chamados"
+              value={carregandoPrincipais ? "..." : String(chamadosValor)}
+              delta={chamadosDeltaValor}
+            />
+          </>
+        ) : (
+          <Kpi
+            label="Atendimentos avaliados"
+            value={carregandoPrincipais ? "..." : String(conversasValor)}
+            delta={conversasDeltaValor}
+          />
+        )}
         <Kpi
           label="Tempo médio de resolução"
           value={(isAdmin ? loadingTeamSummary : loadingConversas) ? "..." : formatDuration(tempoResolucaoSeg)}
@@ -803,6 +1062,12 @@ export default function ReuniaoResultados() {
           invertDeltaColor
         />
       </div>
+      {isAdmin && (
+        <p className="text-xs text-ink/40">
+          "Total de conversas" conta cada conversa do Crisp uma vez só; "Total de chamados" conta cada ciclo
+          aberto→resolvido (uma conversa reaberta soma mais de um chamado) — por isso o segundo número pode ser maior.
+        </p>
+      )}
 
       <Card className="p-5">
         <div className="flex items-center justify-between">
@@ -959,8 +1224,8 @@ export default function ReuniaoResultados() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-xs text-ink/50">
-                      CSAT {rr.csat ?? "—"} · {rr.atendimentos ?? 0} atendimentos
+                    <span className="text-xs text-ink/50" title="Valor salvo no momento da RR — snapshots antigos podiam ser 'conversas', saves recentes já são 'chamados' (pondera reabertura); não dá pra distinguir retroativamente qual era qual.">
+                      CSAT {rr.csat ?? "—"} · {rr.atendimentos ?? 0} chamados
                     </span>
                     <button
                       onClick={(e) => { e.stopPropagation(); abrirEdicaoRR(rr); }}
@@ -1000,8 +1265,8 @@ export default function ReuniaoResultados() {
               <p className="text-[10px] uppercase text-ink/40">CSAT</p>
               <p className="font-display text-sm font-semibold text-ink">{visualizando.csat ?? "—"}</p>
             </div>
-            <div className="rounded-lg bg-sand-bg p-2">
-              <p className="text-[10px] uppercase text-ink/40">Atendimentos</p>
+            <div className="rounded-lg bg-sand-bg p-2" title="Valor salvo no momento da RR — snapshots antigos podiam ser 'conversas', saves recentes já são 'chamados' (pondera reabertura); não dá pra distinguir retroativamente qual era qual.">
+              <p className="text-[10px] uppercase text-ink/40">Chamados</p>
               <p className="font-display text-sm font-semibold text-ink">{visualizando.atendimentos ?? 0}</p>
             </div>
             <div className="rounded-lg bg-sand-bg p-2">
@@ -1101,7 +1366,21 @@ export default function ReuniaoResultados() {
       </div>
 
       {mostrarRelatorio && (
-        <RelatorioResultadosSac data={dadosRelatorio} onClose={() => setMostrarRelatorio(false)} />
+        <RelatorioResultadosSac
+          data={dadosRelatorio}
+          onClose={() => setMostrarRelatorio(false)}
+          exportandoPptx={exportandoPptx}
+          onExportarPptx={async () => {
+            setExportandoPptx(true);
+            try {
+              // pptxgenjs só baixa quando alguém de fato exporta (ver PR#11).
+              const { exportResultadosSacToPptx } = await import("@/lib/exportPptx");
+              await exportResultadosSacToPptx(dadosRelatorio);
+            } finally {
+              setExportandoPptx(false);
+            }
+          }}
+        />
       )}
     </>
   );
