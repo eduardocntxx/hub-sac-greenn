@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { motion } from "framer-motion";
 import { ExternalLink, Hourglass, Inbox, MessageSquareHeart, type LucideIcon } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -83,21 +84,46 @@ function SeloDelta({ delta }: { delta?: DeltaInfo }) {
   );
 }
 
-export function SaudeKpi({ label, valor, delta, contexto }: { label: string; valor: string; delta?: DeltaInfo; contexto?: string }) {
+// Entrada em sequência (fade + sobe 8px), `indice` define o atraso.
+export function SaudeKpi({ label, valor, delta, contexto, indice = 0 }: { label: string; valor: string; delta?: DeltaInfo; contexto?: string; indice?: number }) {
   return (
-    <Card className="flex flex-col gap-2 p-4 transition hover:shadow-card-hover">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: "easeOut", delay: indice * 0.06 }}
+      whileHover={{ y: -2 }}
+    >
+    <Card className="flex h-full flex-col gap-2 p-4 transition-shadow hover:shadow-card-hover">
       <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/50">{label}</span>
       <span className="font-display text-[28px] font-bold leading-none tracking-tight tabular-nums text-ink">{valor}</span>
       <SeloDelta delta={delta} />
       {contexto && <span className="text-xs leading-snug text-ink/50">{contexto}</span>}
     </Card>
+    </motion.div>
+  );
+}
+
+// Barra que cresce de 0 até a largura final ao aparecer.
+function BarraAnimada({ largura, className, atraso = 0 }: { largura: number; className: string; atraso?: number }) {
+  return (
+    <motion.i
+      className={cn("block h-full", className)}
+      initial={{ width: 0 }}
+      animate={{ width: `${Math.max(0, Math.min(100, largura))}%` }}
+      transition={{ duration: 0.6, ease: "easeOut", delay: atraso }}
+    />
   );
 }
 
 // Card interno do "Precisa de atenção": fundo destacado + ícone no título.
 function BlocoAtencao({ icone: Icone, titulo, children }: { icone: LucideIcon; titulo: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-3 rounded-2xl bg-sand-surface p-4 shadow-card ring-1 ring-sand-line">
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+      className="flex flex-col gap-3 rounded-2xl bg-sand-surface p-4 shadow-card ring-1 ring-sand-line transition-shadow hover:shadow-card-hover"
+    >
       <div className="flex items-center gap-2.5">
         <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-forest-500/10 text-forest-600 dark:text-forest-300">
           <Icone size={16} />
@@ -105,7 +131,7 @@ function BlocoAtencao({ icone: Icone, titulo, children }: { icone: LucideIcon; t
         <h3 className="text-[13.5px] font-bold text-ink">{titulo}</h3>
       </div>
       {children}
-    </div>
+    </motion.div>
   );
 }
 
@@ -180,8 +206,8 @@ export function PrecisaAtencao({
               >
                 <span className="truncate text-ink" title={r.atendente}>{r.atendente.split(" ").slice(0, 2).join(" ")}</span>
                 <span className="flex h-2.5 overflow-hidden rounded-full bg-sand-subtle">
-                  <i className="block h-full bg-rust-500" style={{ width: `${(r.parados_48h / maxAbertos) * 100}%` }} />
-                  <i className="block h-full bg-forest-500" style={{ width: `${((r.abertos - r.parados_48h) / maxAbertos) * 100}%` }} />
+                  <BarraAnimada className="bg-rust-500" largura={(r.parados_48h / maxAbertos) * 100} />
+                  <BarraAnimada className="bg-forest-500" largura={((r.abertos - r.parados_48h) / maxAbertos) * 100} atraso={0.15} />
                 </span>
                 <span className="text-right tabular-nums text-ink/50"><b className="text-ink">{fmtNum(r.abertos)}</b> · {fmtNum(r.parados_48h)}</span>
               </button>
@@ -198,7 +224,7 @@ export function PrecisaAtencao({
               <div key={f.canal} className="grid grid-cols-[76px_1fr_56px] items-center gap-2.5 text-[12.5px]">
                 <span className="text-ink">{nomeCanal(f.canal)}</span>
                 <span className="h-3.5 overflow-hidden rounded-full bg-sand-subtle">
-                  <i className="block h-full bg-forest-500" style={{ width: `${Math.min(100, f.taxa ?? 0)}%` }} />
+                  <BarraAnimada className="bg-forest-500" largura={f.taxa ?? 0} />
                 </span>
                 <span className="text-right font-semibold tabular-nums text-ink">{fmtPct1(f.taxa)}</span>
               </div>

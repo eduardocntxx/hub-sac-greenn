@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { MotionConfig, motion } from "framer-motion";
 import { Lock, AlertTriangle, PhoneCall, Search, ExternalLink, Info, X, SlidersHorizontal, Download, Star, StarOff } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -636,6 +637,9 @@ export default function Performance() {
   const totalPages = atendimentos ? Math.ceil(atendimentos.count / PAGE_SIZE) : 0;
 
   return (
+    // reducedMotion="user": quem pediu "reduzir movimento" no sistema vê as
+    // telas sem animação.
+    <MotionConfig reducedMotion="user">
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -769,30 +773,35 @@ export default function Performance() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <SaudeKpi
               label="Chamados"
+              indice={0}
               valor={fmtNum(contagem?.total_chamados)}
               delta={deltaPercentual(contagem?.total_chamados, contagemAnterior?.total_chamados, false)}
               contexto={contagem ? `em ${fmtNum(contagem.total_conversas)} conversas` : undefined}
             />
             <SaudeKpi
               label="Conversas resolvidas"
+              indice={1}
               valor={fmtNum(reaberturaKpi?.total_resolvidos)}
               delta={deltaPercentual(reaberturaKpi?.total_resolvidos, reaberturaKpiAnterior?.total_resolvidos, false)}
               contexto={reaberturaKpi && contagem && contagem.total_conversas > 0 ? `${fmtPct1((reaberturaKpi.total_resolvidos / contagem.total_conversas) * 100)} das conversas do período` : undefined}
             />
             <SaudeKpi
               label="CSAT · avaliações boas"
+              indice={2}
               valor={fmtPct1(csatBoasPct)}
               delta={deltaPontos(csatBoasPct, csatBoasPctAnterior, false)}
               contexto={csatDist ? `${fmtNum(csatDist.boas)} de ${fmtNum(csatDist.total)} avaliações (nota 4–5)` : undefined}
             />
             <SaudeKpi
               label="1ª resposta · mediana"
+              indice={3}
               valor={formatDuration(velocidadeKpi?.tfr_p50_uteis_seg ?? null)}
               delta={deltaPercentual(velocidadeKpi?.tfr_p50_uteis_seg, velocidadeKpiAnterior?.tfr_p50_uteis_seg, true, (v) => formatDuration(v))}
               contexto="horas úteis, 1ª resposta humana"
             />
             <SaudeKpi
               label="Reabertura"
+              indice={4}
               valor={fmtPct1(reaberturaKpi?.taxa_pct)}
               delta={deltaPontos(reaberturaKpi?.taxa_pct, reaberturaKpiAnterior?.taxa_pct, true)}
               contexto={reaberturaKpi ? `${fmtNum(reaberturaKpi.total_reabertos)} de ${fmtNum(reaberturaKpi.total_resolvidos)} conversas resolvidas` : undefined}
@@ -822,17 +831,30 @@ export default function Performance() {
                 aria-selected={subAba === valor}
                 onClick={() => setSubAba(valor)}
                 className={cn(
-                  "-mb-px border-b-2 px-3.5 py-2.5 text-[13.5px] font-semibold transition",
-                  subAba === valor ? "border-forest-500 text-ink" : "border-transparent text-ink/50 hover:text-ink"
+                  "relative px-3.5 py-2.5 text-[13.5px] font-semibold transition-colors",
+                  subAba === valor ? "text-ink" : "text-ink/50 hover:text-ink"
                 )}
               >
                 {rotulo}
+                {subAba === valor && (
+                  <motion.span
+                    layoutId="overview-subaba"
+                    transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                    className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-forest-500"
+                  />
+                )}
               </button>
             ))}
           </div>
 
           {subAba === "pessoas" && (
-            <div className="space-y-8">
+            <motion.div
+              key="pessoas"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+              className="space-y-8"
+            >
             {iaEntry && (
               <div>
                 <h2 className="mb-3 font-display text-[15px] font-bold text-ink">Bot (IA Greenn)</h2>
@@ -1010,11 +1032,17 @@ export default function Performance() {
               nenhuma direção. Clique numa linha com posse pra ver os chamados específicos.
             </p>
 
-            </div>
+            </motion.div>
           )}
 
           {subAba === "velocidade" && (
-            <div className="space-y-8">
+            <motion.div
+              key="velocidade"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+              className="space-y-8"
+            >
             <div>
               <div className="mb-3 flex items-center gap-2">
                 <h2 className="font-display text-[15px] font-bold text-ink">Velocidade</h2>
@@ -1177,11 +1205,17 @@ export default function Performance() {
               </Card>
             </div>
 
-            </div>
+            </motion.div>
           )}
 
           {subAba === "qualidade" && (
-            <div className="space-y-8">
+            <motion.div
+              key="qualidade"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+              className="space-y-8"
+            >
             <div>
               <SecaoHead
                 titulo="CSAT"
@@ -1413,11 +1447,17 @@ export default function Performance() {
               )}
             </div>
 
-            </div>
+            </motion.div>
           )}
 
           {subAba === "fluxo" && (
-            <div className="space-y-8">
+            <motion.div
+              key="fluxo"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+              className="space-y-8"
+            >
             <div>
               <h2 className="mb-3 font-display text-[15px] font-bold text-ink">Transferências</h2>
               {loadingTransferencias ? (
@@ -1632,7 +1672,7 @@ export default function Performance() {
               )}
             </div>
 
-            </div>
+            </motion.div>
           )}
 
           {explicacaoVelocidadeAberta && (
@@ -2154,5 +2194,6 @@ export default function Performance() {
         </>
       )}
     </div>
+    </MotionConfig>
   );
 }
