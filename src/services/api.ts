@@ -1127,6 +1127,12 @@ export interface MigracoesResumo {
   aguardando: number;
   cancelados: number;
   total: number;
+  // SLA vem de `v_ticket_sla` (Centralização) — "na" (sem SLA ativo,
+  // geralmente ticket já finalizado/cancelado) não entra aqui de propósito,
+  // só os 3 estados que importam pra quem ainda está em aberto.
+  sla_ok: number;
+  sla_risco: number;
+  sla_atrasado: number;
 }
 
 export async function fetchMigracoesResumo(inicio: Date, fim: Date): Promise<MigracoesResumo | null> {

@@ -510,12 +510,13 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
       .sort((a, b) => (b.csat_medio ?? 0) - (a.csat_medio ?? 0))
       .slice(0, 10);
     if (linhas.length > 0) {
-      const slide = slideBase("CSAT por atendente", "Nota média e volume de avaliações no período.");
+      const slide = slideBase("CSAT por atendente", "Nota média, volume de avaliações e chamados atendidos no período.");
       const linhasTabela: PptxGenJS.TableRow[] = [
         [
           { text: "Atendente", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 11, fontFace: FONT_BODY } },
           { text: "Nota média", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 11, align: "right", fontFace: FONT_BODY } },
           { text: "Avaliações", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 11, align: "right", fontFace: FONT_BODY } },
+          { text: "Chamados", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 11, align: "right", fontFace: FONT_BODY } },
         ],
         ...linhas.map((c, i) => {
           const zebra = i % 2 === 1 ? COR.cardBg2 : COR.cardBg;
@@ -523,10 +524,11 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
             { text: c.operator_nome, options: { color: COR.ink, fontSize: 11, fill: { color: zebra }, fontFace: FONT_BODY } },
             { text: (c.csat_medio ?? 0).toFixed(2).replace(".", ","), options: { color: COR.inkSoft, fontSize: 11, align: "right" as const, fill: { color: zebra }, fontFace: FONT_BODY } },
             { text: String(c.total_avaliacoes), options: { color: COR.inkSoft, fontSize: 11, align: "right" as const, fill: { color: zebra }, fontFace: FONT_BODY } },
+            { text: fmtNum(c.total_atendimentos), options: { color: COR.inkSoft, fontSize: 11, align: "right" as const, fill: { color: zebra }, fontFace: FONT_BODY } },
           ];
         }),
       ];
-      tabelaArredondada(slide, MX, 2.1, CW, linhasTabela, [CW - 3.2, 1.6, 1.6], [0.4, ...linhas.map(() => 0.4)]);
+      tabelaArredondada(slide, MX, 2.1, CW, linhasTabela, [CW - 4.5, 1.5, 1.5, 1.5], [0.4, ...linhas.map(() => 0.4)]);
     }
   }
 
@@ -616,6 +618,15 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
         slide.addText(p.plataforma.toUpperCase(), { x: x + 0.12, y: y + 0.14, w: w - 0.24, h: 0.6, fontSize: 8, bold: true, color: COR.inkSoft, fontFace: FONT_BODY, valign: "top" });
         slide.addText(fmtNum(p.total), { x: x + 0.12, y: y + 0.66, w: w - 0.24, h: 0.4, fontSize: 18, bold: true, color: COR.mint, fontFace: FONT_DISPLAY });
       });
+    }
+    // SLA (v_ticket_sla, Centralização) — geral, sem detalhar por ticket.
+    // "na" (sem SLA ativo, geralmente já finalizado/cancelado) fica de fora
+    // de propósito, só interessa quem ainda tem prazo correndo.
+    if (A.migracoes) {
+      slide.addText(
+        `SLA: ${fmtNum(A.migracoes.sla_ok)} dentro do prazo  ·  ${fmtNum(A.migracoes.sla_risco)} em risco  ·  ${fmtNum(A.migracoes.sla_atrasado)} atrasados`,
+        { x: MX, y: 6.35, w: CW, h: 0.4, fontSize: 10.5, bold: true, color: A.migracoes.sla_atrasado > 0 ? COR.rust : COR.inkSoft, fontFace: FONT_BODY }
+      );
     }
   }
 
