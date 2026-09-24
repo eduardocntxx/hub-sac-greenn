@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MotionConfig, motion } from "framer-motion";
-import { Lock, AlertTriangle, PhoneCall, Search, ExternalLink, Info, X, SlidersHorizontal, Download, Star, StarOff } from "lucide-react";
+import { AlertTriangle, Bot, PhoneCall, Search, ExternalLink, Info, X, SlidersHorizontal, Download, Star, StarOff } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -55,7 +55,6 @@ import { CsatDetalheDialog } from "@/components/CsatDetalheDialog";
 import type { DbCsatResult } from "@/types/database";
 import { SaudeKpi, PrecisaAtencao, SecaoHead, CsatRuinsDialog } from "@/pages/overview/OverviewBlocos";
 import { formatDuration } from "@/lib/formatDuration";
-import { formatDurationFromMinutes as formatMin } from "@/lib/formatDuration";
 import { cn, nomesCurtosDisambiguados } from "@/lib/utils";
 import { DateRangePopover } from "@/components/ui/DateRangePopover";
 import { exportAtendimentosToCsv } from "@/lib/exportCsv";
@@ -83,13 +82,6 @@ const DIRECAO_PADRAO: Record<OrdenarCampo, "asc" | "desc"> = {
   tempo_resolucao: "desc",
 };
 
-// Mesma linha do CSAT: verde (bom) / amarelo (médio) / vermelho (ruim).
-function corTextoCsat(nota: number | null | undefined) {
-  if (nota === null || nota === undefined) return "text-ink/70";
-  if (nota >= 4.5) return "text-forest-600";
-  if (nota >= 3.5) return "text-amber-600";
-  return "text-rust-500";
-}
 
 function corTextoSla(pct: number | null | undefined) {
   if (pct === null || pct === undefined) return "text-ink/70";
@@ -104,12 +96,27 @@ function corTextoSla(pct: number | null | undefined) {
 type RankingCampo = "total_atendimentos" | "total_interacoes" | "total_mensagens" | "tfr_medio" | "tempo_resolucao_medio" | "csat_medio" | "total_avaliacoes";
 type MotivoCampo = "chamados" | "tfr_media_seg" | "ttr_media_seg";
 
+// Tempo em minutos, arredondado pra leitura rápida no ranking: "25min",
+// "4h 52min", "2d 3h".
+function tempoCurto(min: number | null | undefined): string {
+  if (min == null) return "—";
+  const m = Math.round(min);
+  if (m < 60) return `${m}min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return m % 60 ? `${h}h ${m % 60}min` : `${h}h`;
+  const d = Math.floor(h / 24);
+  return h % 24 ? `${d}d ${h % 24}h` : `${d}d`;
+}
+
 export default function Performance() {
   useRealtimeConversas();
   const { isAdmin } = useAuth();
-  const podeVer = isAdmin;
+  // Overview aberto a todo colaborador (2026-09-24): quem não é admin vê só
+  // a aba Dashboard; listas de conversas e clientes (aba Atendimentos, IA
+  // genérica, pop-ups de casos) continuam só pra admin — no banco também.
 
-  const [aba, setAba] = usePersistedState<"ranking" | "atendimentos" | "generico">("overview:aba", "ranking");
+  const [abaSalva, setAba] = usePersistedState<"ranking" | "atendimentos" | "generico">("overview:aba", "ranking");
+  const aba = isAdmin ? abaSalva : "ranking";
   // Toggle de horas úteis/corridas removido do Overview (pedido do usuário) —
   // Velocidade agora mostra os dois modos direto no card, sem precisar
   // escolher. O resto da página (Ranking, Motivo de contato, Transferências)
@@ -346,7 +353,7 @@ export default function Performance() {
   const { data: reaberturaCasos } = useQuery({
     queryKey: ["reabertura-casos", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchReaberturaCasos(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: !!reaberturaResumo && reaberturaResumo.total_reabertos > 0 && (subAba === "qualidade" || subAba === "pessoas"),
+    enabled: isAdmin && !!reaberturaResumo && reaberturaResumo.total_reabertos > 0 && subAba === "qualidade",
   });
 
   const { data: transferenciasResumo, isLoading: loadingTransferencias } = useQuery({
@@ -358,7 +365,7 @@ export default function Performance() {
   const { data: transferenciasCasos } = useQuery({
     queryKey: ["transferencias-casos", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchTransferenciasCasos(inicio, fim, undefined, modoTempo, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: !!transferenciasResumo && transferenciasResumo.total_transferidos > 0,
+    enabled: isAdmin && !!transferenciasResumo && transferenciasResumo.total_transferidos > 0,
   });
 
   const { data: fcrRecontato, isLoading: loadingFcr } = useQuery({
@@ -370,7 +377,7 @@ export default function Performance() {
   const { data: recontatoCasos } = useQuery({
     queryKey: ["recontato-casos", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchRecontatoCasos(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: !!fcrRecontato && fcrRecontato.total_recontato > 0,
+    enabled: isAdmin && !!fcrRecontato && fcrRecontato.total_recontato > 0,
   });
 
   // "IA genérica" — achado de uma auditoria qualitativa externa do SAC
@@ -396,7 +403,7 @@ export default function Performance() {
       ordenarPor: posseDetalheOrdenarPor, direcao: posseDetalheDirecao,
       status: posseDetalheSoAbertos ? "pending" : undefined,
     }),
-    enabled: !!posseDetalhe,
+    enabled: isAdmin && !!posseDetalhe,
   });
 
   const { data: backlogCasos, isLoading: loadingBacklogCasos } = useQuery({
@@ -413,7 +420,7 @@ export default function Performance() {
   const { data: ranking, isLoading } = useQuery({
     queryKey: ["atendente-performance", inicio, fim, modoTempo, tipoClienteFiltro],
     queryFn: () => fetchAtendentePerformance(inicio, fim, undefined, undefined, modoTempo, tipoClienteRpc),
-    enabled: waveDoisHabilitada && podeVer && naDashboard && subAba === "pessoas",
+    enabled: waveDoisHabilitada && naDashboard && subAba === "pessoas",
   });
 
   const [rankingOrdenarPor, setRankingOrdenarPor] = useState<RankingCampo | undefined>(undefined);
@@ -481,26 +488,9 @@ export default function Performance() {
   // Produtividade contextualizada na própria tabela de Ranking (não como
   // número isolado) — reaberturas/transferências por atendente, derivadas
   // dos casos já buscados pra Reabertura/Transferências.
-  const reaberturaPorAtendenteMap = useMemo(() => {
-    const mapa = new Map<string, number>();
-    (reaberturaCasos ?? []).filter((c) => c.atendente !== "IA Greenn").forEach((c) => {
-      const nome = c.atendente ?? "—";
-      mapa.set(nome, (mapa.get(nome) ?? 0) + 1);
-    });
-    return mapa;
-  }, [reaberturaCasos]);
-
-  const transferenciasOrigemMap = useMemo(() => {
-    const mapa = new Map<string, number>();
-    (transferenciasCasos ?? []).forEach((c) => {
-      const nome = c.origem ?? "—";
-      mapa.set(nome, (mapa.get(nome) ?? 0) + 1);
-    });
-    return mapa;
-  }, [transferenciasCasos]);
 
 
-  const iaPosse = posseMap.get("IA Greenn");
+
 
   const reaberturaPorMotivo = useMemo(() => {
     const mapa = new Map<string, number>();
@@ -610,7 +600,7 @@ export default function Performance() {
   const { data: atendimentos, isLoading: loadingAtendimentos } = useQuery({
     queryKey: ["atendimentos-metricas", filtrosAtendimentos, page],
     queryFn: () => fetchAtendimentosComMetricas({ ...filtrosAtendimentos, page, pageSize: PAGE_SIZE }),
-    enabled: podeVer && aba === "atendimentos",
+    enabled: isAdmin && aba === "atendimentos",
   });
 
   const [exportandoAtendimentos, setExportandoAtendimentos] = useState(false);
@@ -625,14 +615,6 @@ export default function Performance() {
     }
   }
 
-  if (!podeVer) {
-    return (
-      <Card className="flex items-center gap-3 p-5">
-        <Lock size={16} className="text-ink/40" />
-        <p className="text-sm text-ink/50">Você não tem a permissão "Analytics" para ver o Overview do time.</p>
-      </Card>
-    );
-  }
 
   const totalPages = atendimentos ? Math.ceil(atendimentos.count / PAGE_SIZE) : 0;
 
@@ -760,11 +742,13 @@ export default function Performance() {
               </div>
             )}
           </div>
-          <SegmentedControl
-            options={[["ranking", "Dashboard"], ["atendimentos", "Atendimentos"], ["generico", "IA genérica"]] as const}
-            value={aba}
-            onChange={setAba}
-          />
+          {isAdmin && (
+            <SegmentedControl
+              options={[["ranking", "Dashboard"], ["atendimentos", "Atendimentos"], ["generico", "IA genérica"]] as const}
+              value={aba}
+              onChange={setAba}
+            />
+          )}
         </div>
       </div>
 
@@ -818,8 +802,8 @@ export default function Performance() {
             funil={funilLinhas}
             backlog={backlog ?? []}
             filtroAtivo={atendenteNomes.length > 0}
-            onAbrirBacklog={(faixa) => { setBacklogFaixaAberta(faixa); setBacklogPage(0); }}
-            onAbrirAtendente={(nome) => { setPosseDetalheSoAbertos(true); setPosseDetalhe(nome); setPosseDetalhePage(0); }}
+            onAbrirBacklog={isAdmin ? (faixa) => { setBacklogFaixaAberta(faixa); setBacklogPage(0); } : undefined}
+            onAbrirAtendente={isAdmin ? (nome) => { setPosseDetalheSoAbertos(true); setPosseDetalhe(nome); setPosseDetalhePage(0); } : undefined}
           />
 
           <div className="flex flex-wrap gap-1 border-b border-sand-line" role="tablist" aria-label="Detalhe do Dashboard">
@@ -855,182 +839,131 @@ export default function Performance() {
               transition={{ duration: 0.25, ease: "easeOut" }}
               className="space-y-8"
             >
-            {iaEntry && (
-              <div>
-                <h2 className="mb-3 font-display text-[15px] font-bold text-ink">Bot (IA Greenn)</h2>
-                <Card
-                  onClick={() => { setPosseDetalheSoAbertos(false); setPosseDetalhe("IA Greenn"); setPosseDetalhePage(0); }}
-                  className="flex cursor-pointer flex-wrap items-center gap-6 border-sky-400/30 bg-sky-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
-                >
+            {/* Layout do design Verdee (Claude Design, 2026-09-24): ranking
+                enxuto à esquerda; bot e volume por pessoa à direita. */}
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)]">
+              <Card className="overflow-hidden">
+                <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-4">
                   <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Chamados</p>
-                    <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{iaEntry.total_atendimentos}</p>
+                    <h2 className="font-display text-[15px] font-bold text-ink">Ranking de atendentes</h2>
+                    <p className="mt-0.5 text-[12.5px] text-ink/50">Humanos por chamados no período · tempos em horas úteis</p>
                   </div>
-                  {tempoRespostaBot && tempoRespostaBot.amostras > 0 && (
-                    <div>
-                      <p
-                        className="text-xs font-medium uppercase tracking-wide text-ink/40"
-                        title="Mediana, não média — poucas conversas retomadas dias depois (reabertura, ou o início registrado não sendo exatamente quando o cliente mandou a mensagem que o bot respondeu) distorceriam muito uma média simples"
-                      >
-                        Tempo até 1ª resposta (típico)
-                      </p>
-                      <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{formatDuration(tempoRespostaBot.tempo_medio_seg)}</p>
-                      <p className="mt-1 text-[11px] text-ink/40">{tempoRespostaBot.amostras} amostras</p>
-                    </div>
-                  )}
-                  {iaEntry.csat_medio !== null && (
-                    <div>
-                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">CSAT médio</p>
-                      <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoCsat(iaEntry.csat_medio))}>{iaEntry.csat_medio.toFixed(1)}</p>
-                    </div>
-                  )}
-                  {iaPosse && (
-                    <div>
-                      <p
-                        className="text-xs font-medium uppercase tracking-wide text-ink/40"
-                        title="Só conta posse através de evento real de roteamento — e o marcador sintético do bot (usado como 'atendente atual' na maioria dos chamados) nunca gera esse evento. Então isso reflete quase só a conta real do bot na Crisp (allan@gdigital.com.br), que quase nunca fica como atendente atual — por isso pode divergir bastante de 'Atendimentos', pra mais ou pra menos"
-                      >
-                        Chamados c/ posse
-                      </p>
-                      <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{iaPosse.chamados}</p>
-                    </div>
-                  )}
-                </Card>
-                <p className="mt-2 text-xs text-ink/40">
-                  Separado do ranking humano — TFR e tempo de resolução não fazem sentido pro bot (ele não "responde
-                  como humano" nem "resolve" no sentido usado ali). "Chamados" conta chamados onde o bot é o
-                  atendente registrado agora — quase sempre via um marcador sintético que nunca passa por roteamento
-                  real. "Chamados c/ posse" só existe através de roteamento real, que esse marcador nunca gera — então
-                  vem quase inteiramente da conta de verdade do bot na Crisp, que raramente é quem fica registrado como
-                  atendente atual. São duas fontes praticamente sem sobreposição, não um subconjunto uma da outra — por
-                  isso os números podem divergir bastante (não é erro).
-                </p>
-              </div>
-            )}
-
-            <div className="flex items-center gap-2">
-              <h2 className="font-display text-[15px] font-bold text-ink">Ranking de atendentes</h2>
-              <button
-                type="button"
-                onClick={() => setExplicacaoVelocidadeAberta(true)}
-                className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-ink/50 hover:bg-sand-bg hover:text-ink"
-              >
-                <Info size={13} /> ver mais
-              </button>
-            </div>
-            {isLoading ? (
-              <p className="text-sm text-ink/50">Carregando...</p>
-            ) : !ranking || ranking.length === 0 ? (
-              <p className="text-sm text-ink/50">Sem atendimentos neste período/filtro.</p>
-            ) : (
-              <Card className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
-                    <tr>
-                      <th className="px-4 py-3 text-left font-medium">Atendente</th>
-                      <SortableHeader align="center" field="total_atendimentos" label="Chamados" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
-                      <SortableHeader
-                        align="center"
-                        field="total_interacoes"
-                        label="Interações"
-                        ordenarPor={rankingOrdenarPor}
-                        direcao={rankingDirecao}
-                        onSort={ordenarRankingPorColuna}
-                        title="Quantos chamados o atendente mandou mensagem no período — inclui chamados que começaram antes do período mas em que ele trabalhou dentro dele. Diferente de 'Chamados', que só conta ciclo novo iniciado no período."
-                      />
-                      <SortableHeader
-                        align="center"
-                        field="total_mensagens"
-                        label="Mensagens"
-                        ordenarPor={rankingOrdenarPor}
-                        direcao={rankingDirecao}
-                        onSort={ordenarRankingPorColuna}
-                        title="Total de mensagens enviadas pelo atendente no período (soma de todas as conversas, não só 1 por chamado)."
-                      />
-                      <SortableHeader align="center" field="tfr_medio" label="TFR médio" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
-                      <SortableHeader align="center" field="tempo_resolucao_medio" label="Tempo médio de resolução" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
-                      <SortableHeader align="center" field="csat_medio" label="CSAT médio" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
-                      <SortableHeader align="center" field="total_avaliacoes" label="Avaliações" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
-                      <th className="px-4 py-3 font-medium">Tempo de posse</th>
-                      <th
-                        className="px-4 py-3 font-medium"
-                        title="Só conta posse ATIVA — trechos em que o chamado já está com status resolvido não entram aqui, mesmo esse chamado continuando contando em 'Chamados'. Por isso costuma ser MENOR que 'Chamados', não maior, apesar do nome sugerir 'todo chamado que passou pela pessoa'."
-                      >
-                        Chamados c/ posse
-                      </th>
-                      <th className="px-4 py-3 font-medium">Posse média</th>
-                      <th className="px-4 py-3 font-medium" title="Atendimentos ÷ horas de posse — produtividade só faz sentido lida junto com CSAT/TFR/reabertura ao lado">Atend./hora</th>
-                      <th
-                        className="px-4 py-3 font-medium"
-                        title="Quantidade de EVENTOS de reabertura atribuídos a esse atendente no período — não é por chamado (um chamado que reabre 3 vezes conta 3 aqui). Não inclui o bot."
-                      >
-                        Reaberturas
-                      </th>
-                      <th className="px-4 py-3 font-medium">Transferências</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(rankingOrdenado ?? []).map((r) => {
-                      const p = posseMap.get(r.operator_nome);
-                      const horasPosse = p ? p.minutos_posse / 60 : 0;
-                      const atendPorHora = p && horasPosse > 0 ? r.total_atendimentos / horasPosse : null;
-                      return (
-                        <tr
-                          key={r.operator_email ?? r.operator_nome}
-                          onClick={p ? () => { setPosseDetalheSoAbertos(false); setPosseDetalhe(r.operator_nome); setPosseDetalhePage(0); } : undefined}
-                          className={cn(
-                            "border-t border-sand-line text-center transition-all",
-                            p && "relative cursor-pointer hover:relative hover:z-10 hover:scale-[1.01] hover:bg-sand-surface hover:shadow-card-hover"
-                          )}
-                        >
-                          <td className="px-4 py-3 text-left font-medium text-ink">{r.operator_nome}</td>
-                          <td className="px-4 py-3 text-ink/70">{r.total_atendimentos}</td>
-                          <td className="px-4 py-3 text-ink/70">{r.total_interacoes}</td>
-                          <td className="px-4 py-3 text-ink/70">{r.total_mensagens}</td>
-                          <td className="px-4 py-3 text-ink/70">{formatMin(r.tfr_medio)}</td>
-                          <td className="px-4 py-3 text-ink/70">{formatMin(r.tempo_resolucao_medio)}</td>
-                          <td className={cn("px-4 py-3 font-semibold", corTextoCsat(r.csat_medio))}>{r.csat_medio?.toFixed(1) ?? "—"}</td>
-                          <td className="px-4 py-3 text-ink/70">{r.total_avaliacoes}</td>
-                          <td className="px-4 py-3 text-ink/70">{p ? formatDuration(p.minutos_posse * 60) : "—"}</td>
-                          <td className="px-4 py-3 text-ink/70">{p ? p.chamados : "—"}</td>
-                          <td className="px-4 py-3 text-ink/70">{p ? formatDuration((p.minutos_posse / p.chamados) * 60) : "—"}</td>
-                          <td className="px-4 py-3 text-ink/70">{atendPorHora !== null ? atendPorHora.toFixed(1) : "—"}</td>
-                          <td className="px-4 py-3 text-ink/70">{reaberturaPorAtendenteMap.get(r.operator_nome) ?? 0}</td>
-                          <td className="px-4 py-3 text-ink/70">{transferenciasOrigemMap.get(r.operator_nome) ?? 0}</td>
+                  <button
+                    type="button"
+                    onClick={() => setExplicacaoVelocidadeAberta(true)}
+                    aria-label="O que significam esses números"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-sand-line-strong text-xs font-bold text-ink/50 transition hover:text-ink"
+                  >
+                    ?
+                  </button>
+                </div>
+                {isLoading ? (
+                  <p className="px-5 pb-5 text-sm text-ink/50">Carregando...</p>
+                ) : !rankingOrdenado || rankingOrdenado.length === 0 ? (
+                  <p className="px-5 pb-5 text-sm text-ink/50">Sem atendimentos neste período/filtro.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-sand-subtle text-[11px] uppercase tracking-wide text-ink/50">
+                        <tr>
+                          <th className="px-5 py-3 text-left font-semibold">Atendente</th>
+                          <SortableHeader align="center" field="total_atendimentos" label="Chamados" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
+                          <SortableHeader align="center" field="tfr_medio" label="1ª resposta" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
+                          <SortableHeader align="center" field="tempo_resolucao_medio" label="Resolução" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
+                          <SortableHeader align="center" field="csat_medio" label="CSAT" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
+                          <SortableHeader align="center" field="total_avaliacoes" label="Avaliações" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                      </thead>
+                      <tbody>
+                        {rankingOrdenado.map((r, i) => {
+                          const iniciais = r.operator_nome.split(" ").filter(Boolean).slice(0, 2).map((n) => n[0]).join("").toUpperCase();
+                          const clicavel = isAdmin && posseMap.has(r.operator_nome);
+                          return (
+                            <motion.tr
+                              key={r.operator_email ?? r.operator_nome}
+                              initial={{ opacity: 0, y: 6 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ duration: 0.25, ease: "easeOut", delay: Math.min(i, 10) * 0.03 }}
+                              onClick={clicavel ? () => { setPosseDetalheSoAbertos(false); setPosseDetalhe(r.operator_nome); setPosseDetalhePage(0); } : undefined}
+                              className={cn("border-t border-sand-line text-center", clicavel && "cursor-pointer transition-colors hover:bg-sand-subtle")}
+                            >
+                              <td className="px-5 py-3 text-left">
+                                <span className="flex items-center gap-2.5 font-semibold text-ink">
+                                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-forest-100 text-[11px] font-bold text-forest-700 dark:bg-forest-500/15 dark:text-forest-300">
+                                    {iniciais}
+                                  </span>
+                                  {r.operator_nome}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 font-semibold tabular-nums text-ink">{r.total_atendimentos.toLocaleString("pt-BR")}</td>
+                              <td className="px-4 py-3 tabular-nums text-ink/70">{tempoCurto(r.tfr_medio)}</td>
+                              <td className="px-4 py-3 tabular-nums text-ink/70">{tempoCurto(r.tempo_resolucao_medio)}</td>
+                              <td className={cn("px-4 py-3 font-semibold tabular-nums", r.csat_medio != null && r.csat_medio >= 4.5 ? "text-forest-600 dark:text-forest-300" : "text-ink")}>
+                                {r.csat_medio != null ? r.csat_medio.toFixed(2).replace(".", ",") : "—"}
+                              </td>
+                              <td className="px-4 py-3 tabular-nums text-ink/70">{r.total_avaliacoes}</td>
+                            </motion.tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </Card>
-            )}
-            <p className="text-xs text-ink/40">
-              Produtividade (atendimentos/hora, reaberturas, transferências) fica nesta mesma tabela de propósito — o
-              documento de referência pede pra nunca usar volume isolado como métrica de performance, sempre junto com
-              CSAT/TFR/reabertura ao lado. "Tempo de trabalho ativo" por pessoa segue com a mesma limitação do card
-              homônimo em Relógios: o Crisp não expõe presença real, só o horário cadastrado.
-            </p>
 
-            {rankingHumano && rankingHumano.length > 0 && (
-              <Card className="p-4">
-                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Volume de atendimentos por pessoa</p>
-                <HorizontalBarChart
-                  data={(() => {
-                    const ordenado = [...rankingHumano].sort((a, b) => b.total_atendimentos - a.total_atendimentos);
-                    const rotulos = nomesCurtosDisambiguados(ordenado.map((r) => r.operator_nome));
-                    return ordenado.map((r, i) => ({ label: rotulos[i], value: r.total_atendimentos }));
-                  })()}
-                  getColorClass={() => "bg-forest-500"}
-                />
-              </Card>
-            )}
-            <p className="text-xs text-ink/40">
-              "Chamados" conta onde a pessoa é a atendente registrada agora, não importa o status. "Chamados c/ posse"
-              só conta posse ATIVA — um chamado já resolvido some daqui mesmo continuando em "Chamados", por isso esse
-              número costuma ser MENOR (não maior, apesar do nome). Ele também inclui trechos em que a pessoa segurou o
-              chamado antes de repassar pra outra pessoa (handoff) — então os dois números nunca precisam bater, em
-              nenhuma direção. Clique numa linha com posse pra ver os chamados específicos.
-            </p>
+              <div className="flex flex-col gap-4">
+                {iaEntry && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.35, ease: "easeOut", delay: 0.1 }}
+                    onClick={isAdmin ? () => { setPosseDetalheSoAbertos(false); setPosseDetalhe("IA Greenn"); setPosseDetalhePage(0); } : undefined}
+                    className={cn("flex flex-col gap-4 rounded-2xl bg-forest-900 p-5 text-white shadow-card", isAdmin && "cursor-pointer transition-transform hover:-translate-y-0.5")}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-forest-500">
+                        <Bot size={16} />
+                      </span>
+                      <span className="font-display text-[15px] font-bold">Bot (IA Greenn)</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-3">
+                      <div>
+                        <p className="text-[11px] text-forest-300">Chamados</p>
+                        <p className="font-display text-2xl font-bold tabular-nums">{iaEntry.total_atendimentos.toLocaleString("pt-BR")}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-forest-300">1ª resposta (mediana)</p>
+                        <p className="font-display text-2xl font-bold tabular-nums">{tempoRespostaBot && tempoRespostaBot.amostras > 0 ? formatDuration(tempoRespostaBot.tempo_medio_seg) : "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-forest-300">CSAT</p>
+                        <p className="font-display text-2xl font-bold tabular-nums">{iaEntry.csat_medio != null ? iaEntry.csat_medio.toFixed(2).replace(".", ",") : "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-forest-300">Avaliações</p>
+                        <p className="font-display text-2xl font-bold tabular-nums">{iaEntry.total_avaliacoes}</p>
+                      </div>
+                    </div>
+                    <p className="text-xs leading-relaxed text-forest-200">Separado do ranking: responde em segundos e atende boa parte do volume.</p>
+                  </motion.div>
+                )}
+
+                {rankingHumano && rankingHumano.length > 0 && (
+                  <Card className="p-5">
+                    <p className="mb-3 font-display text-sm font-bold text-ink">Volume por pessoa</p>
+                    <HorizontalBarChart
+                      data={(() => {
+                        const ordenado = [...rankingHumano].sort((a, b) => b.total_atendimentos - a.total_atendimentos).slice(0, 6);
+                        const rotulos = nomesCurtosDisambiguados(ordenado.map((r) => r.operator_nome));
+                        return ordenado.map((r, i) => ({ label: rotulos[i], value: r.total_atendimentos }));
+                      })()}
+                      getColorClass={() => "bg-forest-500"}
+                      labelWidth={80}
+                    />
+                  </Card>
+                )}
+              </div>
+            </div>
 
             </motion.div>
           )}
@@ -1232,15 +1165,15 @@ export default function Performance() {
                     <p className="text-xs text-ink/50">{fmtPct1(csatBoasPct)} das avaliações</p>
                   </Card>
                   <Card
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setRuinsAberto(true)}
-                    onKeyDown={(e) => { if (e.key === "Enter") setRuinsAberto(true); }}
-                    className="cursor-pointer p-4 transition hover:-translate-y-0.5 hover:shadow-card-hover"
+                    role={isAdmin ? "button" : undefined}
+                    tabIndex={isAdmin ? 0 : undefined}
+                    onClick={isAdmin ? () => setRuinsAberto(true) : undefined}
+                    onKeyDown={isAdmin ? (e) => { if (e.key === "Enter") setRuinsAberto(true); } : undefined}
+                    className={cn("p-4", isAdmin && "cursor-pointer transition hover:-translate-y-0.5 hover:shadow-card-hover")}
                   >
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/50">Ruins (1–3)</p>
                     <p className="mt-1 font-display text-kpi-lg font-bold tabular-nums text-rust-500">{fmtNum(csatDist.ruins)}</p>
-                    <p className="text-xs font-semibold text-forest-700 dark:text-forest-300">Ver comentários e chamados →</p>
+                    {isAdmin && <p className="text-xs font-semibold text-forest-700 dark:text-forest-300">Ver comentários e chamados →</p>}
                   </Card>
                 </div>
               )}
@@ -1937,7 +1870,7 @@ export default function Performance() {
             </Dialog>
           )}
           {detalhe && <AtendimentoDetalheDialog atendimento={detalhe} onClose={() => setDetalhe(null)} />}
-          {ruinsAberto && (
+          {isAdmin && ruinsAberto && (
             <CsatRuinsDialog avaliacoes={csatRuins} carregando={loadingCsatRuins} onClose={() => setRuinsAberto(false)} onAbrirDetalhe={setCsatDetalhe} />
           )}
           {csatDetalhe && <CsatDetalheDialog registro={csatDetalhe} onClose={() => setCsatDetalhe(null)} />}

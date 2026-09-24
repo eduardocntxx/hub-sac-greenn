@@ -5,7 +5,6 @@ import {
   LayoutDashboard,
   TrendingUp,
   Target,
-  BarChart3,
   ClipboardList,
   GraduationCap,
   BookOpen,
@@ -32,7 +31,7 @@ const sacItems = [
   { to: "/", label: "Meu Painel", icon: LayoutDashboard, end: true },
   { to: "/missoes", label: "Missões", icon: Target },
   { to: "/reuniao-resultados", label: "Reunião de Resultados", icon: ClipboardList },
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
+  { to: "/performance", label: "Overview", icon: TrendingUp },
   { to: "/cursos", label: "Cursos", icon: GraduationCap },
   { to: "/documentacao", label: "Documentação", icon: BookOpen },
   { to: "/atualizacoes", label: "Atualizações", icon: Megaphone },
@@ -141,7 +140,6 @@ export function Sidebar() {
         {isAdmin && (
           <>
             <SectionLabel collapsed={collapsed}>Área de Administradores</SectionLabel>
-            <NavItem to="/performance" label="Overview" icon={TrendingUp} collapsed={collapsed} />
             <NavItem to="/admin" label="Configurações da plataforma" icon={Settings} collapsed={collapsed} highlight />
           </>
         )}

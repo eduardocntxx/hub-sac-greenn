@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { AppLayout } from "@/layouts/AppLayout";
@@ -24,7 +24,6 @@ const Performance = lazyWithRetry(() => import("@/pages/Performance"));
 const Helpdesks = lazyWithRetry(() => import("@/pages/Helpdesks"));
 const Calendario = lazyWithRetry(() => import("@/pages/Calendario"));
 const Missoes = lazyWithRetry(() => import("@/pages/Missoes"));
-const Analytics = lazyWithRetry(() => import("@/pages/Analytics"));
 const ReuniaoResultados = lazyWithRetry(() => import("@/pages/ReuniaoResultados"));
 const Cursos = lazyWithRetry(() => import("@/pages/Cursos"));
 const Documentacao = lazyWithRetry(() => import("@/pages/Documentacao"));
@@ -65,7 +64,9 @@ export default function App() {
                 <Route index element={<MeuPainel />} />
                 <Route path="meu-painel" element={<MeuPainel />} />
                 <Route path="missoes" element={<Missoes />} />
-                <Route path="analytics" element={<Analytics />} />
+                {/* Analytics excluído em 2026-09-24; o Overview (aberto a todos) substitui. */}
+                <Route path="analytics" element={<Navigate to="/performance" replace />} />
+                <Route path="performance" element={<Performance />} />
                 <Route path="reuniao-resultados" element={<ReuniaoResultados />} />
                 <Route path="cursos" element={<Cursos />} />
                 <Route path="documentacao" element={<Documentacao />} />
@@ -73,9 +74,6 @@ export default function App() {
                 <Route path="outros-links" element={<OutrosLinks />} />
                 <Route path="perfil" element={<Perfil />} />
 
-                <Route element={<AdminOnlyRoute />}>
-                  <Route path="performance" element={<Performance />} />
-                </Route>
                 <Route path="helpdesks" element={<Helpdesks />} />
                 <Route path="calendario" element={<Calendario />} />
 

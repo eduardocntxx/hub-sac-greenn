@@ -154,8 +154,9 @@ export function PrecisaAtencao({
   funil: { canal: string; taxa: number | null; total: boolean; resolvidas: number; respondidas: number; conversas: number }[];
   backlog: BacklogFaixa[];
   filtroAtivo: boolean;
-  onAbrirBacklog: (faixa: string) => void;
-  onAbrirAtendente: (nome: string) => void;
+  // Sem callback (colaborador que não é admin): itens não clicáveis.
+  onAbrirBacklog?: (faixa: string) => void;
+  onAbrirAtendente?: (nome: string) => void;
 }) {
   const abertos = atendido.reduce((t, r) => t + r.abertos, 0);
   const parados = atendido.reduce((t, r) => t + r.parados_48h, 0);
@@ -170,7 +171,7 @@ export function PrecisaAtencao({
     <Card className="border-forest-500/30 bg-forest-500/[0.04] p-5">
       <SecaoHead
         titulo="Precisa de atenção"
-        subtitulo="O que está parado agora. Clique num atendente ou numa faixa pra ver as conversas."
+        subtitulo={onAbrirAtendente ? "O que está parado agora. Clique num atendente ou numa faixa pra ver as conversas." : "O que está parado agora."}
         ajuda={
           <>
             <p><b>Atendido e não resolvido:</b> conversas do período com resposta humana que continuam abertas, por dono atual. Sem resolução, o cliente não recebe a pesquisa de CSAT. Parado = sem mensagem nova há 48h.</p>
@@ -201,8 +202,9 @@ export function PrecisaAtencao({
               <button
                 key={r.atendente}
                 type="button"
-                onClick={() => onAbrirAtendente(r.atendente)}
-                className="grid grid-cols-[120px_1fr_70px] items-center gap-2.5 rounded-lg text-left text-[12.5px] transition hover:bg-sand-subtle"
+                disabled={!onAbrirAtendente}
+                onClick={() => onAbrirAtendente?.(r.atendente)}
+                className="grid grid-cols-[120px_1fr_70px] items-center gap-2.5 rounded-lg text-left text-[12.5px] transition enabled:hover:bg-sand-subtle disabled:cursor-default"
               >
                 <span className="truncate text-ink" title={r.atendente}>{r.atendente.split(" ").slice(0, 2).join(" ")}</span>
                 <span className="flex h-2.5 overflow-hidden rounded-full bg-sand-subtle">
@@ -247,8 +249,8 @@ export function PrecisaAtencao({
               <button
                 key={b.faixa}
                 type="button"
-                disabled={b.total === 0}
-                onClick={() => onAbrirBacklog(b.faixa)}
+                disabled={b.total === 0 || !onAbrirBacklog}
+                onClick={() => onAbrirBacklog?.(b.faixa)}
                 className={cn(
                   "rounded-xl px-2.5 py-2 text-left transition enabled:hover:ring-1 enabled:hover:ring-sand-line-strong disabled:cursor-default",
                   b.faixa === "+7 dias" ? "bg-rust-500/10" : "bg-sand-subtle"
