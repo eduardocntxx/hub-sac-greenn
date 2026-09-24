@@ -24,25 +24,32 @@ const NOME_BOT = "IA Greenn";
 // chamada que usa esta constante) é limpa, sempre instalada com
 // Office/Windows (fonte segura, ver guia de PPTX) e não distorce em
 // nenhuma substituição de fonte.
-const FONT_DISPLAY = "Arial";
-const FONT_BODY = "Arial";
+// Verdee (guia de estilo da Greenn, 2026-09-24): Plus Jakarta Sans. Está no
+// Google Fonts e no Google Slides; no PowerPoint precisa estar instalada na
+// máquina, senão o Office troca por uma fonte padrão.
+const FONT_DISPLAY = "Plus Jakarta Sans";
+const FONT_BODY = "Plus Jakarta Sans";
 
 // Preto + verde-menta (referência "Tech News", 2026-09-22) — substituiu o
 // tema escuro com acento teal de 2026-09-04. Fundo mais preto de verdade
 // (era 121417), cards um tom acima do fundo, acento único (mint) em vez de
 // gradiente teal→forest — a referência é toda em blocos de cor chapada,
 // sem gradiente nenhum.
+// Verdee escuro (2026-09-24): fundo e cards na escala de verde-azulado
+// escuro do guia, acento verde-azulado claro (#64BFB8, da escala primária
+// #009488) legível tanto como texto no fundo escuro quanto como fundo sob
+// texto escuro (cabeçalho das tabelas, painel da capa).
 const COR = {
-  bg: "141414",
-  cardBg: "1E1E1E",
-  cardBg2: "252525", // linha alternada (zebra) das tabelas — só um tom acima de cardBg
-  cardBorder: "2E2E2E",
-  ink: "FFFFFF",
-  inkSoft: "B8B8B8",
-  inkFraco: "7A7A7A",
+  bg: "001816",
+  cardBg: "002320",
+  cardBg2: "002F2B", // linha alternada (zebra) das tabelas — só um tom acima de cardBg
+  cardBorder: "30625E",
+  ink: "E1F4F3",
+  inkSoft: "8FB1AE",
+  inkFraco: "5F8986",
   branco: "FFFFFF",
-  mint: "A8F5D0",
-  rust: "F1685F",
+  mint: "64BFB8",
+  rust: "FF6337",
 };
 
 // Tons de verde sorteados a cada exportação (pedido do usuário em
@@ -52,12 +59,9 @@ const COR = {
 // (`COR.bg`) do cabeçalho das tabelas continuar legível e pro texto em
 // cima do fundo preto ter contraste.
 const TONS_VERDE = [
-  "A8F5D0", // menta (o tom original)
-  "B6F09C", // verde-lima
-  "8FE8B4", // verde-água
-  "C5F5B0", // verde-claro
-  "7FDDA0", // esmeralda claro
-  "A3E8C8", // verde-sálvia
+  "64BFB8", // verde-azulado claro (Verdee)
+  "96D4CF", // verde-azulado mais claro (Verdee)
+  "5EC4B8", // entre os dois
 ];
 
 interface CardInfo {
@@ -287,7 +291,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
       A.rankingHumano[0] ? `${A.rankingHumano[0].operator_nome} lidera o ranking` : null,
     ].filter((t): t is string => t !== null);
     destaques.forEach((t, i) => {
-      slide.addText(t, { x: xMenta + 0.5, y: 1.75 + i * 0.55, w: larguraMenta - 1.0, h: 0.5, fontSize: 13, bold: true, color: "1A1A1A", fontFace: FONT_BODY });
+      slide.addText(t, { x: xMenta + 0.5, y: 1.75 + i * 0.55, w: larguraMenta - 1.0, h: 0.5, fontSize: 13, bold: true, color: COR.bg, fontFace: FONT_BODY });
     });
   }
 

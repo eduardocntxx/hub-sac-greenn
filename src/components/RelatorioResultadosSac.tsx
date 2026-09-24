@@ -19,15 +19,15 @@ const NOME_BOT = "IA Greenn";
 // via inline style (nunca a classe utilitária `font-display`/`font-mono`
 // do Tailwind, que aponta pra Sora desde o redesign do app em 2026-09-05).
 // Esse desacoplamento existe de propósito: este relatório é um artefato de
-// impressão com identidade própria (preto + verde-menta, referência
+// impressão com identidade própria (Verdee escuro desde 2026-09-24; antes preto + verde-menta, referência
 // "Tech News" do time de Tecnologia, 2026-09-22) que não deve mudar só
 // porque o app ao vivo trocou de tema — mesmo princípio já aplicado às
 // cores (ver o bloco de CSS vars redeclaradas mais abaixo). Trocado de
 // Impact pra Arial Bold no mesmo dia — Impact é uma fonte condensada
 // crua, feedback real do usuário ("a fonte pode melhorar muito"); Arial em
 // negrito (peso já aplicado em cada uso) é limpa e sempre disponível.
-const FONT_DISPLAY = { fontFamily: "Arial, Helvetica, sans-serif", fontWeight: 800 as const };
-const FONT_LABEL = { fontFamily: "Arial, Helvetica, sans-serif", letterSpacing: "0.04em" };
+const FONT_DISPLAY = { fontFamily: "'Plus Jakarta Sans', Arial, sans-serif", fontWeight: 800 as const };
+const FONT_LABEL = { fontFamily: "'Plus Jakarta Sans', Arial, sans-serif", letterSpacing: "0.04em" };
 
 interface RelatorioResultadosSacProps {
   data: ResultadosSacData;
@@ -38,7 +38,7 @@ interface RelatorioResultadosSacProps {
 
 function DeltaTexto({ delta }: { delta?: DeltaInfo }) {
   if (!delta) return <span className="text-[13px] text-ink/30">sem comparação</span>;
-  const cor = delta.bom === null ? "text-ink/40" : delta.bom ? "text-[#7FE0B4]" : "text-rust-500";
+  const cor = delta.bom === null ? "text-ink/40" : delta.bom ? "text-[#96D4CF]" : "text-rust-500";
   return <span className={`text-[13px] font-semibold ${cor}`}>{delta.texto}</span>;
 }
 
@@ -53,7 +53,7 @@ function MetricaCard({ label, valor, delta, nota }: MetricaCardProps) {
   return (
     <div className="break-inside-avoid rounded-2xl border border-sand-line bg-sand-surface p-4 shadow-card print:shadow-none">
       <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>{label}</p>
-      <p className="mt-2 text-2xl font-extrabold tracking-tight text-[#A8F5D0] tabular-nums" style={FONT_DISPLAY}>{valor}</p>
+      <p className="mt-2 text-2xl font-extrabold tracking-tight text-[#64BFB8] tabular-nums" style={FONT_DISPLAY}>{valor}</p>
       <div className="mt-1.5"><DeltaTexto delta={delta} /></div>
       {nota && <p className="mt-1.5 text-[11px] text-ink/40">{nota}</p>}
     </div>
@@ -78,11 +78,11 @@ function MetricaGrid({ children, cols = 3 }: { children: React.ReactNode; cols?:
 // chip precisa continuar exatamente igual não importa o tema do app.
 function TagChipFixo({ tone, children }: { tone: "info" | "success"; children: React.ReactNode }) {
   return tone === "success" ? (
-    <span className="inline-flex items-center rounded-full bg-[#A8F5D0] px-2.5 py-1 text-xs font-bold text-[#141414]">
+    <span className="inline-flex items-center rounded-full bg-[#64BFB8] px-2.5 py-1 text-xs font-bold text-[#001816]">
       {children}
     </span>
   ) : (
-    <span className="inline-flex items-center rounded-full border border-[#A8F5D0]/50 px-2.5 py-1 text-xs font-medium text-[#A8F5D0]">
+    <span className="inline-flex items-center rounded-full border border-[#64BFB8]/50 px-2.5 py-1 text-xs font-medium text-[#64BFB8]">
       {children}
     </span>
   );
@@ -144,7 +144,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
   const maxAbertos = Math.max(1, ...atendido.porAtendente.map((r) => r.abertos));
 
   return (
-    // Relatório sempre no tema próprio (preto + verde-menta), independente
+    // Relatório sempre no tema próprio (Verdee escuro), independente
     // do tema do app ao vivo — as classes abaixo usam os tokens
     // `text-ink`/`border-sand-line`/`bg-sand-surface`/`bg-sand-bg`, que são
     // variáveis CSS e herdariam o valor de `.dark`/`:root` do resto do app
@@ -154,18 +154,19 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
     // dentro de `Button`/`MetricaCard`/etc. sem precisar hardcodar cada
     // classe. `bg-white`/cores soltas tipo `forest-600` continuam
     // IMUNES a isso (não são variável) — por isso o resto do arquivo evita
-    // usá-las, preferindo os tokens ou hex fixo (`#A8F5D0`, `#141414`).
+    // usá-las, preferindo os tokens ou hex fixo (`#64BFB8`, `#001816`).
     <div
       className="fixed inset-0 z-50 overflow-y-auto bg-sand-bg print:static print:overflow-visible"
       style={{
-        ["--color-ink" as string]: "255 255 255",
-        ["--color-ink-soft" as string]: "184 184 184",
-        ["--color-ink-tertiary" as string]: "122 122 122",
-        ["--color-sand-bg" as string]: "20 20 20",
-        ["--color-sand-surface" as string]: "30 30 30",
-        ["--color-sand-subtle" as string]: "26 26 26",
-        ["--color-sand-line" as string]: "46 46 46",
-        ["--color-sand-line-strong" as string]: "58 58 58",
+        // Verdee escuro (2026-09-24), mesma paleta do PPTX.
+        ["--color-ink" as string]: "225 244 243",
+        ["--color-ink-soft" as string]: "143 177 174",
+        ["--color-ink-tertiary" as string]: "95 137 134",
+        ["--color-sand-bg" as string]: "0 24 22",
+        ["--color-sand-surface" as string]: "0 35 32",
+        ["--color-sand-subtle" as string]: "0 30 27",
+        ["--color-sand-line" as string]: "0 47 43",
+        ["--color-sand-line-strong" as string]: "48 98 94",
       }}
     >
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-sand-line bg-sand-bg px-6 py-3 print:hidden">
@@ -185,7 +186,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
 
       <div className="mx-auto max-w-[920px] px-5 py-10 print:px-0 print:py-0">
         <header className="mb-10 print:mb-8">
-          <p className="mb-2.5 text-xs font-bold uppercase tracking-wider text-[#A8F5D0]" style={FONT_LABEL}>
+          <p className="mb-2.5 text-xs font-bold uppercase tracking-wider text-[#64BFB8]" style={FONT_LABEL}>
             Hub SAC Greenn · Reunião de Resultados
           </p>
           <h1 className="text-balance text-3xl font-extrabold uppercase tracking-tight text-ink sm:text-4xl" style={FONT_DISPLAY}>
@@ -224,7 +225,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
               {porTipoChamados.map((t) => (
                 <div key={t.tipo_cliente} className="break-inside-avoid rounded-xl border border-sand-line bg-sand-surface px-3.5 py-3">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-ink/40" style={FONT_LABEL}>{tituloTipo(t.tipo_cliente)}</p>
-                  <p className="mt-1 text-xl font-extrabold text-[#A8F5D0] tabular-nums" style={FONT_DISPLAY}>{fmtNum(t.chamados)}</p>
+                  <p className="mt-1 text-xl font-extrabold text-[#64BFB8] tabular-nums" style={FONT_DISPLAY}>{fmtNum(t.chamados)}</p>
                 </div>
               ))}
             </div>
@@ -243,9 +244,9 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                     className="break-inside-avoid rounded-2xl border border-sand-line bg-sand-surface p-4 shadow-card print:shadow-none"
                   >
                     <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>{tc.tipo_cliente}</p>
-                    <p className="mt-2 text-2xl font-extrabold tracking-tight text-[#A8F5D0] tabular-nums" style={FONT_DISPLAY}>
+                    <p className="mt-2 text-2xl font-extrabold tracking-tight text-[#64BFB8] tabular-nums" style={FONT_DISPLAY}>
                       {fmtNum(tc.chamados)}
-                      <span className="ml-1 text-sm font-medium text-ink/40" style={{ fontFamily: "Arial, sans-serif" }}>chamados</span>
+                      <span className="ml-1 text-sm font-medium text-ink/40" style={{ fontFamily: "'Plus Jakarta Sans', Arial, sans-serif" }}>chamados</span>
                     </p>
                     <div className="mt-1.5">
                       <DeltaTexto delta={prev ? deltaPercentual(tc.chamados, prev.chamados, false) : undefined} />
@@ -320,12 +321,12 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                 ({ titulo, casos }) =>
                   casos.length > 0 && (
                     <div key={titulo} className="print:break-inside-avoid">
-                      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-[#A8F5D0]" style={FONT_LABEL}>
+                      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-[#64BFB8]" style={FONT_LABEL}>
                         {titulo}
                       </p>
                       <div className="overflow-hidden rounded-2xl border border-sand-line shadow-card print:shadow-none">
                         <table className="w-full text-sm">
-                          <thead className="bg-[#A8F5D0] text-xs uppercase tracking-wide text-[#141414]">
+                          <thead className="bg-[#64BFB8] text-xs uppercase tracking-wide text-[#001816]">
                             <tr>
                               <th className="px-3 py-2.5 text-left font-bold">Cliente</th>
                               <th className="px-3 py-2.5 text-left font-bold">Abertura</th>
@@ -343,11 +344,11 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                                 <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.current_started_at)}</td>
                                 <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.primeira_resposta_humana_at)}</td>
                                 <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.resolved_at)}</td>
-                                <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-[#A8F5D0]">{formatDuration(c.tempo_primeira_resposta_seg)}</td>
+                                <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-[#64BFB8]">{formatDuration(c.tempo_primeira_resposta_seg)}</td>
                                 <td className="px-3 py-2.5 text-right tabular-nums text-ink/70">{formatDuration(tfrCorridoSeg(c.current_started_at, c.primeira_resposta_humana_at))}</td>
                                 <td className="px-3 py-2.5 text-center">
                                   {c.link_chamado ? (
-                                    <a href={c.link_chamado} target="_blank" rel="noreferrer" className="text-[#A8F5D0] underline">
+                                    <a href={c.link_chamado} target="_blank" rel="noreferrer" className="text-[#64BFB8] underline">
                                       Ver ↗
                                     </a>
                                   ) : (
@@ -379,10 +380,10 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                   <div
                     key={r.operator_nome}
                     className={`grid grid-cols-[28px_1fr_auto_auto] items-center gap-3 break-inside-avoid rounded-xl border px-4 py-3 shadow-card print:shadow-none ${
-                      i === 0 ? "border-[#A8F5D0]/40 bg-[#A8F5D0]/10" : "border-sand-line bg-sand-surface"
+                      i === 0 ? "border-[#64BFB8]/40 bg-[#64BFB8]/10" : "border-sand-line bg-sand-surface"
                     }`}
                   >
-                    <span className={`text-sm font-extrabold ${i === 0 ? "text-[#A8F5D0]" : "text-ink/40"}`} style={FONT_DISPLAY}>
+                    <span className={`text-sm font-extrabold ${i === 0 ? "text-[#64BFB8]" : "text-ink/40"}`} style={FONT_DISPLAY}>
                       {i + 1}º
                     </span>
                     <span>
@@ -441,9 +442,9 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                       className="break-inside-avoid rounded-2xl border border-sand-line bg-sand-surface p-4 shadow-card print:shadow-none"
                     >
                       <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>{tituloTipo(c.tipo_cliente)}</p>
-                      <p className="mt-2 text-2xl font-extrabold tracking-tight text-[#A8F5D0] tabular-nums" style={FONT_DISPLAY}>
+                      <p className="mt-2 text-2xl font-extrabold tracking-tight text-[#64BFB8] tabular-nums" style={FONT_DISPLAY}>
                         {fmtPct1(pct)}
-                        <span className="ml-1 text-sm font-medium text-ink/40" style={{ fontFamily: "Arial, sans-serif" }}>boas</span>
+                        <span className="ml-1 text-sm font-medium text-ink/40" style={{ fontFamily: "'Plus Jakarta Sans', Arial, sans-serif" }}>boas</span>
                       </p>
                       <div className="mt-1.5">
                         <DeltaTexto delta={deltaPercentual(pct, pctPrev, false, fmtPct1)} />
@@ -468,7 +469,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
           {csatComNota.length > 0 && (
             <div className="mt-3.5 overflow-hidden rounded-2xl border border-sand-line shadow-card print:break-inside-avoid print:shadow-none">
               <table className="w-full text-sm">
-                <thead className="bg-[#A8F5D0] text-xs uppercase tracking-wide text-[#141414]">
+                <thead className="bg-[#64BFB8] text-xs uppercase tracking-wide text-[#001816]">
                   <tr>
                     <th className="px-4 py-2.5 text-left font-bold">Atendente</th>
                     <th className="px-4 py-2.5 text-right font-bold">Nota média</th>
@@ -498,7 +499,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
           <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Funil do CSAT por canal</p>
           <div className="overflow-hidden rounded-2xl border border-sand-line shadow-card print:break-inside-avoid print:shadow-none">
             <table className="w-full text-sm">
-              <thead className="bg-[#A8F5D0] text-xs uppercase tracking-wide text-[#141414]">
+              <thead className="bg-[#64BFB8] text-xs uppercase tracking-wide text-[#001816]">
                 <tr>
                   <th className="px-4 py-2.5 text-left font-bold">Canal</th>
                   <th className="px-4 py-2.5 text-right font-bold">Conversas</th>
@@ -517,7 +518,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                     <td className="px-4 py-2.5 text-right tabular-nums text-ink/70">{fmtNum(r.enviadas)}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-ink/70">{fmtNum(r.respondidas)}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums">
-                      <span className="font-bold text-[#A8F5D0]">{fmtPct1(r.taxa)}</span>
+                      <span className="font-bold text-[#64BFB8]">{fmtPct1(r.taxa)}</span>
                       <br />
                       <DeltaTexto delta={r.delta} />
                     </td>
@@ -548,7 +549,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                   <span className="w-48 shrink-0 truncate font-medium text-ink">{r.atendente}</span>
                   <div className="flex h-5 flex-1 overflow-hidden rounded-md bg-sand-bg">
                     <div className="h-full bg-rust-500" style={{ width: `${(r.parados_48h / maxAbertos) * 100}%` }} />
-                    <div className="h-full bg-[#A8F5D0]" style={{ width: `${((r.abertos - r.parados_48h) / maxAbertos) * 100}%` }} />
+                    <div className="h-full bg-[#64BFB8]" style={{ width: `${((r.abertos - r.parados_48h) / maxAbertos) * 100}%` }} />
                   </div>
                   <span className="w-28 shrink-0 text-right tabular-nums text-ink/70">
                     {fmtNum(r.abertos)} <span className="text-rust-500">({fmtNum(r.parados_48h)} +48h)</span>
@@ -665,7 +666,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
               {A.migracoesPorPlataforma.slice(0, 6).map((p) => (
                 <div key={p.plataforma} className="break-inside-avoid rounded-xl border border-sand-line bg-sand-surface px-3 py-2.5">
                   <p className="truncate text-[9px] font-bold uppercase tracking-wide text-ink/40" title={p.plataforma} style={FONT_LABEL}>{p.plataforma}</p>
-                  <p className="mt-1 text-lg font-extrabold text-[#A8F5D0] tabular-nums" style={FONT_DISPLAY}>{fmtNum(p.total)}</p>
+                  <p className="mt-1 text-lg font-extrabold text-[#64BFB8] tabular-nums" style={FONT_DISPLAY}>{fmtNum(p.total)}</p>
                 </div>
               ))}
             </div>
