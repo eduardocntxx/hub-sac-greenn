@@ -6,6 +6,8 @@ import { Kpi } from "@/components/ui/Kpi";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { DateRangePopover } from "@/components/ui/DateRangePopover";
+import { resolvePeriodo, type PeriodoPreset } from "@/lib/dateRanges";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   fetchCsatForUser,
@@ -43,7 +45,14 @@ import { RelatorioResultadosSac } from "@/components/RelatorioResultadosSac";
 
 const NOME_BOT = "IA Greenn";
 
-type Granularidade = "mensal" | "semanal";
+// "personalizado": intervalo escolhido no calendário (id = "AAAA-MM-DD_AAAA-MM-DD",
+// fim incluído); comparação com o intervalo de mesmo tamanho logo antes.
+type Granularidade = "mensal" | "semanal" | "personalizado";
+
+function limitesPersonalizado(periodoId: string) {
+  const [ini, fim] = periodoId.split("_");
+  return { inicio: new Date(ini + "T00:00:00"), fim: new Date(fim + "T23:59:59.999") };
+}
 
 function media(vals: (number | null)[]) {
   const validos = vals.filter((v): v is number => v !== null);
@@ -93,10 +102,18 @@ function limitesDaSemana(periodoId: string) {
 }
 
 function limitesDoPeriodo(granularidade: Granularidade, periodoId: string) {
+  if (granularidade === "personalizado") return limitesPersonalizado(periodoId);
   return granularidade === "mensal" ? limitesDoMes(periodoId) : limitesDaSemana(periodoId);
 }
 
 function periodoAnteriorId(granularidade: Granularidade, periodoId: string) {
+  if (granularidade === "personalizado") {
+    const { inicio, fim } = limitesPersonalizado(periodoId);
+    const dias = Math.round((new Date(fim.getFullYear(), fim.getMonth(), fim.getDate()).getTime() - inicio.getTime()) / 86_400_000) + 1;
+    const fimAnt = new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate() - 1);
+    const iniAnt = new Date(fimAnt.getFullYear(), fimAnt.getMonth(), fimAnt.getDate() - (dias - 1));
+    return `${toISODate(iniAnt)}_${toISODate(fimAnt)}`;
+  }
   if (granularidade === "mensal") {
     const [ano, mes] = periodoId.split("-").map(Number);
     const d = new Date(ano, mes - 2, 1);
@@ -107,6 +124,7 @@ function periodoAnteriorId(granularidade: Granularidade, periodoId: string) {
 }
 
 function ultimosPeriodos(granularidade: Granularidade, n: number) {
+  if (granularidade === "personalizado") return [];
   if (granularidade === "mensal") {
     const hoje = new Date();
     return Array.from({ length: n }).map((_, i) => {
@@ -140,6 +158,10 @@ function ultimosPeriodos(granularidade: Granularidade, n: number) {
 // qualquer — precisa funcionar pro período anterior também, que pode cair
 // fora da janela dos 6 períodos listados no dropdown.
 function labelDoPeriodo(granularidade: Granularidade, inicio: Date, fim: Date): string {
+  if (granularidade === "personalizado") {
+    const f = (d: Date) => d.toLocaleDateString("pt-BR");
+    return `${f(inicio)} a ${f(fim)}`;
+  }
   if (granularidade === "mensal") {
     const label = inicio.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
     return label.charAt(0).toUpperCase() + label.slice(1);
@@ -202,9 +224,23 @@ export default function ReuniaoResultados() {
   const [granularidade, setGranularidade] = useState<Granularidade>("semanal");
   const periodos = useMemo(() => ultimosPeriodos(granularidade, 6), [granularidade]);
   const [periodo, setPeriodo] = useState(periodos[0].id);
+  // Calendário do modo "Personalizado" (mesmo componente do resto do Hub:
+  // 1º clique = início, 2º = fim, 3º recomeça). Só aplica quando o
+  // intervalo está completo.
+  const [presetPerso, setPresetPerso] = useState<PeriodoPreset>("personalizado");
+  const [rangePerso, setRangePerso] = useState({ inicio: "", fim: "" });
 
   function mudarGranularidade(g: Granularidade) {
     setGranularidade(g);
+    if (g === "personalizado") {
+      // Começa na semana atual da RR (quarta a terça) já selecionada.
+      const { inicio, fim } = limitesDaSemana(ultimosPeriodos("semanal", 1)[0].id);
+      const r = { inicio: toISODate(inicio), fim: toISODate(fim) };
+      setRangePerso(r);
+      setPresetPerso("personalizado");
+      setPeriodo(`${r.inicio}_${r.fim}`);
+      return;
+    }
     setPeriodo(ultimosPeriodos(g, 6)[0].id);
   }
 
@@ -811,10 +847,27 @@ export default function ReuniaoResultados() {
         </div>
         <div className="flex items-center gap-2">
           <SegmentedControl
-            options={[["mensal", "Mensal"], ["semanal", "Semanal"]] as const}
+            options={[["mensal", "Mensal"], ["semanal", "Semanal"], ["personalizado", "Personalizado"]] as const}
             value={granularidade}
             onChange={mudarGranularidade}
           />
+          {granularidade === "personalizado" ? (
+            <DateRangePopover
+              preset={presetPerso}
+              personalizado={rangePerso}
+              onChangePreset={(p) => {
+                setPresetPerso(p);
+                if (p === "personalizado") return;
+                const { inicio, fim } = resolvePeriodo(p);
+                setPeriodo(`${toISODate(inicio)}_${toISODate(fim)}`);
+              }}
+              onChangePersonalizado={(v) => {
+                setRangePerso(v);
+                setPresetPerso("personalizado");
+                if (v.inicio && v.fim) setPeriodo(`${v.inicio}_${v.fim}`);
+              }}
+            />
+          ) : (
           <select
             value={periodo}
             onChange={(e) => {
@@ -828,6 +881,7 @@ export default function ReuniaoResultados() {
               </option>
             ))}
           </select>
+          )}
           {isAdmin && (
             <Button variant="secondary" disabled={relatorioCarregando} onClick={() => setMostrarRelatorio(true)}>
               <Download size={14} /> {relatorioCarregando ? "Carregando dados..." : "Exportar"}
