@@ -5816,6 +5816,32 @@ si: `contagem_periodo`, `velocidade_por_tipo_cliente` e
 `reabertura_casos` = 145. Backup das definições antigas guardado na sessão
 (scratchpad `reab_fns_backup.json`), não versionado.
 
+**Redesenho da aba Dashboard do Overview em 2026-09-24** (aprovado a
+partir de uma prévia estática publicada como Artifact): topo com 5
+indicadores e variação contra o período anterior (chamados, conversas
+resolvidas ao menos uma vez, CSAT % boas, mediana da 1ª resposta,
+reabertura; com filtro de tipo de cliente usa a linha daquele tipo das
+funções `velocidade_por_tipo_cliente`/`reabertura_por_tipo_cliente`);
+bloco "Precisa de atenção" (atendido e não resolvido por atendente, que
+abre as conversas abertas dele; funil do CSAT por canal; backlog por
+idade, que abre a faixa); e as ~14 seções antigas movidas, sem reescrever
+os cálculos, para as sub-abas Pessoas (bot + ranking), Velocidade
+(velocidade + relógios), Qualidade (CSAT + reabertura + FCR) e Fluxo
+(transferências + motivo + volume por dia/hora). Cada sub-aba só busca os
+próprios dados quando está aberta (`overview:subAba`). Blocos novos em
+`src/pages/overview/OverviewBlocos.tsx` (`SaudeKpi`, `PrecisaAtencao`,
+`SecaoHead` com "?" de definição, `CsatRuinsDialog`). Títulos padronizados
+e gráficos numa cor só. **Card "Ruins (1–3)" abre um pop-up** com as
+avaliações ruins (nota, cliente, atendente, canal, data, comentário
+completo, "Ver chamado"; clique abre o `CsatDetalheDialog`) via
+`csat_ruins_periodo(data_inicio, data_fim, p_atendente_nomes)`, função
+nova com os mesmos filtros de `csat_distribuicao_notas` — lista e card
+sempre batem (validado: 13 = 13; filtrando Vittor, 5 = 5). O
+`Performance.tsx` continua um arquivo grande: as seções antigas não foram
+separadas em arquivos próprios. **Achado não tratado:** FCR aparece 100%
+com zero recontato em 556 conversas na semana 17–23/09 — improvável,
+precisa de investigação em `fcr_recontato_resumo`.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de

@@ -1121,6 +1121,19 @@ export async function fetchAtendidoNaoResolvido(inicio: Date, fim: Date): Promis
   }));
 }
 
+// Avaliações ruins (nota 1–3) do período, com os mesmos filtros do card de
+// distribuição (sem teste, sem fora do SAC, atendente via e-mail do alias).
+// Pior nota primeiro. Admin-only.
+export async function fetchCsatRuins(inicio: Date, fim: Date, atendenteNomes?: string[]): Promise<DbCsatResult[]> {
+  const { data, error } = await client().rpc("csat_ruins_periodo", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+  });
+  if (error) throw error;
+  return (data ?? []) as DbCsatResult[];
+}
+
 export interface CsatFunilCanal {
   canal: string;
   conversas: number;

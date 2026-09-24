@@ -8,7 +8,7 @@ import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Dialog } from "@/components/ui/Dialog";
 import { AtendimentoDetalheDialog } from "@/components/AtendimentoDetalheDialog";
-import { BarChart, HorizontalBarChart } from "@/components/ui/BarChart";
+import { HorizontalBarChart } from "@/components/ui/BarChart";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { SortableHeader } from "@/components/ui/SortableHeader";
 import { useAuth } from "@/contexts/AuthContext";
@@ -40,12 +40,19 @@ import {
   fetchRespostaGenericaResumo,
   fetchRespostaGenericaCasos,
   fetchVolumeDiaHora,
+  fetchCsatFunilCanal,
+  fetchAtendidoNaoResolvido,
+  fetchCsatRuins,
   type ModoTempo,
   type AtendimentoComMetricas,
   type VelocidadePorTipoCliente,
   type ReaberturaPorTipoCliente,
 } from "@/services/api";
-import { resolvePeriodo, type PeriodoPreset } from "@/lib/dateRanges";
+import { resolvePeriodo, periodoAnterior, type PeriodoPreset } from "@/lib/dateRanges";
+import { deltaPercentual, deltaPontos, fmtNum, fmtPct1, linhasFunil, resumoAtendido } from "@/lib/resultadosSac";
+import { CsatDetalheDialog } from "@/components/CsatDetalheDialog";
+import type { DbCsatResult } from "@/types/database";
+import { SaudeKpi, PrecisaAtencao, SecaoHead, CsatRuinsDialog } from "@/pages/overview/OverviewBlocos";
 import { formatDuration } from "@/lib/formatDuration";
 import { formatDurationFromMinutes as formatMin } from "@/lib/formatDuration";
 import { cn, nomesCurtosDisambiguados } from "@/lib/utils";
@@ -90,29 +97,8 @@ function corTextoSla(pct: number | null | undefined) {
   return "text-rust-500";
 }
 
-function corBacklogFaixa(faixa: string) {
-  if (faixa === "0-1 dia") return "text-forest-600";
-  if (faixa === "2-3 dias") return "text-amber-600";
-  return "text-rust-500";
-}
 
-function corBacklogBarra(faixa: string) {
-  if (faixa === "0-1 dia") return "bg-forest-500";
-  if (faixa === "2-3 dias") return "bg-amber-500";
-  if (faixa === "4-7 dias") return "bg-rust-400";
-  return "bg-rust-600";
-}
 
-const CORES_VIVAS = [
-  "bg-sky-500",
-  "bg-rust-500",
-  "bg-forest-500",
-  "bg-violet-600",
-  "bg-amber-600",
-  "bg-sky-700",
-  "bg-rust-700",
-  "bg-forest-700",
-];
 
 type RankingCampo = "total_atendimentos" | "total_interacoes" | "total_mensagens" | "tfr_medio" | "tempo_resolucao_medio" | "csat_medio" | "total_avaliacoes";
 type MotivoCampo = "chamados" | "tfr_media_seg" | "ttr_media_seg";
@@ -169,6 +155,12 @@ export default function Performance() {
   const [mostrarTodosRecontatos, setMostrarTodosRecontatos] = useState(false);
   const [genericoPage, setGenericoPage] = useState(0);
   const [genericoSoSemResposta, setGenericoSoSemResposta] = useState(false);
+  // Sub-abas do Dashboard (redesenho de 2026-09-24) — cada uma só busca os
+  // próprios dados quando está aberta.
+  const [subAba, setSubAba] = usePersistedState<"pessoas" | "velocidade" | "qualidade" | "fluxo">("overview:subAba", "pessoas");
+  const [posseDetalheSoAbertos, setPosseDetalheSoAbertos] = useState(false);
+  const [ruinsAberto, setRuinsAberto] = useState(false);
+  const [csatDetalhe, setCsatDetalhe] = useState<DbCsatResult | null>(null);
 
   function ordenarPorColuna(campo: OrdenarCampo) {
     if (ordenarPor === campo) {
@@ -191,6 +183,8 @@ export default function Performance() {
   }
 
   const { inicio, fim } = useMemo(() => resolvePeriodo(preset, personalizado), [preset, personalizado]);
+  const { inicio: inicioAnterior, fim: fimAnterior } = useMemo(() => periodoAnterior(inicio, fim), [inicio, fim]);
+  const naDashboard = aba === "ranking";
   const { data: canais } = useQuery({ queryKey: ["canais"], queryFn: fetchDistinctCanais });
   const { data: tiposCliente } = useQuery({ queryKey: ["tipos-cliente"], queryFn: fetchDistinctTiposCliente });
   const { data: atendentes } = useQuery({ queryKey: ["atendentes-conversas"], queryFn: fetchDistinctAtendentesConversas });
@@ -214,6 +208,7 @@ export default function Performance() {
   const { data: tempoRespostaBot } = useQuery({
     queryKey: ["tempo-resposta-bot", inicio, fim],
     queryFn: () => fetchTempoRespostaBot(inicio, fim),
+    enabled: naDashboard && subAba === "pessoas",
   });
 
   // Compute tier pequeno satura quando todas as agregações pesadas disparam
@@ -235,7 +230,7 @@ export default function Performance() {
   const velocidadeGeral = useMemo(() => velocidadePorTipo?.find((v: VelocidadePorTipoCliente) => v.tipo_cliente === "Geral"), [velocidadePorTipo]);
   const velocidadePorTipoReal = useMemo(() => (velocidadePorTipo ?? []).filter((v: VelocidadePorTipoCliente) => v.tipo_cliente !== "Geral"), [velocidadePorTipo]);
 
-  const { data: backlog, isLoading: loadingBacklog } = useQuery({
+  const { data: backlog } = useQuery({
     queryKey: ["backlog-por-idade", atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchBacklogPorIdade(undefined, atendenteNomesFiltro, tipoClienteRpc),
     enabled: waveDoisHabilitada,
@@ -244,31 +239,31 @@ export default function Performance() {
   const { data: posse, isLoading: loadingPosse } = useQuery({
     queryKey: ["relogio-posse", inicio, fim, tipoClienteFiltro],
     queryFn: () => fetchRelogioPosse(inicio, fim, undefined, tipoClienteRpc),
-    enabled: waveDoisHabilitada,
+    enabled: waveDoisHabilitada && (subAba === "pessoas" || subAba === "velocidade"),
   });
 
   const { data: volumeDiaHora, isLoading: loadingVolumeDiaHora } = useQuery({
     queryKey: ["volume-dia-hora", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchVolumeDiaHora(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: waveDoisHabilitada,
+    enabled: waveDoisHabilitada && subAba === "fluxo",
   });
 
   const { data: esperaCliente, isLoading: loadingEspera } = useQuery({
     queryKey: ["relogio-espera-cliente", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchRelogioEsperaCliente(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: waveDoisHabilitada,
+    enabled: waveDoisHabilitada && subAba === "velocidade",
   });
 
   const { data: horasExpediente, isLoading: loadingExpediente } = useQuery({
     queryKey: ["horas-expediente-periodo", inicio, fim, atendenteNomes],
     queryFn: () => fetchHorasExpedientePeriodo(inicio, fim, atendenteNomesFiltro),
-    enabled: waveDoisHabilitada,
+    enabled: waveDoisHabilitada && subAba === "velocidade",
   });
 
   const { data: motivos, isLoading: loadingMotivos } = useQuery({
     queryKey: ["motivo-contato-resumo", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchMotivoContatoResumo(inicio, fim, undefined, modoTempo, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: waveDoisHabilitada,
+    enabled: waveDoisHabilitada && (subAba === "fluxo" || aba === "atendimentos"),
   });
 
   // Mesma ideia de velocidade-por-tipo: 1 query com "Geral" + 1 linha por
@@ -282,16 +277,81 @@ export default function Performance() {
   });
   const reaberturaResumo = useMemo(() => reaberturaPorTipo?.find((r: ReaberturaPorTipoCliente) => r.tipo_cliente === "Geral"), [reaberturaPorTipo]);
 
+  // Topo do Dashboard: mesmas funções, período anterior (mesma duração,
+  // imediatamente antes) pra variação dos 5 indicadores.
+  const { data: contagemAnterior } = useQuery({
+    queryKey: ["contagem-periodo", inicioAnterior, fimAnterior, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchContagemPeriodo(inicioAnterior, fimAnterior, undefined, atendenteNomesFiltro, tipoClienteRpc),
+    enabled: waveDoisHabilitada && naDashboard,
+  });
+  const { data: csatDistAnterior } = useQuery({
+    queryKey: ["csat-distribuicao", inicioAnterior, fimAnterior, atendenteNomes],
+    queryFn: () => fetchCsatDistribuicao(inicioAnterior, fimAnterior, undefined, atendenteNomesFiltro),
+    enabled: waveDoisHabilitada && naDashboard,
+  });
+  const { data: velocidadeAnterior } = useQuery({
+    queryKey: ["velocidade-por-tipo", inicioAnterior, fimAnterior, atendenteNomes],
+    queryFn: () => fetchVelocidadePorTipoCliente(inicioAnterior, fimAnterior, undefined, atendenteNomesFiltro),
+    enabled: waveDoisHabilitada && naDashboard,
+  });
+  const { data: reaberturaAnteriorPorTipo } = useQuery({
+    queryKey: ["reabertura-por-tipo", inicioAnterior, fimAnterior, atendenteNomes],
+    queryFn: () => fetchReaberturaPorTipoCliente(inicioAnterior, fimAnterior, undefined, atendenteNomesFiltro),
+    enabled: waveDoisHabilitada && naDashboard,
+  });
+  // Com filtro de tipo de cliente, os indicadores usam a linha daquele tipo
+  // (as duas funções já devolvem uma linha por tipo + "Geral").
+  const tipoKpi = tipoClienteFiltro || "Geral";
+  const velocidadeKpi = useMemo(() => velocidadePorTipo?.find((v) => v.tipo_cliente === tipoKpi), [velocidadePorTipo, tipoKpi]);
+  const velocidadeKpiAnterior = useMemo(() => velocidadeAnterior?.find((v) => v.tipo_cliente === tipoKpi), [velocidadeAnterior, tipoKpi]);
+  const reaberturaKpi = useMemo(() => reaberturaPorTipo?.find((r) => r.tipo_cliente === tipoKpi), [reaberturaPorTipo, tipoKpi]);
+  const reaberturaKpiAnterior = useMemo(() => reaberturaAnteriorPorTipo?.find((r) => r.tipo_cliente === tipoKpi), [reaberturaAnteriorPorTipo, tipoKpi]);
+  const csatBoasPct = csatDist && csatDist.total > 0 ? (csatDist.boas / csatDist.total) * 100 : null;
+  const csatBoasPctAnterior = csatDistAnterior && csatDistAnterior.total > 0 ? (csatDistAnterior.boas / csatDistAnterior.total) * 100 : null;
+
+  // "Precisa de atenção": funil do CSAT e atendido e não resolvido (mesmas
+  // funções e contas do relatório da RR, via resultadosSac).
+  const { data: csatFunil } = useQuery({
+    queryKey: ["csat-funil-canal", inicio, fim],
+    queryFn: () => fetchCsatFunilCanal(inicio, fim),
+    enabled: waveDoisHabilitada && naDashboard,
+  });
+  const { data: atendido } = useQuery({
+    queryKey: ["atendido-nao-resolvido", inicio, fim],
+    queryFn: () => fetchAtendidoNaoResolvido(inicio, fim),
+    enabled: waveDoisHabilitada && naDashboard,
+  });
+  const { data: atendidoAnterior } = useQuery({
+    queryKey: ["atendido-nao-resolvido", inicioAnterior, fimAnterior],
+    queryFn: () => fetchAtendidoNaoResolvido(inicioAnterior, fimAnterior),
+    enabled: waveDoisHabilitada && naDashboard,
+  });
+  const funilLinhas = useMemo(() => linhasFunil(csatFunil ?? [], []), [csatFunil]);
+  const filtraAtendente = (lista: typeof atendido) =>
+    (lista ?? []).filter((r) => atendenteNomes.length === 0 || atendenteNomes.includes(r.atendente));
+  const atendidoResumo = useMemo(
+    () => resumoAtendido(filtraAtendente(atendido), atendidoAnterior ? filtraAtendente(atendidoAnterior) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [atendido, atendidoAnterior, atendenteNomes]
+  );
+  const atendidoFiltrado = atendidoResumo.porAtendente;
+
+  const { data: csatRuins, isLoading: loadingCsatRuins } = useQuery({
+    queryKey: ["csat-ruins", inicio, fim, atendenteNomes],
+    queryFn: () => fetchCsatRuins(inicio, fim, atendenteNomesFiltro),
+    enabled: ruinsAberto,
+  });
+
   const { data: reaberturaCasos } = useQuery({
     queryKey: ["reabertura-casos", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchReaberturaCasos(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: !!reaberturaResumo && reaberturaResumo.total_reabertos > 0,
+    enabled: !!reaberturaResumo && reaberturaResumo.total_reabertos > 0 && (subAba === "qualidade" || subAba === "pessoas"),
   });
 
   const { data: transferenciasResumo, isLoading: loadingTransferencias } = useQuery({
     queryKey: ["transferencias-resumo", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchTransferenciasResumo(inicio, fim, undefined, atendenteNomesFiltro, modoTempo, tipoClienteRpc),
-    enabled: waveDoisHabilitada,
+    enabled: waveDoisHabilitada && (subAba === "fluxo" || subAba === "pessoas"),
   });
 
   const { data: transferenciasCasos } = useQuery({
@@ -303,7 +363,7 @@ export default function Performance() {
   const { data: fcrRecontato, isLoading: loadingFcr } = useQuery({
     queryKey: ["fcr-recontato-resumo", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchFcrRecontatoResumo(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: waveDoisHabilitada,
+    enabled: waveDoisHabilitada && subAba === "qualidade",
   });
 
   const { data: recontatoCasos } = useQuery({
@@ -329,10 +389,11 @@ export default function Performance() {
   });
 
   const { data: posseDetalheAtendimentos, isLoading: loadingPosseDetalhe } = useQuery({
-    queryKey: ["atendimentos-por-atendente", inicio, fim, posseDetalhe, modoTempo, posseDetalheOrdenarPor, posseDetalheDirecao, posseDetalhePage],
+    queryKey: ["atendimentos-por-atendente", inicio, fim, posseDetalhe, modoTempo, posseDetalheOrdenarPor, posseDetalheDirecao, posseDetalhePage, posseDetalheSoAbertos],
     queryFn: () => fetchAtendimentosComMetricas({
       inicio, fim, atendenteNomes: posseDetalhe ? [posseDetalhe] : undefined, page: posseDetalhePage, pageSize: PAGE_SIZE, modoTempo,
       ordenarPor: posseDetalheOrdenarPor, direcao: posseDetalheDirecao,
+      status: posseDetalheSoAbertos ? "pending" : undefined,
     }),
     enabled: !!posseDetalhe,
   });
@@ -351,7 +412,7 @@ export default function Performance() {
   const { data: ranking, isLoading } = useQuery({
     queryKey: ["atendente-performance", inicio, fim, modoTempo, tipoClienteFiltro],
     queryFn: () => fetchAtendentePerformance(inicio, fim, undefined, undefined, modoTempo, tipoClienteRpc),
-    enabled: waveDoisHabilitada && podeVer && aba === "ranking",
+    enabled: waveDoisHabilitada && podeVer && naDashboard && subAba === "pessoas",
   });
 
   const [rankingOrdenarPor, setRankingOrdenarPor] = useState<RankingCampo | undefined>(undefined);
@@ -705,240 +766,128 @@ export default function Performance() {
 
       {aba === "ranking" ? (
         <>
-          {contagem && (
-            <div className="grid gap-4 sm:grid-cols-3">
-              <Card
-                className="border-sky-400/30 bg-sky-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
-                title="Cada ciclo aberto→resolvido conta separado — uma conversa reaberta soma mais de um chamado."
-              >
-                <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Total de chamados</p>
-                <p className="mt-1 font-display text-kpi-lg font-bold text-sky-700">{contagem.total_chamados}</p>
-              </Card>
-              <Card
-                className="border-forest-400/30 bg-forest-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
-                title="Cada conversa do Crisp conta uma vez só, mesmo que tenha reaberto — é a população de conversas, não de atendimentos."
-              >
-                <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Total de conversas</p>
-                <p className="mt-1 font-display text-kpi-lg font-bold text-forest-700">{contagem.total_conversas}</p>
-              </Card>
-              <Card className="border-violet-400/30 bg-violet-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Total de mensagens</p>
-                <p className="mt-1 font-display text-kpi-lg font-bold text-violet-700">{contagem.total_mensagens}</p>
-              </Card>
-            </div>
-          )}
-
-          {csatDist && csatDist.total > 0 && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {tipoClienteFiltro && (
-                <p
-                  className="text-[11px] text-ink/40 sm:col-span-2"
-                  title="CSAT é reconciliado por e-mail do atendente, numa tabela separada (csat_results) que não tem a mesma coluna de tipo de cliente do Crisp — não dá pra aplicar esse filtro aqui sem inventar um vínculo que não existe."
-                >
-                  CSAT não respeita o filtro de tipo de cliente — mostra o time inteiro (motivo no hover).
-                </p>
-              )}
-              <Card className="border-forest-400/30 bg-forest-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Avaliações boas (4–5)</p>
-                <p className="mt-1 font-display text-kpi-lg font-bold text-forest-600">{csatDist.boas}</p>
-              </Card>
-              <Card className="border-rust-400/30 bg-rust-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Avaliações ruins (1–3)</p>
-                <p className="mt-1 font-display text-kpi-lg font-bold text-rust-600">{csatDist.ruins}</p>
-              </Card>
-              <Card className="p-4 sm:col-span-2">
-                <BarChart
-                  data={[
-                    { label: "Boas (4–5)", value: csatDist.boas },
-                    { label: "Ruins (1–3)", value: csatDist.ruins },
-                  ]}
-                  getColorClass={(_, i) => ["bg-forest-500", "bg-rust-500"][i ?? 0]}
-                  height={110}
-                />
-              </Card>
-            </div>
-          )}
-
-          {iaEntry && (
-            <div>
-              <h2 className="mb-3 font-display text-sm font-semibold text-ink">Bot (IA Greenn)</h2>
-              <Card
-                onClick={() => { setPosseDetalhe("IA Greenn"); setPosseDetalhePage(0); }}
-                className="flex cursor-pointer flex-wrap items-center gap-6 border-sky-400/30 bg-sky-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
-              >
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Chamados</p>
-                  <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{iaEntry.total_atendimentos}</p>
-                </div>
-                {tempoRespostaBot && tempoRespostaBot.amostras > 0 && (
-                  <div>
-                    <p
-                      className="text-xs font-medium uppercase tracking-wide text-ink/40"
-                      title="Mediana, não média — poucas conversas retomadas dias depois (reabertura, ou o início registrado não sendo exatamente quando o cliente mandou a mensagem que o bot respondeu) distorceriam muito uma média simples"
-                    >
-                      Tempo até 1ª resposta (típico)
-                    </p>
-                    <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{formatDuration(tempoRespostaBot.tempo_medio_seg)}</p>
-                    <p className="mt-1 text-[11px] text-ink/40">{tempoRespostaBot.amostras} amostras</p>
-                  </div>
-                )}
-                {iaEntry.csat_medio !== null && (
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">CSAT médio</p>
-                    <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoCsat(iaEntry.csat_medio))}>{iaEntry.csat_medio.toFixed(1)}</p>
-                  </div>
-                )}
-                {iaPosse && (
-                  <div>
-                    <p
-                      className="text-xs font-medium uppercase tracking-wide text-ink/40"
-                      title="Só conta posse através de evento real de roteamento — e o marcador sintético do bot (usado como 'atendente atual' na maioria dos chamados) nunca gera esse evento. Então isso reflete quase só a conta real do bot na Crisp (allan@gdigital.com.br), que quase nunca fica como atendente atual — por isso pode divergir bastante de 'Atendimentos', pra mais ou pra menos"
-                    >
-                      Chamados c/ posse
-                    </p>
-                    <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{iaPosse.chamados}</p>
-                  </div>
-                )}
-              </Card>
-              <p className="mt-2 text-xs text-ink/40">
-                Separado do ranking humano — TFR e tempo de resolução não fazem sentido pro bot (ele não "responde
-                como humano" nem "resolve" no sentido usado ali). "Chamados" conta chamados onde o bot é o
-                atendente registrado agora — quase sempre via um marcador sintético que nunca passa por roteamento
-                real. "Chamados c/ posse" só existe através de roteamento real, que esse marcador nunca gera — então
-                vem quase inteiramente da conta de verdade do bot na Crisp, que raramente é quem fica registrado como
-                atendente atual. São duas fontes praticamente sem sobreposição, não um subconjunto uma da outra — por
-                isso os números podem divergir bastante (não é erro).
-              </p>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2">
-            <h2 className="font-display text-sm font-semibold text-ink">Ranking de atendentes</h2>
-            <button
-              type="button"
-              onClick={() => setExplicacaoVelocidadeAberta(true)}
-              className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-ink/50 hover:bg-sand-bg hover:text-ink"
-            >
-              <Info size={13} /> ver mais
-            </button>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <SaudeKpi
+              label="Chamados"
+              valor={fmtNum(contagem?.total_chamados)}
+              delta={deltaPercentual(contagem?.total_chamados, contagemAnterior?.total_chamados, false)}
+              contexto={contagem ? `em ${fmtNum(contagem.total_conversas)} conversas` : undefined}
+            />
+            <SaudeKpi
+              label="Conversas resolvidas"
+              valor={fmtNum(reaberturaKpi?.total_resolvidos)}
+              delta={deltaPercentual(reaberturaKpi?.total_resolvidos, reaberturaKpiAnterior?.total_resolvidos, false)}
+              contexto={reaberturaKpi && contagem && contagem.total_conversas > 0 ? `${fmtPct1((reaberturaKpi.total_resolvidos / contagem.total_conversas) * 100)} das conversas do período` : undefined}
+            />
+            <SaudeKpi
+              label="CSAT · avaliações boas"
+              valor={fmtPct1(csatBoasPct)}
+              delta={deltaPontos(csatBoasPct, csatBoasPctAnterior, false)}
+              contexto={csatDist ? `${fmtNum(csatDist.boas)} de ${fmtNum(csatDist.total)} avaliações (nota 4–5)` : undefined}
+            />
+            <SaudeKpi
+              label="1ª resposta · mediana"
+              valor={formatDuration(velocidadeKpi?.tfr_p50_uteis_seg ?? null)}
+              delta={deltaPercentual(velocidadeKpi?.tfr_p50_uteis_seg, velocidadeKpiAnterior?.tfr_p50_uteis_seg, true, (v) => formatDuration(v))}
+              contexto="horas úteis, 1ª resposta humana"
+            />
+            <SaudeKpi
+              label="Reabertura"
+              valor={fmtPct1(reaberturaKpi?.taxa_pct)}
+              delta={deltaPontos(reaberturaKpi?.taxa_pct, reaberturaKpiAnterior?.taxa_pct, true)}
+              contexto={reaberturaKpi ? `${fmtNum(reaberturaKpi.total_reabertos)} de ${fmtNum(reaberturaKpi.total_resolvidos)} conversas resolvidas` : undefined}
+            />
           </div>
-          {isLoading ? (
-            <p className="text-sm text-ink/50">Carregando...</p>
-          ) : !ranking || ranking.length === 0 ? (
-            <p className="text-sm text-ink/50">Sem atendimentos neste período/filtro.</p>
-          ) : (
-            <Card className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
-                  <tr>
-                    <th className="px-4 py-3 text-left font-medium">Atendente</th>
-                    <SortableHeader align="center" field="total_atendimentos" label="Chamados" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
-                    <SortableHeader
-                      align="center"
-                      field="total_interacoes"
-                      label="Interações"
-                      ordenarPor={rankingOrdenarPor}
-                      direcao={rankingDirecao}
-                      onSort={ordenarRankingPorColuna}
-                      title="Quantos chamados o atendente mandou mensagem no período — inclui chamados que começaram antes do período mas em que ele trabalhou dentro dele. Diferente de 'Chamados', que só conta ciclo novo iniciado no período."
-                    />
-                    <SortableHeader
-                      align="center"
-                      field="total_mensagens"
-                      label="Mensagens"
-                      ordenarPor={rankingOrdenarPor}
-                      direcao={rankingDirecao}
-                      onSort={ordenarRankingPorColuna}
-                      title="Total de mensagens enviadas pelo atendente no período (soma de todas as conversas, não só 1 por chamado)."
-                    />
-                    <SortableHeader align="center" field="tfr_medio" label="TFR médio" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
-                    <SortableHeader align="center" field="tempo_resolucao_medio" label="Tempo médio de resolução" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
-                    <SortableHeader align="center" field="csat_medio" label="CSAT médio" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
-                    <SortableHeader align="center" field="total_avaliacoes" label="Avaliações" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
-                    <th className="px-4 py-3 font-medium">Tempo de posse</th>
-                    <th
-                      className="px-4 py-3 font-medium"
-                      title="Só conta posse ATIVA — trechos em que o chamado já está com status resolvido não entram aqui, mesmo esse chamado continuando contando em 'Chamados'. Por isso costuma ser MENOR que 'Chamados', não maior, apesar do nome sugerir 'todo chamado que passou pela pessoa'."
-                    >
-                      Chamados c/ posse
-                    </th>
-                    <th className="px-4 py-3 font-medium">Posse média</th>
-                    <th className="px-4 py-3 font-medium" title="Atendimentos ÷ horas de posse — produtividade só faz sentido lida junto com CSAT/TFR/reabertura ao lado">Atend./hora</th>
-                    <th
-                      className="px-4 py-3 font-medium"
-                      title="Quantidade de EVENTOS de reabertura atribuídos a esse atendente no período — não é por chamado (um chamado que reabre 3 vezes conta 3 aqui). Não inclui o bot."
-                    >
-                      Reaberturas
-                    </th>
-                    <th className="px-4 py-3 font-medium">Transferências</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(rankingOrdenado ?? []).map((r) => {
-                    const p = posseMap.get(r.operator_nome);
-                    const horasPosse = p ? p.minutos_posse / 60 : 0;
-                    const atendPorHora = p && horasPosse > 0 ? r.total_atendimentos / horasPosse : null;
-                    return (
-                      <tr
-                        key={r.operator_email ?? r.operator_nome}
-                        onClick={p ? () => { setPosseDetalhe(r.operator_nome); setPosseDetalhePage(0); } : undefined}
-                        className={cn(
-                          "border-t border-sand-line text-center transition-all",
-                          p && "relative cursor-pointer hover:relative hover:z-10 hover:scale-[1.01] hover:bg-sand-surface hover:shadow-card-hover"
-                        )}
+          {tipoClienteFiltro && (
+            <p className="-mt-3 text-[11px] text-ink/40">CSAT não tem tipo de cliente (vem de outra tabela) — o indicador de CSAT mostra o time inteiro.</p>
+          )}
+
+          <PrecisaAtencao
+            atendido={atendidoFiltrado}
+            paradosPct={atendidoResumo.paradosPct}
+            deltaAbertos={atendidoResumo.deltaAbertos}
+            funil={funilLinhas}
+            backlog={backlog ?? []}
+            filtroAtivo={atendenteNomes.length > 0}
+            onAbrirBacklog={(faixa) => { setBacklogFaixaAberta(faixa); setBacklogPage(0); }}
+            onAbrirAtendente={(nome) => { setPosseDetalheSoAbertos(true); setPosseDetalhe(nome); setPosseDetalhePage(0); }}
+          />
+
+          <div className="flex flex-wrap gap-1 border-b border-sand-line" role="tablist" aria-label="Detalhe do Dashboard">
+            {([["pessoas", "Pessoas"], ["velocidade", "Velocidade"], ["qualidade", "Qualidade"], ["fluxo", "Fluxo"]] as const).map(([valor, rotulo]) => (
+              <button
+                key={valor}
+                type="button"
+                role="tab"
+                aria-selected={subAba === valor}
+                onClick={() => setSubAba(valor)}
+                className={cn(
+                  "-mb-px border-b-2 px-3.5 py-2.5 text-[13.5px] font-semibold transition",
+                  subAba === valor ? "border-forest-500 text-ink" : "border-transparent text-ink/50 hover:text-ink"
+                )}
+              >
+                {rotulo}
+              </button>
+            ))}
+          </div>
+
+          {subAba === "pessoas" && (
+            <div className="space-y-8">
+            {iaEntry && (
+              <div>
+                <h2 className="mb-3 font-display text-[15px] font-bold text-ink">Bot (IA Greenn)</h2>
+                <Card
+                  onClick={() => { setPosseDetalheSoAbertos(false); setPosseDetalhe("IA Greenn"); setPosseDetalhePage(0); }}
+                  className="flex cursor-pointer flex-wrap items-center gap-6 border-sky-400/30 bg-sky-500/5 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
+                >
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Chamados</p>
+                    <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{iaEntry.total_atendimentos}</p>
+                  </div>
+                  {tempoRespostaBot && tempoRespostaBot.amostras > 0 && (
+                    <div>
+                      <p
+                        className="text-xs font-medium uppercase tracking-wide text-ink/40"
+                        title="Mediana, não média — poucas conversas retomadas dias depois (reabertura, ou o início registrado não sendo exatamente quando o cliente mandou a mensagem que o bot respondeu) distorceriam muito uma média simples"
                       >
-                        <td className="px-4 py-3 text-left font-medium text-ink">{r.operator_nome}</td>
-                        <td className="px-4 py-3 text-ink/70">{r.total_atendimentos}</td>
-                        <td className="px-4 py-3 text-ink/70">{r.total_interacoes}</td>
-                        <td className="px-4 py-3 text-ink/70">{r.total_mensagens}</td>
-                        <td className="px-4 py-3 text-ink/70">{formatMin(r.tfr_medio)}</td>
-                        <td className="px-4 py-3 text-ink/70">{formatMin(r.tempo_resolucao_medio)}</td>
-                        <td className={cn("px-4 py-3 font-semibold", corTextoCsat(r.csat_medio))}>{r.csat_medio?.toFixed(1) ?? "—"}</td>
-                        <td className="px-4 py-3 text-ink/70">{r.total_avaliacoes}</td>
-                        <td className="px-4 py-3 text-ink/70">{p ? formatDuration(p.minutos_posse * 60) : "—"}</td>
-                        <td className="px-4 py-3 text-ink/70">{p ? p.chamados : "—"}</td>
-                        <td className="px-4 py-3 text-ink/70">{p ? formatDuration((p.minutos_posse / p.chamados) * 60) : "—"}</td>
-                        <td className="px-4 py-3 text-ink/70">{atendPorHora !== null ? atendPorHora.toFixed(1) : "—"}</td>
-                        <td className="px-4 py-3 text-ink/70">{reaberturaPorAtendenteMap.get(r.operator_nome) ?? 0}</td>
-                        <td className="px-4 py-3 text-ink/70">{transferenciasOrigemMap.get(r.operator_nome) ?? 0}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </Card>
-          )}
-          <p className="text-xs text-ink/40">
-            Produtividade (atendimentos/hora, reaberturas, transferências) fica nesta mesma tabela de propósito — o
-            documento de referência pede pra nunca usar volume isolado como métrica de performance, sempre junto com
-            CSAT/TFR/reabertura ao lado. "Tempo de trabalho ativo" por pessoa segue com a mesma limitação do card
-            homônimo em Relógios: o Crisp não expõe presença real, só o horário cadastrado.
-          </p>
+                        Tempo até 1ª resposta (típico)
+                      </p>
+                      <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{formatDuration(tempoRespostaBot.tempo_medio_seg)}</p>
+                      <p className="mt-1 text-[11px] text-ink/40">{tempoRespostaBot.amostras} amostras</p>
+                    </div>
+                  )}
+                  {iaEntry.csat_medio !== null && (
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">CSAT médio</p>
+                      <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoCsat(iaEntry.csat_medio))}>{iaEntry.csat_medio.toFixed(1)}</p>
+                    </div>
+                  )}
+                  {iaPosse && (
+                    <div>
+                      <p
+                        className="text-xs font-medium uppercase tracking-wide text-ink/40"
+                        title="Só conta posse através de evento real de roteamento — e o marcador sintético do bot (usado como 'atendente atual' na maioria dos chamados) nunca gera esse evento. Então isso reflete quase só a conta real do bot na Crisp (allan@gdigital.com.br), que quase nunca fica como atendente atual — por isso pode divergir bastante de 'Atendimentos', pra mais ou pra menos"
+                      >
+                        Chamados c/ posse
+                      </p>
+                      <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{iaPosse.chamados}</p>
+                    </div>
+                  )}
+                </Card>
+                <p className="mt-2 text-xs text-ink/40">
+                  Separado do ranking humano — TFR e tempo de resolução não fazem sentido pro bot (ele não "responde
+                  como humano" nem "resolve" no sentido usado ali). "Chamados" conta chamados onde o bot é o
+                  atendente registrado agora — quase sempre via um marcador sintético que nunca passa por roteamento
+                  real. "Chamados c/ posse" só existe através de roteamento real, que esse marcador nunca gera — então
+                  vem quase inteiramente da conta de verdade do bot na Crisp, que raramente é quem fica registrado como
+                  atendente atual. São duas fontes praticamente sem sobreposição, não um subconjunto uma da outra — por
+                  isso os números podem divergir bastante (não é erro).
+                </p>
+              </div>
+            )}
 
-          {rankingHumano && rankingHumano.length > 0 && (
-            <Card className="p-4">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Volume de atendimentos por pessoa</p>
-              <HorizontalBarChart
-                data={(() => {
-                  const ordenado = [...rankingHumano].sort((a, b) => b.total_atendimentos - a.total_atendimentos);
-                  const rotulos = nomesCurtosDisambiguados(ordenado.map((r) => r.operator_nome));
-                  return ordenado.map((r, i) => ({ label: rotulos[i], value: r.total_atendimentos }));
-                })()}
-                getColorClass={(_, i) => CORES_VIVAS[i % CORES_VIVAS.length]}
-              />
-            </Card>
-          )}
-          <p className="text-xs text-ink/40">
-            "Chamados" conta onde a pessoa é a atendente registrada agora, não importa o status. "Chamados c/ posse"
-            só conta posse ATIVA — um chamado já resolvido some daqui mesmo continuando em "Chamados", por isso esse
-            número costuma ser MENOR (não maior, apesar do nome). Ele também inclui trechos em que a pessoa segurou o
-            chamado antes de repassar pra outra pessoa (handoff) — então os dois números nunca precisam bater, em
-            nenhuma direção. Clique numa linha com posse pra ver os chamados específicos.
-          </p>
-
-          <div>
-            <div className="mb-3 flex items-center gap-2">
-              <h2 className="font-display text-sm font-semibold text-ink">Velocidade</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="font-display text-[15px] font-bold text-ink">Ranking de atendentes</h2>
               <button
                 type="button"
                 onClick={() => setExplicacaoVelocidadeAberta(true)}
@@ -947,62 +896,744 @@ export default function Performance() {
                 <Info size={13} /> ver mais
               </button>
             </div>
-            {loadingVelocidade ? (
+            {isLoading ? (
               <p className="text-sm text-ink/50">Carregando...</p>
-            ) : !velocidadeGeral ? (
-              <Card className="p-4"><p className="text-sm text-ink/50">Sem chamados no período.</p></Card>
+            ) : !ranking || ranking.length === 0 ? (
+              <p className="text-sm text-ink/50">Sem atendimentos neste período/filtro.</p>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {[velocidadeGeral, ...velocidadePorTipoReal].map((v: VelocidadePorTipoCliente) => {
-                  const rb = reaberturaPorTipo?.find((r: ReaberturaPorTipoCliente) => r.tipo_cliente === v.tipo_cliente);
-                  return (
-                    <Card key={v.tipo_cliente} className="p-4">
-                      <div className="flex items-baseline justify-between">
-                        <p className="font-display text-sm font-semibold text-ink">{v.tipo_cliente}</p>
-                        <p className="text-xs text-ink/50">{v.chamados.toLocaleString("pt-BR")} chamados</p>
-                      </div>
-                      <div className="mt-3 border-t border-sand-line pt-3">
-                        <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40">1ª resposta (mediana)</p>
-                        <p
-                          className="mt-0.5 font-display text-lg font-semibold text-ink"
-                          title={`Média: ${formatDuration(v.tfr_media_uteis_seg)} útil / ${formatDuration(v.tfr_media_corridas_seg)} corrido`}
+              <Card className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-medium">Atendente</th>
+                      <SortableHeader align="center" field="total_atendimentos" label="Chamados" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
+                      <SortableHeader
+                        align="center"
+                        field="total_interacoes"
+                        label="Interações"
+                        ordenarPor={rankingOrdenarPor}
+                        direcao={rankingDirecao}
+                        onSort={ordenarRankingPorColuna}
+                        title="Quantos chamados o atendente mandou mensagem no período — inclui chamados que começaram antes do período mas em que ele trabalhou dentro dele. Diferente de 'Chamados', que só conta ciclo novo iniciado no período."
+                      />
+                      <SortableHeader
+                        align="center"
+                        field="total_mensagens"
+                        label="Mensagens"
+                        ordenarPor={rankingOrdenarPor}
+                        direcao={rankingDirecao}
+                        onSort={ordenarRankingPorColuna}
+                        title="Total de mensagens enviadas pelo atendente no período (soma de todas as conversas, não só 1 por chamado)."
+                      />
+                      <SortableHeader align="center" field="tfr_medio" label="TFR médio" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
+                      <SortableHeader align="center" field="tempo_resolucao_medio" label="Tempo médio de resolução" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
+                      <SortableHeader align="center" field="csat_medio" label="CSAT médio" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
+                      <SortableHeader align="center" field="total_avaliacoes" label="Avaliações" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
+                      <th className="px-4 py-3 font-medium">Tempo de posse</th>
+                      <th
+                        className="px-4 py-3 font-medium"
+                        title="Só conta posse ATIVA — trechos em que o chamado já está com status resolvido não entram aqui, mesmo esse chamado continuando contando em 'Chamados'. Por isso costuma ser MENOR que 'Chamados', não maior, apesar do nome sugerir 'todo chamado que passou pela pessoa'."
+                      >
+                        Chamados c/ posse
+                      </th>
+                      <th className="px-4 py-3 font-medium">Posse média</th>
+                      <th className="px-4 py-3 font-medium" title="Atendimentos ÷ horas de posse — produtividade só faz sentido lida junto com CSAT/TFR/reabertura ao lado">Atend./hora</th>
+                      <th
+                        className="px-4 py-3 font-medium"
+                        title="Quantidade de EVENTOS de reabertura atribuídos a esse atendente no período — não é por chamado (um chamado que reabre 3 vezes conta 3 aqui). Não inclui o bot."
+                      >
+                        Reaberturas
+                      </th>
+                      <th className="px-4 py-3 font-medium">Transferências</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(rankingOrdenado ?? []).map((r) => {
+                      const p = posseMap.get(r.operator_nome);
+                      const horasPosse = p ? p.minutos_posse / 60 : 0;
+                      const atendPorHora = p && horasPosse > 0 ? r.total_atendimentos / horasPosse : null;
+                      return (
+                        <tr
+                          key={r.operator_email ?? r.operator_nome}
+                          onClick={p ? () => { setPosseDetalheSoAbertos(false); setPosseDetalhe(r.operator_nome); setPosseDetalhePage(0); } : undefined}
+                          className={cn(
+                            "border-t border-sand-line text-center transition-all",
+                            p && "relative cursor-pointer hover:relative hover:z-10 hover:scale-[1.01] hover:bg-sand-surface hover:shadow-card-hover"
+                          )}
                         >
-                          {formatDuration(v.tfr_p50_uteis_seg)}
-                        </p>
-                        <p className="text-xs text-ink/50">corrido: {formatDuration(v.tfr_p50_corridas_seg)}</p>
-                      </div>
-                      <div className="mt-3 border-t border-sand-line pt-3">
-                        <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40">Resolução (mediana)</p>
-                        <p
-                          className="mt-0.5 font-display text-lg font-semibold text-ink"
-                          title={`Média: ${formatDuration(v.ttr_media_uteis_seg)} útil / ${formatDuration(v.ttr_media_corridas_seg)} corrido`}
-                        >
-                          {formatDuration(v.ttr_p50_uteis_seg)}
-                        </p>
-                        <p className="text-xs text-ink/50">corrido: {formatDuration(v.ttr_p50_corridas_seg)}</p>
-                      </div>
-                      <div className="mt-3 border-t border-sand-line pt-3">
-                        <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40">Reabertura</p>
-                        {rb ? (
-                          <p className="mt-0.5 text-sm text-ink/70">
-                            <span className="font-semibold text-ink">{rb.taxa_pct?.toFixed(1) ?? "—"}%</span>
-                            {" "}({rb.total_reabertos.toLocaleString("pt-BR")} de {rb.total_resolvidos.toLocaleString("pt-BR")} conversas resolvidas)
-                          </p>
-                        ) : (
-                          <p className="mt-0.5 text-sm text-ink/40">—</p>
-                        )}
-                      </div>
-                    </Card>
-                  );
-                })}
-              </div>
+                          <td className="px-4 py-3 text-left font-medium text-ink">{r.operator_nome}</td>
+                          <td className="px-4 py-3 text-ink/70">{r.total_atendimentos}</td>
+                          <td className="px-4 py-3 text-ink/70">{r.total_interacoes}</td>
+                          <td className="px-4 py-3 text-ink/70">{r.total_mensagens}</td>
+                          <td className="px-4 py-3 text-ink/70">{formatMin(r.tfr_medio)}</td>
+                          <td className="px-4 py-3 text-ink/70">{formatMin(r.tempo_resolucao_medio)}</td>
+                          <td className={cn("px-4 py-3 font-semibold", corTextoCsat(r.csat_medio))}>{r.csat_medio?.toFixed(1) ?? "—"}</td>
+                          <td className="px-4 py-3 text-ink/70">{r.total_avaliacoes}</td>
+                          <td className="px-4 py-3 text-ink/70">{p ? formatDuration(p.minutos_posse * 60) : "—"}</td>
+                          <td className="px-4 py-3 text-ink/70">{p ? p.chamados : "—"}</td>
+                          <td className="px-4 py-3 text-ink/70">{p ? formatDuration((p.minutos_posse / p.chamados) * 60) : "—"}</td>
+                          <td className="px-4 py-3 text-ink/70">{atendPorHora !== null ? atendPorHora.toFixed(1) : "—"}</td>
+                          <td className="px-4 py-3 text-ink/70">{reaberturaPorAtendenteMap.get(r.operator_nome) ?? 0}</td>
+                          <td className="px-4 py-3 text-ink/70">{transferenciasOrigemMap.get(r.operator_nome) ?? 0}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </Card>
             )}
-            <p className="mt-3 text-xs text-ink/40">
-              Mediana (P50) como número principal — metade dos chamados fica em até esse tempo, é o "caso típico" e sofre
-              bem menos com outliers do que a média (passe o mouse pra ver a média). "Geral" é o time inteiro, sem filtrar
-              por tipo. Tempo sempre desconta feriado; "Sem tipo" é quem não tem tag de segmento capturada pela Crisp ainda.
+            <p className="text-xs text-ink/40">
+              Produtividade (atendimentos/hora, reaberturas, transferências) fica nesta mesma tabela de propósito — o
+              documento de referência pede pra nunca usar volume isolado como métrica de performance, sempre junto com
+              CSAT/TFR/reabertura ao lado. "Tempo de trabalho ativo" por pessoa segue com a mesma limitação do card
+              homônimo em Relógios: o Crisp não expõe presença real, só o horário cadastrado.
             </p>
-          </div>
+
+            {rankingHumano && rankingHumano.length > 0 && (
+              <Card className="p-4">
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Volume de atendimentos por pessoa</p>
+                <HorizontalBarChart
+                  data={(() => {
+                    const ordenado = [...rankingHumano].sort((a, b) => b.total_atendimentos - a.total_atendimentos);
+                    const rotulos = nomesCurtosDisambiguados(ordenado.map((r) => r.operator_nome));
+                    return ordenado.map((r, i) => ({ label: rotulos[i], value: r.total_atendimentos }));
+                  })()}
+                  getColorClass={() => "bg-forest-500"}
+                />
+              </Card>
+            )}
+            <p className="text-xs text-ink/40">
+              "Chamados" conta onde a pessoa é a atendente registrada agora, não importa o status. "Chamados c/ posse"
+              só conta posse ATIVA — um chamado já resolvido some daqui mesmo continuando em "Chamados", por isso esse
+              número costuma ser MENOR (não maior, apesar do nome). Ele também inclui trechos em que a pessoa segurou o
+              chamado antes de repassar pra outra pessoa (handoff) — então os dois números nunca precisam bater, em
+              nenhuma direção. Clique numa linha com posse pra ver os chamados específicos.
+            </p>
+
+            </div>
+          )}
+
+          {subAba === "velocidade" && (
+            <div className="space-y-8">
+            <div>
+              <div className="mb-3 flex items-center gap-2">
+                <h2 className="font-display text-[15px] font-bold text-ink">Velocidade</h2>
+                <button
+                  type="button"
+                  onClick={() => setExplicacaoVelocidadeAberta(true)}
+                  className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-ink/50 hover:bg-sand-bg hover:text-ink"
+                >
+                  <Info size={13} /> ver mais
+                </button>
+              </div>
+              {loadingVelocidade ? (
+                <p className="text-sm text-ink/50">Carregando...</p>
+              ) : !velocidadeGeral ? (
+                <Card className="p-4"><p className="text-sm text-ink/50">Sem chamados no período.</p></Card>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {[velocidadeGeral, ...velocidadePorTipoReal].map((v: VelocidadePorTipoCliente) => {
+                    const rb = reaberturaPorTipo?.find((r: ReaberturaPorTipoCliente) => r.tipo_cliente === v.tipo_cliente);
+                    return (
+                      <Card key={v.tipo_cliente} className="p-4">
+                        <div className="flex items-baseline justify-between">
+                          <p className="font-display text-sm font-semibold text-ink">{v.tipo_cliente}</p>
+                          <p className="text-xs text-ink/50">{v.chamados.toLocaleString("pt-BR")} chamados</p>
+                        </div>
+                        <div className="mt-3 border-t border-sand-line pt-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40">1ª resposta (mediana)</p>
+                          <p
+                            className="mt-0.5 font-display text-lg font-semibold text-ink"
+                            title={`Média: ${formatDuration(v.tfr_media_uteis_seg)} útil / ${formatDuration(v.tfr_media_corridas_seg)} corrido`}
+                          >
+                            {formatDuration(v.tfr_p50_uteis_seg)}
+                          </p>
+                          <p className="text-xs text-ink/50">corrido: {formatDuration(v.tfr_p50_corridas_seg)}</p>
+                        </div>
+                        <div className="mt-3 border-t border-sand-line pt-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40">Resolução (mediana)</p>
+                          <p
+                            className="mt-0.5 font-display text-lg font-semibold text-ink"
+                            title={`Média: ${formatDuration(v.ttr_media_uteis_seg)} útil / ${formatDuration(v.ttr_media_corridas_seg)} corrido`}
+                          >
+                            {formatDuration(v.ttr_p50_uteis_seg)}
+                          </p>
+                          <p className="text-xs text-ink/50">corrido: {formatDuration(v.ttr_p50_corridas_seg)}</p>
+                        </div>
+                        <div className="mt-3 border-t border-sand-line pt-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40">Reabertura</p>
+                          {rb ? (
+                            <p className="mt-0.5 text-sm text-ink/70">
+                              <span className="font-semibold text-ink">{rb.taxa_pct?.toFixed(1) ?? "—"}%</span>
+                              {" "}({rb.total_reabertos.toLocaleString("pt-BR")} de {rb.total_resolvidos.toLocaleString("pt-BR")} conversas resolvidas)
+                            </p>
+                          ) : (
+                            <p className="mt-0.5 text-sm text-ink/40">—</p>
+                          )}
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="mt-3 text-xs text-ink/40">
+                Mediana (P50) como número principal — metade dos chamados fica em até esse tempo, é o "caso típico" e sofre
+                bem menos com outliers do que a média (passe o mouse pra ver a média). "Geral" é o time inteiro, sem filtrar
+                por tipo. Tempo sempre desconta feriado; "Sem tipo" é quem não tem tag de segmento capturada pela Crisp ainda.
+              </p>
+            </div>
+
+            <div>
+              <div className="mb-3 flex items-center gap-2">
+                <h2 className="font-display text-[15px] font-bold text-ink">Relógios do atendimento</h2>
+                <button
+                  type="button"
+                  onClick={() => setExplicacaoRelogiosAberta(true)}
+                  className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-ink/50 hover:bg-sand-bg hover:text-ink"
+                >
+                  <Info size={13} /> ver mais
+                </button>
+              </div>
+              <Card className="p-4">
+                <div className="grid gap-4 border-b border-sand-line pb-4 sm:grid-cols-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Relógio do cliente</p>
+                    {loadingVelocidade ? (
+                      <p className="mt-1 text-sm text-ink/50">Carregando...</p>
+                    ) : !velocidadeGeral ? (
+                      <p className="mt-1 text-sm text-ink/50">Sem amostras.</p>
+                    ) : (
+                      <>
+                        <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{formatDuration(velocidadeGeral.ttr_p50_uteis_seg)}</p>
+                        <p className="mt-1 text-[11px] text-ink/40">Mediana de Resolução — mesmo valor de Velocidade (card "Geral"), do ponto de vista de quem esperou</p>
+                      </>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Relógio de espera do cliente</p>
+                    {loadingEspera ? (
+                      <p className="mt-1 text-sm text-ink/50">Carregando...</p>
+                    ) : !esperaCliente || esperaCliente.amostras === 0 ? (
+                      <p className="mt-1 text-sm text-ink/50">Sem amostras.</p>
+                    ) : (
+                      <>
+                        <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{formatDuration((esperaCliente.minutos_espera_medio ?? 0) * 60)}</p>
+                        <p className="mt-1 text-[11px] text-ink/40">{esperaCliente.amostras} janelas de espera até resposta humana (bot não conta)</p>
+                      </>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Relógio de trabalho ativo</p>
+                    {loadingExpediente ? (
+                      <p className="mt-1 text-sm text-ink/50">Carregando...</p>
+                    ) : !horasExpediente ? (
+                      <p className="mt-1 text-sm text-ink/50">Sem expediente cadastrado no período.</p>
+                    ) : (
+                      <>
+                        <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{formatDuration(horasExpediente * 60)}</p>
+                        <p
+                          className="mt-1 text-[11px] text-ink/40"
+                          title={atendenteNomes.length > 0 ? "Plantão fixo de sábado (08h-12h) não entra aqui filtrado — não dá pra saber quem especificamente está de plantão nessa data." : undefined}
+                        >
+                          {atendenteNomes.length > 0
+                            ? "expediente cadastrado das pessoas selecionadas (união, não soma)"
+                            : "expediente cadastrado do time (cobertura, não soma individual)"}
+                        </p>
+                        {tipoClienteFiltro && (
+                          <p className="mt-0.5 text-[11px] text-ink/40" title="Cobertura de horário é sobre a agenda do time, não sobre chamados — não existe 'expediente do tipo Produtor'.">
+                            Não respeita o filtro de tipo de cliente (motivo no hover)
+                          </p>
+                        )}
+                      </>
+                    )}
+                    <p className="mt-1 text-[11px] text-ink/30" title="O Crisp não expõe estado de ativo/ausente do operador pela API">
+                      capacidade nominal (horário cadastrado), não presença real
+                    </p>
+                  </div>
+                </div>
+
+                <p className="mb-2 mt-4 text-xs font-medium uppercase tracking-wide text-ink/40">Posse por atendente humano (chamados resolvidos no período)</p>
+                {loadingPosse ? (
+                  <p className="text-sm text-ink/50">Carregando...</p>
+                ) : posseFiltrada.filter((p) => p.atendente !== "IA Greenn").length === 0 ? (
+                  <p className="text-sm text-ink/50">Sem chamados resolvidos no período pra medir posse.</p>
+                ) : (
+                  <HorizontalBarChart
+                    data={posseFiltrada
+                      .filter((p) => p.atendente !== "IA Greenn")
+                      .sort((a, b) => b.minutos_posse - a.minutos_posse)
+                      .map((p) => ({ label: p.atendente, value: p.minutos_posse / 60, displayValue: `${(p.minutos_posse / 60).toFixed(1)}h` }))}
+                    getColorClass={() => "bg-sky-500"}
+                    labelWidth={180}
+                  />
+                )}
+                <p className="mt-3 text-xs text-ink/40">
+                  Posse = tempo entre a 1ª mensagem de um atendente num chamado e a entrada do próximo atendente (ou a
+                  resolução, se ninguém mais entrar) — cada trecho conta só pra quem estava "com a bola" naquele momento,
+                  não o TTR inteiro pra todo mundo que passou pelo chamado. Bot (IA Greenn) fica de fora daqui — vem
+                  separado no card acima do Ranking. Detalhamento por atendente está na tabela de Ranking, no topo da
+                  página.
+                </p>
+              </Card>
+            </div>
+
+            </div>
+          )}
+
+          {subAba === "qualidade" && (
+            <div className="space-y-8">
+            <div>
+              <SecaoHead
+                titulo="CSAT"
+                subtitulo="Avaliações recebidas no período. Clique em Ruins pra ler os comentários."
+                ajuda={<p>Boa = nota 4 ou 5. Ruim = nota 1 a 3 (não existe mais faixa neutra). Conta pela data da avaliação.</p>}
+              />
+              {!csatDist || csatDist.total === 0 ? (
+                <Card className="p-4"><p className="text-sm text-ink/50">Nenhuma avaliação no período.</p></Card>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Card className="p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/50">Boas (4–5)</p>
+                    <p className="mt-1 font-display text-kpi-lg font-bold tabular-nums text-forest-600 dark:text-forest-300">{fmtNum(csatDist.boas)}</p>
+                    <p className="text-xs text-ink/50">{fmtPct1(csatBoasPct)} das avaliações</p>
+                  </Card>
+                  <Card
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setRuinsAberto(true)}
+                    onKeyDown={(e) => { if (e.key === "Enter") setRuinsAberto(true); }}
+                    className="cursor-pointer p-4 transition hover:-translate-y-0.5 hover:shadow-card-hover"
+                  >
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/50">Ruins (1–3)</p>
+                    <p className="mt-1 font-display text-kpi-lg font-bold tabular-nums text-rust-500">{fmtNum(csatDist.ruins)}</p>
+                    <p className="text-xs font-semibold text-forest-700 dark:text-forest-300">Ver comentários e chamados →</p>
+                  </Card>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <h2 className="mb-3 font-display text-[15px] font-bold text-ink">Reabertura</h2>
+              {loadingReabertura ? (
+                <p className="text-sm text-ink/50">Carregando...</p>
+              ) : !reaberturaResumo || reaberturaResumo.total_resolvidos === 0 ? (
+                <Card className="p-4"><p className="text-sm text-ink/50">Nenhum chamado resolvido no período pra medir reabertura.</p></Card>
+              ) : (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
+                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Taxa de reabertura</p>
+                      <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(100 - (reaberturaResumo.taxa_pct ?? 0)))}>
+                        {reaberturaResumo.taxa_pct?.toFixed(1) ?? "0.0"}%
+                      </p>
+                      <p className="mt-1 text-[11px] text-ink/40">de {reaberturaResumo.total_resolvidos.toLocaleString("pt-BR")} conversas resolvidas no período</p>
+                    </Card>
+                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
+                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40" title="Conversas que o cliente reabriu pelo menos uma vez (resposta à pesquisa de CSAT não conta). A taxa divide isso pelas conversas resolvidas ao menos uma vez — mesma unidade nos dois lados.">Conversas reabertas</p>
+                      <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{reaberturaResumo.total_reabertos}</p>
+                    </Card>
+                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
+                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Total de eventos de reabertura</p>
+                      <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{reaberturaResumo.total_eventos}</p>
+                      <p className="mt-1 text-[11px] text-ink/40">uma conversa pode reabrir mais de uma vez</p>
+                    </Card>
+                  </div>
+
+                  {reaberturaResumo.total_reabertos > 0 && (
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      <Card className="p-4">
+                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Principais motivos</p>
+                        <HorizontalBarChart data={reaberturaPorMotivo} getColorClass={() => "bg-forest-500"} labelWidth={160} />
+                      </Card>
+                      <Card className="p-4">
+                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Por atendente</p>
+                        <HorizontalBarChart data={reaberturaPorAtendente} getColorClass={() => "bg-forest-500"} labelWidth={140} />
+                      </Card>
+                    </div>
+                  )}
+
+                  {reaberturaCasos && reaberturaCasos.length > 0 && (
+                    <>
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <select
+                          value={reaberturaFiltroAtendente}
+                          onChange={(e) => { setReaberturaFiltroAtendente(e.target.value); setMostrarTodasReaberturas(false); }}
+                          className="h-8 rounded-lg border border-sand-line bg-sand-surface px-2 text-xs"
+                        >
+                          <option value="">Todos os atendentes</option>
+                          {reaberturaAtendentesDisponiveis.map((a) => <option key={a} value={a}>{a}</option>)}
+                        </select>
+                        <select
+                          value={reaberturaFiltroReaberto}
+                          onChange={(e) => { setReaberturaFiltroReaberto(e.target.value); setMostrarTodasReaberturas(false); }}
+                          className="h-8 rounded-lg border border-sand-line bg-sand-surface px-2 text-xs"
+                        >
+                          <option value="">Qualquer nº de reaberturas</option>
+                          {reaberturaReabertosDisponiveis.map((n) => <option key={n} value={n}>{n}x reaberto</option>)}
+                        </select>
+                      </div>
+                      {reaberturaCasosFiltrados.length === 0 ? (
+                        <p className="mt-2 text-sm text-ink/50">Nenhum caso com esse filtro.</p>
+                      ) : (
+                        <Card className="mt-2 overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
+                              <tr>
+                                <th className="px-4 py-3 text-left font-medium">Cliente</th>
+                                <th className="px-4 py-3 font-medium">Motivo</th>
+                                <th className="px-4 py-3 font-medium">Atendente</th>
+                                <th className="px-4 py-3 font-medium">Reaberto</th>
+                                <th className="px-4 py-3 font-medium">Início</th>
+                                <th className="px-4 py-3 font-medium">Ação</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(mostrarTodasReaberturas ? reaberturaCasosFiltrados : reaberturaCasosFiltrados.slice(0, 4)).map((c) => (
+                                <tr key={c.crisp_id} className="border-t border-sand-line text-center align-top">
+                                  <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
+                                  <td className="px-4 py-3 text-ink/70">{c.topico}</td>
+                                  <td className="px-4 py-3 text-ink/70">{c.atendente ?? "—"}</td>
+                                  <td className="px-4 py-3 font-medium text-ink">{c.reopened_count}x</td>
+                                  <td className="px-4 py-3 text-xs text-ink/60">{new Date(c.current_started_at).toLocaleString("pt-BR")}</td>
+                                  <td className="px-4 py-3">
+                                    {c.link_chamado ? (
+                                      <a href={c.link_chamado} target="_blank" rel="noreferrer">
+                                        <Button variant="secondary" size="sm"><ExternalLink size={13} /> Ver</Button>
+                                      </a>
+                                    ) : (
+                                      <span className="text-xs text-ink/30">sem link</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </Card>
+                      )}
+                      {reaberturaCasosFiltrados.length > 4 && (
+                        <div className="mt-2 flex justify-center">
+                          <Button variant="secondary" size="sm" onClick={() => setMostrarTodasReaberturas((v) => !v)}>
+                            {mostrarTodasReaberturas ? "Ver menos" : `Ver mais reaberturas (${reaberturaCasosFiltrados.length - 4})`}
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div>
+              <h2 className="mb-3 font-display text-[15px] font-bold text-ink">FCR e Recontato</h2>
+              {loadingFcr ? (
+                <p className="text-sm text-ink/50">Carregando...</p>
+              ) : !fcrRecontato || fcrRecontato.total_elegiveis === 0 ? (
+                <Card className="p-4"><p className="text-sm text-ink/50">Nenhuma conversa elegível no período (precisa estar resolvida, com cliente e motivo identificados).</p></Card>
+              ) : (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
+                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">FCR</p>
+                      <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(fcrRecontato.fcr_pct ?? 0))}>
+                        {fcrRecontato.fcr_pct?.toFixed(1) ?? "0.0"}%
+                      </p>
+                      <p className="mt-1 text-[11px] text-ink/40">resolvido sem o cliente voltar pelo mesmo motivo em 7 dias</p>
+                    </Card>
+                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
+                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Recontato</p>
+                      <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(100 - (fcrRecontato.recontato_pct ?? 0)))}>
+                        {fcrRecontato.recontato_pct?.toFixed(1) ?? "0.0"}%
+                      </p>
+                      <p className="mt-1 text-[11px] text-ink/40">{fcrRecontato.total_recontato} de {fcrRecontato.total_elegiveis} voltaram pelo mesmo motivo</p>
+                    </Card>
+                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
+                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Conversas elegíveis</p>
+                      <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{fcrRecontato.total_elegiveis}</p>
+                      <p className="mt-1 text-[11px] text-ink/40">resolvidos, com cliente e motivo identificados</p>
+                    </Card>
+                  </div>
+
+                  {recontatoPorMotivo.length > 0 && (
+                    <Card className="mt-4 p-4">
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Motivos com mais recontato</p>
+                      <HorizontalBarChart data={recontatoPorMotivo} getColorClass={() => "bg-forest-500"} labelWidth={180} />
+                    </Card>
+                  )}
+
+                  {recontatoCasos && recontatoCasos.length > 0 && (
+                    <Card className="mt-4 overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
+                          <tr>
+                            <th className="px-4 py-3 text-left font-medium">Cliente</th>
+                            <th className="px-4 py-3 font-medium">Motivo</th>
+                            <th className="px-4 py-3 font-medium">Atendente</th>
+                            <th className="px-4 py-3 font-medium">Resolvido em</th>
+                            <th className="px-4 py-3 font-medium">Voltou em</th>
+                            <th className="px-4 py-3 font-medium">Ação</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(mostrarTodosRecontatos ? recontatoCasos : recontatoCasos.slice(0, 4)).map((c) => (
+                            <tr key={c.crisp_id} className="border-t border-sand-line text-center align-top">
+                              <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
+                              <td className="px-4 py-3 text-ink/70">{c.topico ?? "—"}</td>
+                              <td className="px-4 py-3 text-ink/70">{c.atendente ?? "—"}</td>
+                              <td className="px-4 py-3 text-xs text-ink/60">{new Date(c.resolved_at).toLocaleString("pt-BR")}</td>
+                              <td className="px-4 py-3 text-xs text-ink/60">{c.proximo_contato_at ? new Date(c.proximo_contato_at).toLocaleString("pt-BR") : "—"}</td>
+                              <td className="px-4 py-3">
+                                {c.link_chamado ? (
+                                  <a href={c.link_chamado} target="_blank" rel="noreferrer">
+                                    <Button variant="secondary" size="sm"><ExternalLink size={13} /> Ver</Button>
+                                  </a>
+                                ) : (
+                                  <span className="text-xs text-ink/30">sem link</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </Card>
+                  )}
+                  {recontatoCasos && recontatoCasos.length > 4 && (
+                    <div className="mt-2 flex justify-center">
+                      <Button variant="secondary" size="sm" onClick={() => setMostrarTodosRecontatos((v) => !v)}>
+                        {mostrarTodosRecontatos ? "Ver menos" : `Ver mais (${recontatoCasos.length - 4})`}
+                      </Button>
+                    </div>
+                  )}
+                  <p className="mt-2 text-xs text-ink/40">
+                    "Mesmo motivo" = mesmo texto de tópico (classificado pela Crisp), dentro de 7 dias após a resolução.
+                    Conversa sem cliente identificado (people_id) ou sem tópico não entra na conta — não dá pra saber se
+                    ele voltou. Separado de Reabertura: aqui é o cliente abrindo uma conversa <em>nova</em>, não reabrindo
+                    a mesma.
+                  </p>
+                </>
+              )}
+            </div>
+
+            </div>
+          )}
+
+          {subAba === "fluxo" && (
+            <div className="space-y-8">
+            <div>
+              <h2 className="mb-3 font-display text-[15px] font-bold text-ink">Transferências</h2>
+              {loadingTransferencias ? (
+                <p className="text-sm text-ink/50">Carregando...</p>
+              ) : !transferenciasResumo || transferenciasResumo.total_atendidos === 0 ? (
+                <Card className="p-4"><p className="text-sm text-ink/50">Nenhum chamado atendido no período pra medir transferência.</p></Card>
+              ) : (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
+                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Taxa de transferência</p>
+                      <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(100 - (transferenciasResumo.taxa_pct ?? 0)))}>
+                        {transferenciasResumo.taxa_pct?.toFixed(1) ?? "0.0"}%
+                      </p>
+                      <p className="mt-1 text-[11px] text-ink/40">{transferenciasResumo.total_atendidos} chamados atendidos no período</p>
+                    </Card>
+                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
+                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40" title="Conta CONVERSAS que trocaram de atendente pelo menos uma vez — não ponderado por reopened_count igual 'chamados atendidos' ao lado, porque transferência já é em si uma transição, não uma contagem de coisas que existem.">Conversas transferidas</p>
+                      <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{transferenciasResumo.total_transferidos}</p>
+                      <p className="mt-1 text-[11px] text-ink/40">{transferenciasResumo.total_eventos} eventos (uma conversa pode trocar de mão mais de uma vez)</p>
+                    </Card>
+                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
+                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Tempo médio até transferir</p>
+                      <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{formatDuration(transferenciasResumo.tempo_medio_antes_seg)}</p>
+                    </Card>
+                  </div>
+
+                  {transferenciasResumo.total_transferidos > 0 && (
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      <Card className="p-4">
+                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Origem (quem passou a bola)</p>
+                        <HorizontalBarChart data={transferenciasPorOrigem} getColorClass={() => "bg-forest-500"} labelWidth={140} />
+                      </Card>
+                      <Card className="p-4">
+                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Destino (quem recebeu)</p>
+                        <HorizontalBarChart data={transferenciasPorDestino} getColorClass={() => "bg-forest-500"} labelWidth={140} />
+                      </Card>
+                    </div>
+                  )}
+
+                  {transferenciasCasos && transferenciasCasos.length > 0 && (
+                    <Card className="mt-4 overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
+                          <tr>
+                            <th className="px-4 py-3 text-left font-medium">Cliente</th>
+                            <th className="px-4 py-3 font-medium">Origem</th>
+                            <th className="px-4 py-3 font-medium">Destino</th>
+                            <th className="px-4 py-3 font-medium">Quando</th>
+                            <th className="px-4 py-3 font-medium">Ação</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(mostrarTodasTransferencias ? transferenciasCasos : transferenciasCasos.slice(0, 4)).map((c, i) => (
+                            <tr key={`${c.crisp_id}-${i}`} className="border-t border-sand-line text-center align-top">
+                              <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
+                              <td className="px-4 py-3 text-ink/70">{c.origem ?? "—"}</td>
+                              <td className="px-4 py-3 text-ink/70">{c.destino ?? "—"}</td>
+                              <td className="px-4 py-3 text-xs text-ink/60">{new Date(c.event_at).toLocaleString("pt-BR")}</td>
+                              <td className="px-4 py-3">
+                                {c.link_chamado ? (
+                                  <a href={c.link_chamado} target="_blank" rel="noreferrer">
+                                    <Button variant="secondary" size="sm"><ExternalLink size={13} /> Ver</Button>
+                                  </a>
+                                ) : (
+                                  <span className="text-xs text-ink/30">sem link</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </Card>
+                  )}
+                  {transferenciasCasos && transferenciasCasos.length > 4 && (
+                    <div className="mt-2 flex justify-center">
+                      <Button variant="secondary" size="sm" onClick={() => setMostrarTodasTransferencias((v) => !v)}>
+                        {mostrarTodasTransferencias ? "Ver menos" : `Ver mais (${transferenciasCasos.length - 4})`}
+                      </Button>
+                    </div>
+                  )}
+                  <p className="mt-2 text-xs text-ink/40">
+                    Só conta troca entre dois atendentes humanos de verdade — passar do bot pro humano é fluxo normal,
+                    não entra aqui. O motivo da transferência não está disponível (a Crisp não envia essa informação).
+                  </p>
+                </>
+              )}
+            </div>
+
+            <div>
+              <h2 className="mb-3 font-display text-[15px] font-bold text-ink">Motivo de contato</h2>
+              {loadingMotivos ? (
+                <p className="text-sm text-ink/50">Carregando...</p>
+              ) : !motivos || motivos.length === 0 ? (
+                <Card className="p-4"><p className="text-sm text-ink/50">Sem tópico classificado no período ainda — a Crisp classifica de forma assíncrona, só depois que um atendente responde.</p></Card>
+              ) : (
+                <>
+                  <Card className="mb-4 p-4">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Top 3 tópicos por volume</p>
+                      {motivoDestaque && (
+                        <button
+                          type="button"
+                          onClick={() => { setMotivoDestaque(""); setMostrarTodosMotivos(false); }}
+                          className="text-[11px] text-forest-600 hover:underline"
+                        >
+                          Limpar
+                        </button>
+                      )}
+                    </div>
+                    <HorizontalBarChart
+                      data={[...motivos]
+                        .sort((a, b) => b.chamados - a.chamados)
+                        .slice(0, 3)
+                        .map((m) => ({ label: m.topico, value: m.chamados }))}
+                      getColorClass={() => "bg-forest-500"}
+                      labelWidth={200}
+                      onBarClick={(label) => {
+                        setMotivoDestaque((atual) => (atual === label ? "" : label));
+                        setMostrarTodosMotivos(false);
+                      }}
+                      isSelected={(label) => motivoDestaque === label}
+                    />
+                  </Card>
+                  {motivosFiltrados.length === 0 ? (
+                    <p className="text-sm text-ink/50">Nenhum tópico com esse filtro.</p>
+                  ) : (
+                    <Card className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
+                          <tr>
+                            <th className="px-4 py-3 text-left font-medium">Tópico</th>
+                            <SortableHeader field="chamados" label="Chamados" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
+                            <SortableHeader field="tfr_media_seg" label="TFR médio" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
+                            <SortableHeader field="ttr_media_seg" label="TTR médio" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(mostrarTodosMotivos ? motivosOrdenados : motivosOrdenados.slice(0, 4)).map((m) => (
+                            <tr key={m.topico} className="border-t border-sand-line text-center">
+                              <td className="px-4 py-3 text-left font-medium text-ink">{m.topico}</td>
+                              <td className="px-4 py-3 text-ink/70">{m.chamados}</td>
+                              <td className="px-4 py-3 text-ink/70">{formatDuration(m.tfr_media_seg)}</td>
+                              <td className="px-4 py-3 text-ink/70">{formatDuration(m.ttr_media_seg)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </Card>
+                  )}
+                  {motivosOrdenados.length > 4 && (
+                    <div className="mt-2 flex justify-center">
+                      <Button variant="secondary" size="sm" onClick={() => setMostrarTodosMotivos((v) => !v)}>
+                        {mostrarTodosMotivos ? "Ver menos" : `Ver mais (${motivosOrdenados.length - 4})`}
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+              <p className="mt-2 text-xs text-ink/40">
+                Tópico é classificado automaticamente pela Crisp por conversa — não é uma categoria fixa reutilizável, então
+                essa lista pode ficar fragmentada até termos volume real suficiente pra avaliar se faz sentido agrupar por
+                palavra-chave. Chamados ainda sem resposta de atendente não aparecem aqui (tópico só é atribuído depois).
+              </p>
+            </div>
+
+            <div>
+              <h2 className="mb-3 font-display text-[15px] font-bold text-ink">Volume por dia e horário</h2>
+              {loadingVolumeDiaHora ? (
+                <p className="text-sm text-ink/50">Carregando...</p>
+              ) : !volumeDiaHora || volumeDiaHora.length === 0 ? (
+                <Card className="p-4"><p className="text-sm text-ink/50">Sem chamados no período.</p></Card>
+              ) : (
+                <Card className="overflow-x-auto p-4">
+                  <table className="border-separate border-spacing-1 text-center text-[11px]">
+                    <thead>
+                      <tr>
+                        <th className="px-1 text-left font-medium text-ink/40">Dia \ Hora</th>
+                        {HORAS_DIA.map((h) => (
+                          <th key={h} className="px-0.5 font-medium text-ink/40">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {DIAS_SEMANA.map((nomeDia, dow) => (
+                        <tr key={dow}>
+                          <td className="px-1 text-left font-medium text-ink/60">{nomeDia}</td>
+                          {HORAS_DIA.map((h) => {
+                            const v = volumeDiaHoraGrid.get(`${dow}-${h}`) ?? 0;
+                            const intensidade = volumeDiaHoraMax > 0 ? v / volumeDiaHoraMax : 0;
+                            return (
+                              <td
+                                key={h}
+                                title={`${nomeDia}, ${h}h: ${v} chamados`}
+                                className="h-6 w-6 rounded text-ink/70"
+                                style={{ backgroundColor: `rgba(2, 132, 199, ${(0.06 + intensidade * 0.85).toFixed(2)})` }}
+                              >
+                                {v > 0 ? v : ""}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="mt-3 text-xs text-ink/40">
+                    Chamados por dia da semana × hora de início (horário de Brasília), somados no período inteiro selecionado —
+                    ajuda a ver o padrão de pico independente de quantas semanas o filtro cobrir. Mesma definição de "chamados"
+                    do resto da página (1 + reaberturas).
+                  </p>
+                </Card>
+              )}
+            </div>
+
+            </div>
+          )}
 
           {explicacaoVelocidadeAberta && (
             <Dialog onClose={() => setExplicacaoVelocidadeAberta(false)} className="max-w-lg">
@@ -1022,52 +1653,6 @@ export default function Performance() {
               </div>
             </Dialog>
           )}
-
-          <div>
-            <h2 className="mb-3 font-display text-sm font-semibold text-ink">Operação — Backlog</h2>
-            {loadingBacklog ? (
-              <p className="text-sm text-ink/50">Carregando...</p>
-            ) : !backlog || backlog.length === 0 ? (
-              <Card className="p-4"><p className="text-sm text-ink/50">Nenhum chamado em aberto.</p></Card>
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {(["0-1 dia", "2-3 dias", "4-7 dias", "+7 dias"] as const).map((faixa) => {
-                  const total = backlog.find((b) => b.faixa === faixa)?.total ?? 0;
-                  const critico = faixa === "+7 dias";
-                  return (
-                    <Card
-                      key={faixa}
-                      onClick={total > 0 ? () => { setBacklogFaixaAberta(faixa); setBacklogPage(0); } : undefined}
-                      className={cn(
-                        "p-4 transition-all duration-200",
-                        total > 0 ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-card-hover" : "",
-                        critico && total > 0 && "border-rust-400/40 bg-rust-500/5"
-                      )}
-                    >
-                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">{faixa}</p>
-                      <p className={cn("mt-1 font-display text-kpi-lg font-bold", total > 0 ? corBacklogFaixa(faixa) : "text-ink")}>{total}</p>
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
-            {backlog && backlog.some((b) => b.total > 0) && (
-              <Card className="mt-4 p-4">
-                <BarChart
-                  data={(["0-1 dia", "2-3 dias", "4-7 dias", "+7 dias"] as const).map((faixa) => ({
-                    label: faixa,
-                    value: backlog.find((b) => b.faixa === faixa)?.total ?? 0,
-                  }))}
-                  getColorClass={(_, i) => corBacklogBarra((["0-1 dia", "2-3 dias", "4-7 dias", "+7 dias"] as const)[i])}
-                  height={110}
-                />
-              </Card>
-            )}
-            <p className="mt-2 text-xs text-ink/40">
-              Total em aberto: {backlog?.reduce((acc, b) => acc + b.total, 0) ?? 0} chamados. Evolução histórica do
-              backlog ainda não é possível — não existe um snapshot diário salvo, só o estado atual.
-            </p>
-          </div>
 
           {backlogFaixaAberta && (
             <Dialog onClose={() => setBacklogFaixaAberta(null)} className="max-w-6xl">
@@ -1138,390 +1723,6 @@ export default function Performance() {
             </Dialog>
           )}
 
-          <div>
-            <h2 className="mb-3 font-display text-sm font-semibold text-ink">Reabertura</h2>
-            {loadingReabertura ? (
-              <p className="text-sm text-ink/50">Carregando...</p>
-            ) : !reaberturaResumo || reaberturaResumo.total_resolvidos === 0 ? (
-              <Card className="p-4"><p className="text-sm text-ink/50">Nenhum chamado resolvido no período pra medir reabertura.</p></Card>
-            ) : (
-              <>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Taxa de reabertura</p>
-                    <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(100 - (reaberturaResumo.taxa_pct ?? 0)))}>
-                      {reaberturaResumo.taxa_pct?.toFixed(1) ?? "0.0"}%
-                    </p>
-                    <p className="mt-1 text-[11px] text-ink/40">de {reaberturaResumo.total_resolvidos.toLocaleString("pt-BR")} conversas resolvidas no período</p>
-                  </Card>
-                  <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40" title="Conversas que o cliente reabriu pelo menos uma vez (resposta à pesquisa de CSAT não conta). A taxa divide isso pelas conversas resolvidas ao menos uma vez — mesma unidade nos dois lados.">Conversas reabertas</p>
-                    <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{reaberturaResumo.total_reabertos}</p>
-                  </Card>
-                  <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Total de eventos de reabertura</p>
-                    <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{reaberturaResumo.total_eventos}</p>
-                    <p className="mt-1 text-[11px] text-ink/40">uma conversa pode reabrir mais de uma vez</p>
-                  </Card>
-                </div>
-
-                {reaberturaResumo.total_reabertos > 0 && (
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                    <Card className="p-4">
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Principais motivos</p>
-                      <HorizontalBarChart data={reaberturaPorMotivo} getColorClass={(_, i) => CORES_VIVAS[i % CORES_VIVAS.length]} labelWidth={160} />
-                    </Card>
-                    <Card className="p-4">
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Por atendente</p>
-                      <HorizontalBarChart data={reaberturaPorAtendente} getColorClass={(_, i) => CORES_VIVAS[i % CORES_VIVAS.length]} labelWidth={140} />
-                    </Card>
-                  </div>
-                )}
-
-                {reaberturaCasos && reaberturaCasos.length > 0 && (
-                  <>
-                    <div className="mt-4 flex flex-wrap items-center gap-2">
-                      <select
-                        value={reaberturaFiltroAtendente}
-                        onChange={(e) => { setReaberturaFiltroAtendente(e.target.value); setMostrarTodasReaberturas(false); }}
-                        className="h-8 rounded-lg border border-sand-line bg-sand-surface px-2 text-xs"
-                      >
-                        <option value="">Todos os atendentes</option>
-                        {reaberturaAtendentesDisponiveis.map((a) => <option key={a} value={a}>{a}</option>)}
-                      </select>
-                      <select
-                        value={reaberturaFiltroReaberto}
-                        onChange={(e) => { setReaberturaFiltroReaberto(e.target.value); setMostrarTodasReaberturas(false); }}
-                        className="h-8 rounded-lg border border-sand-line bg-sand-surface px-2 text-xs"
-                      >
-                        <option value="">Qualquer nº de reaberturas</option>
-                        {reaberturaReabertosDisponiveis.map((n) => <option key={n} value={n}>{n}x reaberto</option>)}
-                      </select>
-                    </div>
-                    {reaberturaCasosFiltrados.length === 0 ? (
-                      <p className="mt-2 text-sm text-ink/50">Nenhum caso com esse filtro.</p>
-                    ) : (
-                      <Card className="mt-2 overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
-                            <tr>
-                              <th className="px-4 py-3 text-left font-medium">Cliente</th>
-                              <th className="px-4 py-3 font-medium">Motivo</th>
-                              <th className="px-4 py-3 font-medium">Atendente</th>
-                              <th className="px-4 py-3 font-medium">Reaberto</th>
-                              <th className="px-4 py-3 font-medium">Início</th>
-                              <th className="px-4 py-3 font-medium">Ação</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(mostrarTodasReaberturas ? reaberturaCasosFiltrados : reaberturaCasosFiltrados.slice(0, 4)).map((c) => (
-                              <tr key={c.crisp_id} className="border-t border-sand-line text-center align-top">
-                                <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
-                                <td className="px-4 py-3 text-ink/70">{c.topico}</td>
-                                <td className="px-4 py-3 text-ink/70">{c.atendente ?? "—"}</td>
-                                <td className="px-4 py-3 font-medium text-ink">{c.reopened_count}x</td>
-                                <td className="px-4 py-3 text-xs text-ink/60">{new Date(c.current_started_at).toLocaleString("pt-BR")}</td>
-                                <td className="px-4 py-3">
-                                  {c.link_chamado ? (
-                                    <a href={c.link_chamado} target="_blank" rel="noreferrer">
-                                      <Button variant="secondary" size="sm"><ExternalLink size={13} /> Ver</Button>
-                                    </a>
-                                  ) : (
-                                    <span className="text-xs text-ink/30">sem link</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </Card>
-                    )}
-                    {reaberturaCasosFiltrados.length > 4 && (
-                      <div className="mt-2 flex justify-center">
-                        <Button variant="secondary" size="sm" onClick={() => setMostrarTodasReaberturas((v) => !v)}>
-                          {mostrarTodasReaberturas ? "Ver menos" : `Ver mais reaberturas (${reaberturaCasosFiltrados.length - 4})`}
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </>
-            )}
-          </div>
-
-          <div>
-            <h2 className="mb-3 font-display text-sm font-semibold text-ink">Transferências</h2>
-            {loadingTransferencias ? (
-              <p className="text-sm text-ink/50">Carregando...</p>
-            ) : !transferenciasResumo || transferenciasResumo.total_atendidos === 0 ? (
-              <Card className="p-4"><p className="text-sm text-ink/50">Nenhum chamado atendido no período pra medir transferência.</p></Card>
-            ) : (
-              <>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Taxa de transferência</p>
-                    <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(100 - (transferenciasResumo.taxa_pct ?? 0)))}>
-                      {transferenciasResumo.taxa_pct?.toFixed(1) ?? "0.0"}%
-                    </p>
-                    <p className="mt-1 text-[11px] text-ink/40">{transferenciasResumo.total_atendidos} chamados atendidos no período</p>
-                  </Card>
-                  <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40" title="Conta CONVERSAS que trocaram de atendente pelo menos uma vez — não ponderado por reopened_count igual 'chamados atendidos' ao lado, porque transferência já é em si uma transição, não uma contagem de coisas que existem.">Conversas transferidas</p>
-                    <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{transferenciasResumo.total_transferidos}</p>
-                    <p className="mt-1 text-[11px] text-ink/40">{transferenciasResumo.total_eventos} eventos (uma conversa pode trocar de mão mais de uma vez)</p>
-                  </Card>
-                  <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Tempo médio até transferir</p>
-                    <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{formatDuration(transferenciasResumo.tempo_medio_antes_seg)}</p>
-                  </Card>
-                </div>
-
-                {transferenciasResumo.total_transferidos > 0 && (
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                    <Card className="p-4">
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Origem (quem passou a bola)</p>
-                      <HorizontalBarChart data={transferenciasPorOrigem} getColorClass={(_, i) => CORES_VIVAS[i % CORES_VIVAS.length]} labelWidth={140} />
-                    </Card>
-                    <Card className="p-4">
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Destino (quem recebeu)</p>
-                      <HorizontalBarChart data={transferenciasPorDestino} getColorClass={(_, i) => CORES_VIVAS[i % CORES_VIVAS.length]} labelWidth={140} />
-                    </Card>
-                  </div>
-                )}
-
-                {transferenciasCasos && transferenciasCasos.length > 0 && (
-                  <Card className="mt-4 overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
-                        <tr>
-                          <th className="px-4 py-3 text-left font-medium">Cliente</th>
-                          <th className="px-4 py-3 font-medium">Origem</th>
-                          <th className="px-4 py-3 font-medium">Destino</th>
-                          <th className="px-4 py-3 font-medium">Quando</th>
-                          <th className="px-4 py-3 font-medium">Ação</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(mostrarTodasTransferencias ? transferenciasCasos : transferenciasCasos.slice(0, 4)).map((c, i) => (
-                          <tr key={`${c.crisp_id}-${i}`} className="border-t border-sand-line text-center align-top">
-                            <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
-                            <td className="px-4 py-3 text-ink/70">{c.origem ?? "—"}</td>
-                            <td className="px-4 py-3 text-ink/70">{c.destino ?? "—"}</td>
-                            <td className="px-4 py-3 text-xs text-ink/60">{new Date(c.event_at).toLocaleString("pt-BR")}</td>
-                            <td className="px-4 py-3">
-                              {c.link_chamado ? (
-                                <a href={c.link_chamado} target="_blank" rel="noreferrer">
-                                  <Button variant="secondary" size="sm"><ExternalLink size={13} /> Ver</Button>
-                                </a>
-                              ) : (
-                                <span className="text-xs text-ink/30">sem link</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </Card>
-                )}
-                {transferenciasCasos && transferenciasCasos.length > 4 && (
-                  <div className="mt-2 flex justify-center">
-                    <Button variant="secondary" size="sm" onClick={() => setMostrarTodasTransferencias((v) => !v)}>
-                      {mostrarTodasTransferencias ? "Ver menos" : `Ver mais (${transferenciasCasos.length - 4})`}
-                    </Button>
-                  </div>
-                )}
-                <p className="mt-2 text-xs text-ink/40">
-                  Só conta troca entre dois atendentes humanos de verdade — passar do bot pro humano é fluxo normal,
-                  não entra aqui. O motivo da transferência não está disponível (a Crisp não envia essa informação).
-                </p>
-              </>
-            )}
-          </div>
-
-          <div>
-            <h2 className="mb-3 font-display text-sm font-semibold text-ink">FCR e Recontato</h2>
-            {loadingFcr ? (
-              <p className="text-sm text-ink/50">Carregando...</p>
-            ) : !fcrRecontato || fcrRecontato.total_elegiveis === 0 ? (
-              <Card className="p-4"><p className="text-sm text-ink/50">Nenhuma conversa elegível no período (precisa estar resolvida, com cliente e motivo identificados).</p></Card>
-            ) : (
-              <>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">FCR</p>
-                    <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(fcrRecontato.fcr_pct ?? 0))}>
-                      {fcrRecontato.fcr_pct?.toFixed(1) ?? "0.0"}%
-                    </p>
-                    <p className="mt-1 text-[11px] text-ink/40">resolvido sem o cliente voltar pelo mesmo motivo em 7 dias</p>
-                  </Card>
-                  <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Recontato</p>
-                    <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(100 - (fcrRecontato.recontato_pct ?? 0)))}>
-                      {fcrRecontato.recontato_pct?.toFixed(1) ?? "0.0"}%
-                    </p>
-                    <p className="mt-1 text-[11px] text-ink/40">{fcrRecontato.total_recontato} de {fcrRecontato.total_elegiveis} voltaram pelo mesmo motivo</p>
-                  </Card>
-                  <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Conversas elegíveis</p>
-                    <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{fcrRecontato.total_elegiveis}</p>
-                    <p className="mt-1 text-[11px] text-ink/40">resolvidos, com cliente e motivo identificados</p>
-                  </Card>
-                </div>
-
-                {recontatoPorMotivo.length > 0 && (
-                  <Card className="mt-4 p-4">
-                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Motivos com mais recontato</p>
-                    <HorizontalBarChart data={recontatoPorMotivo} getColorClass={(_, i) => CORES_VIVAS[i % CORES_VIVAS.length]} labelWidth={180} />
-                  </Card>
-                )}
-
-                {recontatoCasos && recontatoCasos.length > 0 && (
-                  <Card className="mt-4 overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
-                        <tr>
-                          <th className="px-4 py-3 text-left font-medium">Cliente</th>
-                          <th className="px-4 py-3 font-medium">Motivo</th>
-                          <th className="px-4 py-3 font-medium">Atendente</th>
-                          <th className="px-4 py-3 font-medium">Resolvido em</th>
-                          <th className="px-4 py-3 font-medium">Voltou em</th>
-                          <th className="px-4 py-3 font-medium">Ação</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(mostrarTodosRecontatos ? recontatoCasos : recontatoCasos.slice(0, 4)).map((c) => (
-                          <tr key={c.crisp_id} className="border-t border-sand-line text-center align-top">
-                            <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
-                            <td className="px-4 py-3 text-ink/70">{c.topico ?? "—"}</td>
-                            <td className="px-4 py-3 text-ink/70">{c.atendente ?? "—"}</td>
-                            <td className="px-4 py-3 text-xs text-ink/60">{new Date(c.resolved_at).toLocaleString("pt-BR")}</td>
-                            <td className="px-4 py-3 text-xs text-ink/60">{c.proximo_contato_at ? new Date(c.proximo_contato_at).toLocaleString("pt-BR") : "—"}</td>
-                            <td className="px-4 py-3">
-                              {c.link_chamado ? (
-                                <a href={c.link_chamado} target="_blank" rel="noreferrer">
-                                  <Button variant="secondary" size="sm"><ExternalLink size={13} /> Ver</Button>
-                                </a>
-                              ) : (
-                                <span className="text-xs text-ink/30">sem link</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </Card>
-                )}
-                {recontatoCasos && recontatoCasos.length > 4 && (
-                  <div className="mt-2 flex justify-center">
-                    <Button variant="secondary" size="sm" onClick={() => setMostrarTodosRecontatos((v) => !v)}>
-                      {mostrarTodosRecontatos ? "Ver menos" : `Ver mais (${recontatoCasos.length - 4})`}
-                    </Button>
-                  </div>
-                )}
-                <p className="mt-2 text-xs text-ink/40">
-                  "Mesmo motivo" = mesmo texto de tópico (classificado pela Crisp), dentro de 7 dias após a resolução.
-                  Conversa sem cliente identificado (people_id) ou sem tópico não entra na conta — não dá pra saber se
-                  ele voltou. Separado de Reabertura: aqui é o cliente abrindo uma conversa <em>nova</em>, não reabrindo
-                  a mesma.
-                </p>
-              </>
-            )}
-          </div>
-
-          <div>
-            <div className="mb-3 flex items-center gap-2">
-              <h2 className="font-display text-sm font-semibold text-ink">Relógios do atendimento</h2>
-              <button
-                type="button"
-                onClick={() => setExplicacaoRelogiosAberta(true)}
-                className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-ink/50 hover:bg-sand-bg hover:text-ink"
-              >
-                <Info size={13} /> ver mais
-              </button>
-            </div>
-            <Card className="p-4">
-              <div className="grid gap-4 border-b border-sand-line pb-4 sm:grid-cols-3">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Relógio do cliente</p>
-                  {loadingVelocidade ? (
-                    <p className="mt-1 text-sm text-ink/50">Carregando...</p>
-                  ) : !velocidadeGeral ? (
-                    <p className="mt-1 text-sm text-ink/50">Sem amostras.</p>
-                  ) : (
-                    <>
-                      <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{formatDuration(velocidadeGeral.ttr_p50_uteis_seg)}</p>
-                      <p className="mt-1 text-[11px] text-ink/40">Mediana de Resolução — mesmo valor de Velocidade (card "Geral"), do ponto de vista de quem esperou</p>
-                    </>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Relógio de espera do cliente</p>
-                  {loadingEspera ? (
-                    <p className="mt-1 text-sm text-ink/50">Carregando...</p>
-                  ) : !esperaCliente || esperaCliente.amostras === 0 ? (
-                    <p className="mt-1 text-sm text-ink/50">Sem amostras.</p>
-                  ) : (
-                    <>
-                      <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{formatDuration((esperaCliente.minutos_espera_medio ?? 0) * 60)}</p>
-                      <p className="mt-1 text-[11px] text-ink/40">{esperaCliente.amostras} janelas de espera até resposta humana (bot não conta)</p>
-                    </>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Relógio de trabalho ativo</p>
-                  {loadingExpediente ? (
-                    <p className="mt-1 text-sm text-ink/50">Carregando...</p>
-                  ) : !horasExpediente ? (
-                    <p className="mt-1 text-sm text-ink/50">Sem expediente cadastrado no período.</p>
-                  ) : (
-                    <>
-                      <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{formatDuration(horasExpediente * 60)}</p>
-                      <p
-                        className="mt-1 text-[11px] text-ink/40"
-                        title={atendenteNomes.length > 0 ? "Plantão fixo de sábado (08h-12h) não entra aqui filtrado — não dá pra saber quem especificamente está de plantão nessa data." : undefined}
-                      >
-                        {atendenteNomes.length > 0
-                          ? "expediente cadastrado das pessoas selecionadas (união, não soma)"
-                          : "expediente cadastrado do time (cobertura, não soma individual)"}
-                      </p>
-                      {tipoClienteFiltro && (
-                        <p className="mt-0.5 text-[11px] text-ink/40" title="Cobertura de horário é sobre a agenda do time, não sobre chamados — não existe 'expediente do tipo Produtor'.">
-                          Não respeita o filtro de tipo de cliente (motivo no hover)
-                        </p>
-                      )}
-                    </>
-                  )}
-                  <p className="mt-1 text-[11px] text-ink/30" title="O Crisp não expõe estado de ativo/ausente do operador pela API">
-                    capacidade nominal (horário cadastrado), não presença real
-                  </p>
-                </div>
-              </div>
-
-              <p className="mb-2 mt-4 text-xs font-medium uppercase tracking-wide text-ink/40">Posse por atendente humano (chamados resolvidos no período)</p>
-              {loadingPosse ? (
-                <p className="text-sm text-ink/50">Carregando...</p>
-              ) : posseFiltrada.filter((p) => p.atendente !== "IA Greenn").length === 0 ? (
-                <p className="text-sm text-ink/50">Sem chamados resolvidos no período pra medir posse.</p>
-              ) : (
-                <HorizontalBarChart
-                  data={posseFiltrada
-                    .filter((p) => p.atendente !== "IA Greenn")
-                    .sort((a, b) => b.minutos_posse - a.minutos_posse)
-                    .map((p) => ({ label: p.atendente, value: p.minutos_posse / 60, displayValue: `${(p.minutos_posse / 60).toFixed(1)}h` }))}
-                  getColorClass={() => "bg-sky-500"}
-                  labelWidth={180}
-                />
-              )}
-              <p className="mt-3 text-xs text-ink/40">
-                Posse = tempo entre a 1ª mensagem de um atendente num chamado e a entrada do próximo atendente (ou a
-                resolução, se ninguém mais entrar) — cada trecho conta só pra quem estava "com a bola" naquele momento,
-                não o TTR inteiro pra todo mundo que passou pelo chamado. Bot (IA Greenn) fica de fora daqui — vem
-                separado no card acima do Ranking. Detalhamento por atendente está na tabela de Ranking, no topo da
-                página.
-              </p>
-            </Card>
-          </div>
-
           {explicacaoRelogiosAberta && (
             <Dialog onClose={() => setExplicacaoRelogiosAberta(false)} className="max-w-lg">
               <div className="flex items-start justify-between gap-3">
@@ -1562,7 +1763,7 @@ export default function Performance() {
             <Dialog onClose={() => setPosseDetalhe(null)} className="max-w-6xl">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-display text-sm font-semibold text-ink">Conversas de {posseDetalhe}</h3>
+                  <h3 className="font-display text-sm font-semibold text-ink">{posseDetalheSoAbertos ? "Conversas abertas de" : "Conversas de"} {posseDetalhe}</h3>
                   <p
                     className="text-xs text-ink/40"
                     title="'Chamados' no Ranking soma 1 + reaberturas de cada conversa; aqui é 1 linha por conversa (independente de quantas vezes reabriu) — por isso os dois números podem divergir."
@@ -1696,132 +1897,10 @@ export default function Performance() {
             </Dialog>
           )}
           {detalhe && <AtendimentoDetalheDialog atendimento={detalhe} onClose={() => setDetalhe(null)} />}
-
-          <div>
-            <h2 className="mb-3 font-display text-sm font-semibold text-ink">Motivo de contato</h2>
-            {loadingMotivos ? (
-              <p className="text-sm text-ink/50">Carregando...</p>
-            ) : !motivos || motivos.length === 0 ? (
-              <Card className="p-4"><p className="text-sm text-ink/50">Sem tópico classificado no período ainda — a Crisp classifica de forma assíncrona, só depois que um atendente responde.</p></Card>
-            ) : (
-              <>
-                <Card className="mb-4 p-4">
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Top 3 tópicos por volume</p>
-                    {motivoDestaque && (
-                      <button
-                        type="button"
-                        onClick={() => { setMotivoDestaque(""); setMostrarTodosMotivos(false); }}
-                        className="text-[11px] text-forest-600 hover:underline"
-                      >
-                        Limpar
-                      </button>
-                    )}
-                  </div>
-                  <HorizontalBarChart
-                    data={[...motivos]
-                      .sort((a, b) => b.chamados - a.chamados)
-                      .slice(0, 3)
-                      .map((m) => ({ label: m.topico, value: m.chamados }))}
-                    getColorClass={(_, i) => CORES_VIVAS[i % CORES_VIVAS.length]}
-                    labelWidth={200}
-                    onBarClick={(label) => {
-                      setMotivoDestaque((atual) => (atual === label ? "" : label));
-                      setMostrarTodosMotivos(false);
-                    }}
-                    isSelected={(label) => motivoDestaque === label}
-                  />
-                </Card>
-                {motivosFiltrados.length === 0 ? (
-                  <p className="text-sm text-ink/50">Nenhum tópico com esse filtro.</p>
-                ) : (
-                  <Card className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
-                        <tr>
-                          <th className="px-4 py-3 text-left font-medium">Tópico</th>
-                          <SortableHeader field="chamados" label="Chamados" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
-                          <SortableHeader field="tfr_media_seg" label="TFR médio" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
-                          <SortableHeader field="ttr_media_seg" label="TTR médio" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(mostrarTodosMotivos ? motivosOrdenados : motivosOrdenados.slice(0, 4)).map((m) => (
-                          <tr key={m.topico} className="border-t border-sand-line text-center">
-                            <td className="px-4 py-3 text-left font-medium text-ink">{m.topico}</td>
-                            <td className="px-4 py-3 text-ink/70">{m.chamados}</td>
-                            <td className="px-4 py-3 text-ink/70">{formatDuration(m.tfr_media_seg)}</td>
-                            <td className="px-4 py-3 text-ink/70">{formatDuration(m.ttr_media_seg)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </Card>
-                )}
-                {motivosOrdenados.length > 4 && (
-                  <div className="mt-2 flex justify-center">
-                    <Button variant="secondary" size="sm" onClick={() => setMostrarTodosMotivos((v) => !v)}>
-                      {mostrarTodosMotivos ? "Ver menos" : `Ver mais (${motivosOrdenados.length - 4})`}
-                    </Button>
-                  </div>
-                )}
-              </>
-            )}
-            <p className="mt-2 text-xs text-ink/40">
-              Tópico é classificado automaticamente pela Crisp por conversa — não é uma categoria fixa reutilizável, então
-              essa lista pode ficar fragmentada até termos volume real suficiente pra avaliar se faz sentido agrupar por
-              palavra-chave. Chamados ainda sem resposta de atendente não aparecem aqui (tópico só é atribuído depois).
-            </p>
-          </div>
-
-          <div>
-            <h2 className="mb-3 font-display text-sm font-semibold text-ink">Volume por dia e horário</h2>
-            {loadingVolumeDiaHora ? (
-              <p className="text-sm text-ink/50">Carregando...</p>
-            ) : !volumeDiaHora || volumeDiaHora.length === 0 ? (
-              <Card className="p-4"><p className="text-sm text-ink/50">Sem chamados no período.</p></Card>
-            ) : (
-              <Card className="overflow-x-auto p-4">
-                <table className="border-separate border-spacing-1 text-center text-[11px]">
-                  <thead>
-                    <tr>
-                      <th className="px-1 text-left font-medium text-ink/40">Dia \ Hora</th>
-                      {HORAS_DIA.map((h) => (
-                        <th key={h} className="px-0.5 font-medium text-ink/40">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {DIAS_SEMANA.map((nomeDia, dow) => (
-                      <tr key={dow}>
-                        <td className="px-1 text-left font-medium text-ink/60">{nomeDia}</td>
-                        {HORAS_DIA.map((h) => {
-                          const v = volumeDiaHoraGrid.get(`${dow}-${h}`) ?? 0;
-                          const intensidade = volumeDiaHoraMax > 0 ? v / volumeDiaHoraMax : 0;
-                          return (
-                            <td
-                              key={h}
-                              title={`${nomeDia}, ${h}h: ${v} chamados`}
-                              className="h-6 w-6 rounded text-ink/70"
-                              style={{ backgroundColor: `rgba(2, 132, 199, ${(0.06 + intensidade * 0.85).toFixed(2)})` }}
-                            >
-                              {v > 0 ? v : ""}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p className="mt-3 text-xs text-ink/40">
-                  Chamados por dia da semana × hora de início (horário de Brasília), somados no período inteiro selecionado —
-                  ajuda a ver o padrão de pico independente de quantas semanas o filtro cobrir. Mesma definição de "chamados"
-                  do resto da página (1 + reaberturas).
-                </p>
-              </Card>
-            )}
-          </div>
-
+          {ruinsAberto && (
+            <CsatRuinsDialog avaliacoes={csatRuins} carregando={loadingCsatRuins} onClose={() => setRuinsAberto(false)} onAbrirDetalhe={setCsatDetalhe} />
+          )}
+          {csatDetalhe && <CsatDetalheDialog registro={csatDetalhe} onClose={() => setCsatDetalhe(null)} />}
         </>
       ) : aba === "atendimentos" ? (
         <>
