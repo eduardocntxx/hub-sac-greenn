@@ -5969,9 +5969,12 @@ Design, Overview pra todos:**
   (`PALETAS.escuro` = Verdee escuro; `PALETAS.claro` = fundo #F0F2F5, cards
   brancos, texto #1B2124, acento #009488/#00766D/#005952). `COR.bg` é
   também a cor do texto sobre o acento, por isso funciona nos dois temas.
-  Só o PPTX muda; a pré-visualização/PDF continua escura. Testado gerando
-  os dois arquivos no Node e conferindo as cores no XML dos slides (sem
-  renderização visual).
+  O mesmo seletor ("Tema") troca a pré-visualização e, por consequência,
+  o PDF impresso dela: `RelatorioResultadosSac` usa `PALETA_ESCURA` /
+  `PALETA_CLARA` (tokens `--color-*` redeclarados + `--rel-acento`,
+  `--rel-sobre-acento`, `--rel-bom`), sem hex fixo no JSX. PPTX testado
+  gerando os dois arquivos no Node e conferindo as cores no XML dos slides
+  (sem renderização visual).
 
 ## 12. Convenções de código
 
