@@ -5949,8 +5949,11 @@ Design, Overview pra todos:**
   manuais" (Reclame Aqui, RA XGROW, temas do NPS) continua — alimenta o
   PPTX.
 - **Favicon próprio do Hub** (o usuário pediu pra não usar o símbolo da
-  Greenn, que é o do Greenn Adm): headset branco sobre quadrado
-  arredondado #009488, desenhado em `public/icon.svg` (fonte da verdade;
+  Greenn, que é o do Greenn Adm; um headset genérico também foi recusado):
+  escolhido entre 3 opções, é o **balão da Greenn** com o degradê do
+  símbolo oficial (#90BF26 → #52AD5C → #009A7F → #008E95) e três nós de
+  rede dentro no lugar do check, sobre o fundo escuro Verdee #001816.
+  Desenhado em `public/icon.svg` (fonte da verdade;
   os PNGs saem dele renderizado no Chrome headless + redimensionado com
   PIL). Em `public/`: `icon.svg`, `favicon.ico` 16/32/48, `favicon.png`,
   `apple-touch-icon.png` (fundo cheio, o iOS arredonda), `icon-192/512.png`
