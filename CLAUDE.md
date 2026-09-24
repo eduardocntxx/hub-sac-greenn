@@ -5842,6 +5842,50 @@ separadas em arquivos próprios. **Achado não tratado:** FCR aparece 100%
 com zero recontato em 556 conversas na semana 17–23/09 — improvável,
 precisa de investigação em `fcr_recontato_resumo`.
 
+**Leva de 2026-09-24 (tarde) — visual Verdee, design system no Claude
+Design, Overview pra todos:**
+- **Visual Verdee no app inteiro** (guia de estilo da Greenn "Verdee |
+  Guia de Estilo", arquivo Figma local): `forest-*` virou a escala
+  verde-azulada (#EEFFFE…#003B36, primária `forest-500` #009488),
+  `rust`/`amber`/`sky` nas escalas do guia, neutros claros cinza-esverdeados
+  (fundo #F0F2F5, texto #1B2124) e escuros na escala verde-azulada escura
+  (#000C0B/#001816), fonte **Plus Jakarta Sans** (substitui Sora). Sidebar
+  clara com o símbolo da Greenn (`src/assets/greenn-logo.png`). O `body`
+  recebe fonte/cor/fundo pelo próprio `index.css`. PPTX e PDF da RR também
+  foram pro Verdee escuro (fundo #001816, acento #64BFB8, Plus Jakarta
+  Sans — no PowerPoint a fonte precisa estar instalada).
+- **Design system sincronizado com o Claude Design** (`/design-sync`,
+  projeto "Hub SAC Greenn Design System", `fb5d839c-…`,
+  https://claude.ai/design/p/fb5d839c-bd78-4b9d-acc4-ef49b9ec76ab): os 19
+  componentes de `src/components/ui` (bundle `window.HubSac`), CSS =
+  Tailwind compilado do Hub, prévias em claro e escuro. Tudo sobre como
+  refazer está em `.design-sync/NOTES.md` (pasta no `.gitignore`, só
+  local). Bug achado no caminho: `SegmentedControl` escondia a pílula do
+  item ativo no tema claro (faltava `isolate`) — corrigido no app.
+- **CSAT:** Dashboard sem busca/filtros/exportar (usa só o período, nos
+  dois lados da comparação); gráfico "CSAT por colaborador" abaixo dos
+  cards. Busca, filtros e CSV seguem na Planilha.
+- **Overview aberto a todo colaborador ativo e aprovado** (decisão do
+  usuário): `/performance` saiu do `AdminOnlyRoute`, está no menu SAC.
+  Colaborador vê só a aba Dashboard; abas Atendimentos/IA genérica,
+  pop-ups e listas de conversas/clientes seguem admin-only. No banco,
+  `pode_ver_overview()` (admin, ou usuário com `ativo` e `aprovado`)
+  substituiu `is_admin()` nas 17 funções AGREGADAS do Dashboard
+  (contagem, velocidade, ranking, posse, espera, backlog por idade,
+  funil, atendido e não resolvido, reabertura por tipo, transferências
+  resumo, FCR, motivos, volume, bot, distribuição de CSAT, listas de
+  filtro); as que listam conversa/cliente (`atendimentos_com_metricas`,
+  `*_casos`, `csat_ruins_periodo`, `resposta_generica_*`) continuam
+  `is_admin()`. Testado com a sessão do Vittor (colaborador): Dashboard
+  com dados, listas vazias.
+- **Página Analytics excluída**; `/analytics` redireciona pro Overview.
+- **Overview:** animações (entrada dos indicadores, barras que crescem,
+  sublinhado deslizante das sub-abas, respeita "reduzir movimento") e
+  sub-aba Pessoas no layout do design (ranking enxuto com 5 colunas, card
+  escuro do bot, volume por pessoa). As colunas extras do ranking antigo
+  (interações, mensagens, posse, atend./hora, reaberturas,
+  transferências) saíram.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
