@@ -5948,10 +5948,18 @@ Design, Overview pra todos:**
   `rr_history` do `api.ts` foram apagados (sem uso). O card "Dados
   manuais" (Reclame Aqui, RA XGROW, temas do NPS) continua — alimenta o
   PPTX.
-- **Favicon:** símbolo da Greenn recortado do logo em alta resolução do
-  guia Verdee, em `public/` (`favicon.ico` 16/32/48, `favicon.png`,
-  `apple-touch-icon.png`, `icon-192/512.png`) + `site.webmanifest` e
-  `theme-color` #009488 no `index.html`.
+- **Favicon próprio do Hub** (o usuário pediu pra não usar o símbolo da
+  Greenn, que é o do Greenn Adm): headset branco sobre quadrado
+  arredondado #009488, desenhado em `public/icon.svg` (fonte da verdade;
+  os PNGs saem dele renderizado no Chrome headless + redimensionado com
+  PIL). Em `public/`: `icon.svg`, `favicon.ico` 16/32/48, `favicon.png`,
+  `apple-touch-icon.png` (fundo cheio, o iOS arredonda), `icon-192/512.png`
+  + `site.webmanifest`; `theme-color` #009488 no `index.html`.
+- **RR: período personalizado** — terceira opção "Personalizado" usa o
+  `DateRangePopover` do Hub (1º clique início, 2º fim, 3º recomeça; só
+  aplica com o intervalo completo). Comparação com o intervalo de mesmo
+  tamanho imediatamente anterior. Semanal = quarta 00:00 a terça 23:59:59
+  (rótulo mostra "quarta a quarta" com a quarta final exclusiva).
 
 ## 12. Convenções de código
 
