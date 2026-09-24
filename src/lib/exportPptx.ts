@@ -701,7 +701,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
 
   // ---------- Reabertura ----------
   metricasSlide("Reabertura", "Conversa resolvida que o cliente reabriu.", [
-    { label: "Taxa de reabertura", valor: fmtPct1(A.reabertura?.taxa_pct), delta: deltaPontos(A.reabertura?.taxa_pct, P.reabertura?.taxa_pct, true), nota: A.reabertura ? `${A.reabertura.total_resolvidos} chamados resolvidos` : undefined },
+    { label: "Taxa de reabertura", valor: fmtPct1(A.reabertura?.taxa_pct), delta: deltaPontos(A.reabertura?.taxa_pct, P.reabertura?.taxa_pct, true), nota: A.reabertura ? `de ${fmtNum(A.reabertura.total_resolvidos)} conversas resolvidas` : undefined },
     { label: "Conversas reabertas", valor: fmtNum(A.reabertura?.total_reabertos), delta: deltaPercentual(A.reabertura?.total_reabertos, P.reabertura?.total_reabertos, true) },
     { label: "Eventos de reabertura", valor: fmtNum(A.reabertura?.total_eventos), delta: deltaPercentual(A.reabertura?.total_eventos, P.reabertura?.total_eventos, true), nota: "Uma conversa pode reabrir mais de uma vez" },
   ]);

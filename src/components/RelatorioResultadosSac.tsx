@@ -592,7 +592,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
               label="Taxa de reabertura"
               valor={fmtPct1(A.reabertura?.taxa_pct)}
               delta={deltaPontos(A.reabertura?.taxa_pct, P.reabertura?.taxa_pct, true)}
-              nota={A.reabertura ? `${A.reabertura.total_resolvidos} chamados resolvidos no período` : undefined}
+              nota={A.reabertura ? `de ${fmtNum(A.reabertura.total_resolvidos)} conversas resolvidas no período` : undefined}
             />
             <MetricaCard
               label="Conversas reabertas"

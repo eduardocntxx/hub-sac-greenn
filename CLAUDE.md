@@ -5785,6 +5785,37 @@ de reabertura (`reabertura_resumo`) divide conversas reabertas (257) por
 chamados resolvidos (982, ponderado por 1 + reaberturas). Isso foi
 documentado como escolha em 2026-09-01, mas mistura unidades.
 
+**Regra de reabertura mudou em 2026-09-24 — resposta à pesquisa de CSAT
+não é mais reabertura (afeta "chamados" na plataforma inteira):**
+auditoria da semana 17–23/09 mostrou que a regra antiga
+(`reopened_count_real_periodo`: qualquer mensagem, do cliente ou do
+operador, depois da reabertura) contava o cliente respondendo a pesquisa
+(minutos ou horas depois de resolver) e reabertura sem mensagem do cliente.
+Regra nova, na mesma função (todas as 16 funções que usam `coalesce(
+reopened_count_real, reopened_count, 0)` herdam): só conta se, depois da
+transição resolved → pending/unresolved, o **cliente** manda mensagem que
+não seja resposta à pesquisa. Resposta à pesquisa = cita "Como você avalia
+o atendimento" (botões do chat/WhatsApp) ou chega em até 24h depois de uma
+mensagem da pesquisa (`greenn_csat`, "Como você avalia o atendimento",
+"Obrigado pela sua avaliação", link `crisp.beta.limited/rate`, "Feedback
+em um clique"/"Feedback rápido") sem outra mensagem de operador no meio:
+cobre nota por e-mail e comentário pedido após nota baixa. Limitação
+conhecida: cliente que usa o campo de comentário pra relatar problema novo
+é tratado como resposta à pesquisa. Conversa sem nenhuma mensagem guardada
+(ex: as apagadas à mão de 01–07/09) não gera linha e cai no
+`reopened_count` antigo pelo coalesce, em vez de zerar. **Taxa de
+reabertura** (`reabertura_resumo`/`reabertura_por_tipo_cliente`) passou a
+ser conversas reabertas ÷ conversas resolvidas ao menos uma vez
+(`first_resolved_at` ou `resolved_at`; antes só `resolved_at`, que some
+quando a conversa reabre, então quem reabriu e seguia aberto ficava fora),
+com `total_resolvidos` em conversas; `reabertura_casos` usa o mesmo filtro.
+Efeito na semana 17–23/09: chamados 2.662 → 2.289, conversas reabertas
+330 → 145, eventos 616 → 241, taxa 26,2% → 24,7% (145/587). Batem entre
+si: `contagem_periodo`, `velocidade_por_tipo_cliente` e
+`dashboard_atendimento_summary` (2.289), ranking 2.285 (4 sem atendente),
+`reabertura_casos` = 145. Backup das definições antigas guardado na sessão
+(scratchpad `reab_fns_backup.json`), não versionado.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de

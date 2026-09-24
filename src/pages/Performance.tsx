@@ -986,7 +986,7 @@ export default function Performance() {
                         {rb ? (
                           <p className="mt-0.5 text-sm text-ink/70">
                             <span className="font-semibold text-ink">{rb.taxa_pct?.toFixed(1) ?? "—"}%</span>
-                            {" "}({rb.total_reabertos.toLocaleString("pt-BR")} de {rb.total_resolvidos.toLocaleString("pt-BR")} resolvidos)
+                            {" "}({rb.total_reabertos.toLocaleString("pt-BR")} de {rb.total_resolvidos.toLocaleString("pt-BR")} conversas resolvidas)
                           </p>
                         ) : (
                           <p className="mt-0.5 text-sm text-ink/40">—</p>
@@ -1152,10 +1152,10 @@ export default function Performance() {
                     <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(100 - (reaberturaResumo.taxa_pct ?? 0)))}>
                       {reaberturaResumo.taxa_pct?.toFixed(1) ?? "0.0"}%
                     </p>
-                    <p className="mt-1 text-[11px] text-ink/40">{reaberturaResumo.total_resolvidos} chamados resolvidos no período</p>
+                    <p className="mt-1 text-[11px] text-ink/40">de {reaberturaResumo.total_resolvidos.toLocaleString("pt-BR")} conversas resolvidas no período</p>
                   </Card>
                   <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40" title="Conta CONVERSAS que reabriram pelo menos uma vez — não é ponderado por reopened_count igual 'chamados resolvidos' ao lado, porque 'reaberto' já é em si uma transição entre chamados, não uma contagem de coisas que existem.">Conversas reabertas</p>
+                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40" title="Conversas que o cliente reabriu pelo menos uma vez (resposta à pesquisa de CSAT não conta). A taxa divide isso pelas conversas resolvidas ao menos uma vez — mesma unidade nos dois lados.">Conversas reabertas</p>
                     <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{reaberturaResumo.total_reabertos}</p>
                   </Card>
                   <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">

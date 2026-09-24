@@ -361,7 +361,7 @@ export default function MeuPainel() {
             ) : (
               <>
                 <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{reaberturaPessoal?.total_reabertos ?? 0}</p>
-                <p className="mt-1 text-[11px] text-ink/40">de {reaberturaPessoal?.total_resolvidos ?? 0} resolvidos</p>
+                <p className="mt-1 text-[11px] text-ink/40">de {reaberturaPessoal?.total_resolvidos ?? 0} conversas resolvidas</p>
               </>
             )}
           </Card>
