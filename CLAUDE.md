@@ -5941,6 +5941,17 @@ Design, Overview pra todos:**
   atend./hora, reaberturas, transferências) saíram. Chegaram a voltar numa
   tabela "Produtividade e posse" e foram removidas de novo a pedido do
   usuário no mesmo dia.
+- **RR:** "Detalhamento por atendente" ordenado por chamados, mostra 3 e
+  "Ver mais". Formulário de preenchimento manual (salvar RR) e "Histórico
+  de RRs" removidos da tela a pedido do usuário; os registros seguem em
+  `rr_history` no banco, sem tela. `src/lib/exportPdf.ts` e as funções de
+  `rr_history` do `api.ts` foram apagados (sem uso). O card "Dados
+  manuais" (Reclame Aqui, RA XGROW, temas do NPS) continua — alimenta o
+  PPTX.
+- **Favicon:** símbolo da Greenn recortado do logo em alta resolução do
+  guia Verdee, em `public/` (`favicon.ico` 16/32/48, `favicon.png`,
+  `apple-touch-icon.png`, `icon-192/512.png`) + `site.webmanifest` e
+  `theme-color` #009488 no `index.html`.
 
 ## 12. Convenções de código
 
