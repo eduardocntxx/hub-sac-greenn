@@ -5963,6 +5963,15 @@ Design, Overview pra todos:**
   aplica com o intervalo completo). Comparação com o intervalo de mesmo
   tamanho imediatamente anterior. Semanal = quarta 00:00 a terça 23:59:59
   (rótulo mostra "quarta a quarta" com a quarta final exclusiva).
+- **PPTX da RR em escuro ou claro:** seletor "Tema do PPTX" na
+  pré-visualização do relatório (lembrado no navegador, `rr:temaPptx`).
+  `exportResultadosSacToPptx(data, tema)` troca a paleta inteira
+  (`PALETAS.escuro` = Verdee escuro; `PALETAS.claro` = fundo #F0F2F5, cards
+  brancos, texto #1B2124, acento #009488/#00766D/#005952). `COR.bg` é
+  também a cor do texto sobre o acento, por isso funciona nos dois temas.
+  Só o PPTX muda; a pré-visualização/PDF continua escura. Testado gerando
+  os dois arquivos no Node e conferindo as cores no XML dos slides (sem
+  renderização visual).
 
 ## 12. Convenções de código
 

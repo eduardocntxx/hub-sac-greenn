@@ -1,5 +1,6 @@
 import { Download, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { formatDuration } from "@/lib/formatDuration";
 import {
   type ResultadosSacData,
@@ -34,6 +35,8 @@ interface RelatorioResultadosSacProps {
   onClose: () => void;
   onExportarPptx: () => void | Promise<void>;
   exportandoPptx: boolean;
+  temaPptx: "escuro" | "claro";
+  onChangeTemaPptx: (t: "escuro" | "claro") => void;
 }
 
 function DeltaTexto({ delta }: { delta?: DeltaInfo }) {
@@ -122,7 +125,7 @@ function tfrCorridoSeg(abertura: string, primeiraResposta: string | null): numbe
   return seg >= 0 ? seg : null;
 }
 
-export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportandoPptx }: RelatorioResultadosSacProps) {
+export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportandoPptx, temaPptx, onChangeTemaPptx }: RelatorioResultadosSacProps) {
   const A = data.atual;
   const P = data.anterior;
   const M = data.manual;
@@ -178,6 +181,14 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
           <Button variant="secondary" size="sm" onClick={() => window.print()}>
             <Download size={14} /> Baixar PDF
           </Button>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-ink/60">Tema do PPTX</span>
+            <SegmentedControl
+              options={[["escuro", "Escuro"], ["claro", "Claro"]] as const}
+              value={temaPptx}
+              onChange={onChangeTemaPptx}
+            />
+          </div>
           <Button size="sm" disabled={exportandoPptx} onClick={onExportarPptx}>
             <Download size={14} /> {exportandoPptx ? "Gerando PPTX..." : "Baixar PPTX"}
           </Button>

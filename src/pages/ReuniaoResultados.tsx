@@ -726,6 +726,8 @@ export default function ReuniaoResultados() {
 
   const [mostrarRelatorio, setMostrarRelatorio] = useState(false);
   const [exportandoPptx, setExportandoPptx] = useState(false);
+  // Tema do PPTX escolhido na pré-visualização; fica lembrado neste navegador.
+  const [temaPptx, setTemaPptx] = usePersistedState<"escuro" | "claro">("rr:temaPptx", "escuro");
 
   // Dado que o Hub não captura (Reclame Aqui, RA XGROW, Migrações, NPS
   // qualitativo) — preenchido à mão, persistido pra não perder toda semana.
@@ -1059,12 +1061,14 @@ export default function ReuniaoResultados() {
           data={dadosRelatorio}
           onClose={() => setMostrarRelatorio(false)}
           exportandoPptx={exportandoPptx}
+          temaPptx={temaPptx}
+          onChangeTemaPptx={setTemaPptx}
           onExportarPptx={async () => {
             setExportandoPptx(true);
             try {
               // pptxgenjs só baixa quando alguém de fato exporta (ver PR#11).
               const { exportResultadosSacToPptx } = await import("@/lib/exportPptx");
-              await exportResultadosSacToPptx(dadosRelatorio);
+              await exportResultadosSacToPptx(dadosRelatorio, temaPptx);
             } finally {
               setExportandoPptx(false);
             }
