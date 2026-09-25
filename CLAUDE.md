@@ -258,6 +258,10 @@ geração automática de tipos configurada). Tabelas principais, por domínio:
   porque nome sozinho não é confiável pra identidade: "Ana" no Crisp é
   **duas pessoas diferentes** (Ana Paula Maximiano de Souza e Ana Franca,
   `operator_crisp_id` distintos) — ver seção 10, fix de 2026-08-17.
+- `csat_pending` — uma linha por conversa que já recebeu a pesquisa do
+  Widget CSAT; enquanto existir, a conversa não recebe pesquisa nova. O n8n
+  apaga numa reabertura real. **Não usar `respondido` pra medir resposta**
+  (ver seção 10, 2026-09-24 e 2026-09-25).
 - `crisp_ratings`, `nps_followups`, view `analytics_sac` — **schema
   paralelo, reservado, com 0 linhas** (ver decisão arquitetural na seção
   14). Não usar como fonte de dado hoje.
@@ -6074,6 +6078,31 @@ do cliente reabre. Correção
 - Limitação: cliente que usa a resposta da pesquisa pra relatar problema
   novo continua tratado como resposta à pesquisa (mesma regra do banco).
   Conversa que ficou aberta depois da pesquisa não é tocada.
+
+**Widget CSAT (AskGreenn) é a única pesquisa desde 2026-09-25; revisão dos
+fluxos de CSAT:** decisão do usuário. A pesquisa nativa por link do Crisp
+("Muito Bom…", `crisp.beta.limited/rate`) ainda era enviada (89 conversas em
+14 dias) e as notas dela nunca chegavam ao Hub: o ramo "Crisp Rating" do
+Crisp → Hub (`Tratamento Dos Dados1`) só gravava no Google Sheets e ainda
+tinha JSON quebrado (vírgula faltando depois de "nathaliac@xgrow.com"). O
+usuário desligou essa pesquisa no Crisp e o ramo no n8n. Achados na revisão:
+- Resposta citada (reply) ao picker: 113 de 118 viraram nota; 1 perda real
+  ("Ótimo"). Nota escrita "2 min" (21/09) virou nota 2 da Ketlin — apagada.
+  O `Code in JavaScript` do Widget foi trocado (rótulos Muito satisfeito…Muito
+  insatisfeito → 5..1, nota digitada só se for o 1º conteúdo da 1ª linha,
+  picker pelo `message:updated` `greenn_csat`).
+- `Resetar CSAT Pending (Reabertura)` usava `{{ $json.session_id }}` vazio,
+  então o registro em `csat_pending` nunca saía numa reabertura real e a
+  conversa não recebia pesquisa nova ao resolver de novo (82 casos em 14
+  dias). URL passou a usar `$('Code in JavaScript').first().json.session_id`
+  e `Aguardar Confirmar Reabertura` foi pra 10 s. As 368 linhas presas (nos
+  últimos 40 dias, com reabertura real depois da pesquisa; liberam 162
+  conversas abertas) foram apagadas.
+- Nota do bot e PATCHes do Crisp → Hub: sem problema.
+Limpeza em `supabase/sql/2026-09-25_limpeza_csat.sql` (rollback ao lado);
+backups `_bkp_csat_nota_falsa_2026_09_25` (1 linha) e
+`_bkp_csat_pending_presos_2026_09_25` (368), com RLS e sem acesso pra
+anon/authenticated.
 
 ## 12. Convenções de código
 
