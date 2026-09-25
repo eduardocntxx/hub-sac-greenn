@@ -6034,6 +6034,47 @@ n8n seguiu gravando mensagens logo depois. `minutos_uteis_entre_time` ficou
 de fora de propósito (chamada por linha dentro das métricas; só expõe a
 cobertura de horário do time).
 
+**Resposta à pesquisa de CSAT reiniciava o chamado (2026-09-25, corrigido
+no banco + nó novo no n8n):** no fluxo **Crisp → Hub**, a resposta do
+cliente à pesquisa (sempre depois da conversa resolvida) é tratada como
+reabertura: `HTTP Request1/9/12` (mensagem do cliente com status
+`resolved`) e o `Code in JavaScript` do `session:set_state` (gap > 60 s)
+movem `current_started_at` pro momento da resposta. Efeito: o chamado muda
+de dia, o TFR some (a resposta humana fica antes do "início") e o TTR vira
+segundos (ex.: `session_4fee048d`, aberto 24/09 15:25, TFR 4 min, virou
+"início 25/09 13:35, TTR 16 s"). Nos 14 dias anteriores, de 172 conversas
+avaliadas com resposta humana, só 57 tinham TFR. Janela de tempo não
+separa resposta à pesquisa de conversa nova (nos primeiros 10 min após a
+pesquisa: 76 respostas × 45 outras mensagens), então a regra é a de
+conteúdo já usada em `reopened_count_real_periodo`. As mensagens
+automáticas da pesquisa têm `operator_crisp_id` nulo, então só a resposta
+do cliente reabre. Correção
+(`supabase/sql/2026-09-25_ciclo_pos_pesquisa.sql`, rollback ao lado):
+- `_reaberturas_conversa(session)` lista as transições resolved →
+  pending/unresolved marcando `eh_real` com a mesma regra.
+- `corrigir_ciclo_pos_pesquisa(session)` (só `service_role`): só age em
+  conversa `resolved`, iniciada depois de 18/08/2026 (início do histórico
+  de estado), cujo início atual cai (±2 min) numa reabertura não real e
+  não numa real. Volta o início pra última reabertura real (ou
+  `started_at`), `reopened_count` = reaberturas reais, `resolved_at` =
+  primeira resolução depois desse início (a do atendente), recalcula TTR,
+  e só recalcula 1ª resposta/1ª resposta humana se estiverem fora do
+  intervalo início–resolução. Idempotente.
+- Backfill: 771 linhas copiadas em `_bkp_ciclo_pesquisa_2026_09_25`
+  (resultado por conversa em `_res_ciclo_2026_09_25`, as duas com RLS e sem
+  acesso pra anon/authenticated), **522 corrigidas**; nelas, TFR válido
+  foi de 64 pra 290 e nenhuma ficou com resposta humana antes do início.
+- Daqui pra frente: no **Widget CSAT | Edu DEF**, depois de `Crisp |
+  Resolver Conversa (Pós-CSAT)` e `(Pós-Comentário)`, um Wait de 15 s (pro
+  Crisp → Hub terminar de gravar o "resolvido", senão ele sobrescreve a
+  correção) e um POST em `/rest/v1/rpc/corrigir_ciclo_pos_pesquisa`
+  (`HTTP`/`HTTP2`). O Crisp → Hub não foi mexido: a decisão ali depende da
+  ordem em que mensagem e mudança de estado chegam, e corrigir depois que
+  tudo assentou evita essa corrida.
+- Limitação: cliente que usa a resposta da pesquisa pra relatar problema
+  novo continua tratado como resposta à pesquisa (mesma regra do banco).
+  Conversa que ficou aberta depois da pesquisa não é tocada.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
