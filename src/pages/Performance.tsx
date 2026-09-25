@@ -1295,7 +1295,7 @@ export default function Performance() {
               {loadingFcr ? (
                 <p className="text-sm text-ink/50">Carregando...</p>
               ) : !fcrRecontato || fcrRecontato.total_elegiveis === 0 ? (
-                <Card className="p-4"><p className="text-sm text-ink/50">Nenhuma conversa elegível no período (precisa estar resolvida, com cliente e motivo identificados).</p></Card>
+                <Card className="p-4"><p className="text-sm text-ink/50">Nenhuma conversa elegível no período (precisa ter sido resolvida, com o cliente identificado).</p></Card>
               ) : (
                 <>
                   <div className="grid gap-4 sm:grid-cols-3">
@@ -1304,25 +1304,25 @@ export default function Performance() {
                       <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(fcrRecontato.fcr_pct ?? 0))}>
                         {fcrRecontato.fcr_pct?.toFixed(1) ?? "0.0"}%
                       </p>
-                      <p className="mt-1 text-[11px] text-ink/40">resolvido sem o cliente voltar pelo mesmo motivo em 7 dias</p>
+                      <p className="mt-1 text-[11px] text-ink/40">resolvido sem o cliente voltar em 7 dias (conversa nova ou reabertura real)</p>
                     </Card>
                     <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
                       <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Recontato</p>
                       <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(100 - (fcrRecontato.recontato_pct ?? 0)))}>
                         {fcrRecontato.recontato_pct?.toFixed(1) ?? "0.0"}%
                       </p>
-                      <p className="mt-1 text-[11px] text-ink/40">{fcrRecontato.total_recontato} de {fcrRecontato.total_elegiveis} voltaram pelo mesmo motivo</p>
+                      <p className="mt-1 text-[11px] text-ink/40">{fcrRecontato.total_recontato} de {fcrRecontato.total_elegiveis} abriram conversa nova em 7 dias</p>
                     </Card>
                     <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
                       <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Conversas elegíveis</p>
                       <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{fcrRecontato.total_elegiveis}</p>
-                      <p className="mt-1 text-[11px] text-ink/40">resolvidos, com cliente e motivo identificados</p>
+                      <p className="mt-1 text-[11px] text-ink/40">resolvidas no período, com o cliente identificado</p>
                     </Card>
                   </div>
 
                   {recontatoPorMotivo.length > 0 && (
                     <Card className="mt-4 p-4">
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Motivos com mais recontato</p>
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Tópico da conversa original, nos recontatos</p>
                       <HorizontalBarChart data={recontatoPorMotivo} getColorClass={() => "bg-forest-500"} labelWidth={180} />
                     </Card>
                   )}

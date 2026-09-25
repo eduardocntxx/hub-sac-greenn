@@ -5903,7 +5903,8 @@ sempre batem (validado: 13 = 13; filtrando Vittor, 5 = 5). O
 `Performance.tsx` continua um arquivo grande: as seções antigas não foram
 separadas em arquivos próprios. **Achado não tratado:** FCR aparece 100%
 com zero recontato em 556 conversas na semana 17–23/09 — improvável,
-precisa de investigação em `fcr_recontato_resumo`.
+precisa de investigação em `fcr_recontato_resumo`. **Resolvido em
+2026-09-25** (ver "FCR e Recontato sem tópico idêntico" no fim desta seção).
 
 **Leva de 2026-09-24 (tarde) — visual Verdee, design system no Claude
 Design, Overview pra todos:**
@@ -6103,6 +6104,30 @@ Limpeza em `supabase/sql/2026-09-25_limpeza_csat.sql` (rollback ao lado);
 backups `_bkp_csat_nota_falsa_2026_09_25` (1 linha) e
 `_bkp_csat_pending_presos_2026_09_25` (368), com RLS e sem acesso pra
 anon/authenticated.
+
+**FCR e Recontato sem tópico idêntico (2026-09-25, aplicado em produção):**
+o FCR mostrava ~100% porque a regra de 2026-08-19 (mesmo `people_id` +
+`topico` exatamente igual, 7 dias) quase nunca batia: `topico` é um resumo
+em texto livre (em inglês) gerado pelo Crisp por conversa e não se repete
+(ex.: "Refund request delayed" → 2h depois "Customer complains about
+response time"). Nas conversas resolvidas de 30 a 7 dias antes, a regra
+antiga achou 3 recontatos; o mesmo cliente abriu outra conversa em 140
+casos e a mesma conversa reabriu de verdade em 95. Regra nova, em
+`fcr_recontato_resumo`/`recontato_casos` (mesmas assinaturas e retornos):
+- referência = 1ª resolução da conversa (`coalesce(first_resolved_at,
+  resolved_at)`); não usar só `resolved_at` nem o `first_resolved_at` do
+  ciclo atual, porque reabertura real move `current_started_at` e a volta
+  do cliente sumiria da conta;
+- elegível = referência no período e cliente identificado (`people_id` ou
+  e-mail), tópico não é mais exigido;
+- **Recontato** = conversa nova do mesmo cliente (`people_id` ou e-mail;
+  `started_at` ou `current_started_at`) em até 7 dias, qualquer tópico;
+- **FCR** = sem recontato e sem reabertura real
+  (`_reaberturas_conversa`, `eh_real`) em até 7 dias.
+Efeito (30 a 7 dias antes): 2.156 elegíveis, FCR 83,7%, recontato 8,1%
+(175); semana 17–23/09: FCR 80,8%. Textos do card no Overview e do Meu
+Painel atualizados. SQL em `supabase/sql/2026-09-25_fcr_recontato.sql`
+(rollback ao lado).
 
 ## 12. Convenções de código
 

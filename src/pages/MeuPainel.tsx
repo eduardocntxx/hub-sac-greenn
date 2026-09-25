@@ -381,8 +381,8 @@ export default function MeuPainel() {
         </div>
         <p className="mt-2 text-xs text-ink/40">
           "Tempo de trabalho ativo" pessoal não é mostrado aqui — o Crisp não expõe presença real do operador pela
-          API, mesma limitação do card "Relógio de trabalho ativo" em Overview. FCR/Reabertura contam "mesmo motivo"
-          por texto idêntico do tópico dentro de 7 dias.
+          API, mesma limitação do card "Relógio de trabalho ativo" em Overview. FCR conta como resolvido quando o cliente
+          não volta em 7 dias (nem conversa nova, nem reabertura real), qualquer que seja o tópico.
         </p>
       </div>
 

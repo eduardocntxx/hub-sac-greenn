@@ -807,10 +807,10 @@ export interface FcrRecontatoResumo {
   recontato_pct: number | null;
 }
 
-// "Elegível" = chamado resolvido, com people_id e topico preenchidos (só dá
-// pra saber se o cliente voltou se souber quem é o cliente e sobre o quê).
-// "Mesmo motivo" = topico idêntico (texto exato — decisão confirmada com o
-// usuário, dado que topico é texto livre da Crisp); janela de 7 dias.
+// "Elegível" = conversa com a 1ª resolução no período e cliente identificado
+// (people_id ou e-mail). FCR = o cliente não voltou em 7 dias (conversa nova ou
+// reabertura real). Recontato = só conversa nova, qualquer tópico (desde
+// 2026-09-25; tópico é texto livre e quase nunca se repete igual).
 export async function fetchFcrRecontatoResumo(inicio: Date, fim: Date, canal?: string, atendenteNomes?: string[], tipoCliente?: string): Promise<FcrRecontatoResumo | null> {
   const { data, error } = await client().rpc("fcr_recontato_resumo", {
     data_inicio: inicio.toISOString(),
