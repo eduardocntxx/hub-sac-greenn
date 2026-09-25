@@ -5976,6 +5976,15 @@ Design, Overview pra todos:**
   gerando os dois arquivos no Node e conferindo as cores no XML dos slides
   (sem renderização visual).
 
+**Leva de 2026-09-25:** card "Detratores" do Dashboard do CSAT abre um
+pop-up com as avaliações de nota 1 a 3 do período (mesmas linhas que o
+card conta; reaproveita o pop-up de "CSAT por colaborador", com coluna
+Atendente; clique na linha abre o `CsatDetalheDialog`). NPS ganhou filtro
+de período (`DateRangePopover`, padrão "Este ano", `nps:preset`/
+`nps:personalizado`; `fetchNpsResponses` já aceitava `inicio`/`fim`) que
+vale para os cards, o gráfico mensal e a lista; busca e classificação
+subiram para o cabeçalho, ao lado do período e de "Nova resposta".
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
