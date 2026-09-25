@@ -16,6 +16,8 @@ import { fetchNpsResponses, upsertNpsResponse, deleteNpsResponse } from "@/servi
 import { useAuth } from "@/contexts/AuthContext";
 import type { DbNpsResponse } from "@/types/database";
 import { usePersistedState } from "@/hooks/usePersistedState";
+import { resolvePeriodo, type PeriodoPreset } from "@/lib/dateRanges";
+import { DateRangePopover } from "@/components/ui/DateRangePopover";
 
 const classTone = { Promotor: "success", Neutro: "warning", Detrator: "danger" } as const;
 const classIcon = { Promotor: Smile, Neutro: Meh, Detrator: Frown } as const;
@@ -40,13 +42,19 @@ export default function Nps() {
   const queryClient = useQueryClient();
   const [classificacao, setClassificacao] = usePersistedState<"" | "Promotor" | "Neutro" | "Detrator">("nps:classificacao", "");
   const [busca, setBusca] = useState("");
+  // Padrão "Este ano": NPS tem pouco volume, e o gráfico é por mês.
+  const [preset, setPreset] = usePersistedState<PeriodoPreset>("nps:preset", "ano_atual");
+  const [personalizado, setPersonalizado] = usePersistedState("nps:personalizado", { inicio: "", fim: "" });
+  const { inicio, fim } = useMemo(() => resolvePeriodo(preset, personalizado), [preset, personalizado]);
 
   const { data: respostas, isLoading } = useQuery({
-    queryKey: ["nps", classificacao, busca],
+    queryKey: ["nps", classificacao, busca, inicio.toISOString(), fim.toISOString()],
     queryFn: () =>
       fetchNpsResponses({
         classificacao: classificacao || undefined,
         busca: busca || undefined,
+        inicio,
+        fim,
       }),
   });
 
@@ -159,9 +167,29 @@ export default function Nps() {
             Net Promoter Score do time de Suporte. Estrutura pronta para integrações futuras (campo "fonte" e "external_id" já preparados).
           </p>
         </div>
-        <Button onClick={abrirNova}>
-          <Plus size={16} /> Nova resposta
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar comentário/respondente..."
+            className="h-9 rounded-lg border border-sand-line bg-sand-surface px-3 text-sm outline-none focus:border-forest-500"
+          />
+          <select value={classificacao} onChange={(e) => setClassificacao(e.target.value as typeof classificacao)} className="h-9 rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
+            <option value="">Todas as classificações</option>
+            <option value="Promotor">Promotor</option>
+            <option value="Neutro">Neutro</option>
+            <option value="Detrator">Detrator</option>
+          </select>
+          <DateRangePopover
+            preset={preset}
+            personalizado={personalizado}
+            onChangePreset={setPreset}
+            onChangePersonalizado={setPersonalizado}
+          />
+          <Button onClick={abrirNova}>
+            <Plus size={16} /> Nova resposta
+          </Button>
+        </div>
       </div>
 
       {erro && <p className="text-sm text-rust-500">{erro}</p>}
@@ -185,21 +213,6 @@ export default function Nps() {
           )}
         </div>
       </Card>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          placeholder="Buscar comentário/respondente..."
-          className="h-9 rounded-lg border border-sand-line bg-sand-surface px-3 text-sm outline-none focus:border-forest-500"
-        />
-        <select value={classificacao} onChange={(e) => setClassificacao(e.target.value as typeof classificacao)} className="h-9 rounded-lg border border-sand-line bg-sand-surface px-2 text-sm">
-          <option value="">Todas as classificações</option>
-          <option value="Promotor">Promotor</option>
-          <option value="Neutro">Neutro</option>
-          <option value="Detrator">Detrator</option>
-        </select>
-      </div>
 
       {isLoading ? (
         <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <CardSkeleton key={i} />)}</div>
