@@ -7,7 +7,6 @@ import type {
   DbMission,
   DbMissionProgress,
   DbCsatResult,
-  DbRRHistory,
   DbUser,
   DbModule,
   DbUserPermission,
@@ -346,46 +345,9 @@ export async function fetchCsatForUser(email: string): Promise<DbCsatResult[]> {
 
 // ---------- Reunião de Resultados ----------
 
-export async function fetchRRHistory(userId: string): Promise<DbRRHistory[]> {
-  const { data, error } = await client()
-    .from("rr_history")
-    .select("*")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as DbRRHistory[];
-}
 
-export async function insertRRHistory(payload: Omit<DbRRHistory, "id" | "created_at">) {
-  const { data, error } = await client()
-    .from("rr_history")
-    .insert(payload)
-    .select()
-    .single();
-  if (error) throw error;
-  return data as DbRRHistory;
-}
 
-export async function updateRRHistory(
-  id: string,
-  payload: Partial<Pick<DbRRHistory, "aprendizados" | "dificuldades" | "plano_de_acao" | "objetivos">>
-) {
-  const { data, error } = await client()
-    .from("rr_history")
-    .update(payload)
-    .eq("id", id)
-    .select()
-    .single();
-  if (error) throw error;
-  return data as DbRRHistory;
-}
 
-// Exclusão de RR é admin-only (policy rr_history_delete_admin) — quem
-// preencheu não pode apagar o próprio histórico, só corrigir via update.
-export async function deleteRRHistory(id: string) {
-  const { error } = await client().from("rr_history").delete().eq("id", id);
-  if (error) throw error;
-}
 
 // ---------- Permissões granulares ----------
 

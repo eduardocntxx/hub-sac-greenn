@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Favicon do Hub SAC: balão da Greenn (degradê do símbolo oficial) com nós
+       de rede dentro, sobre o verde-azulado escuro do Verdee. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#90BF26"/>
+      <stop offset=".35" stop-color="#52AD5C"/>
+      <stop offset=".7" stop-color="#009A7F"/>
+      <stop offset="1" stop-color="#008E95"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="#001816"/>
+  <path d="M32 9a21 21 0 1 1-12.4 38L13 55l2.6-12A21 21 0 0 1 32 9z" fill="none" stroke="url(#g)" stroke-width="6" stroke-linejoin="round"/>
+  <g stroke="#96D4CF" stroke-width="3.2" stroke-linecap="round">
+    <line x1="23.5" y1="36.5" x2="32" y2="26.5"/>
+    <line x1="32" y1="26.5" x2="40.5" y2="33"/>
+  </g>
+  <circle cx="23.5" cy="36.5" r="4.4" fill="#90BF26"/>
+  <circle cx="32" cy="26.5" r="4.4" fill="#52AD5C"/>
+  <circle cx="40.5" cy="33" r="4.4" fill="#009A7F"/>
+</svg>

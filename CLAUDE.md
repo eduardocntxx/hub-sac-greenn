@@ -5941,6 +5941,49 @@ Design, Overview pra todos:**
   atend./hora, reaberturas, transferências) saíram. Chegaram a voltar numa
   tabela "Produtividade e posse" e foram removidas de novo a pedido do
   usuário no mesmo dia.
+- **RR:** "Detalhamento por atendente" ordenado por chamados, mostra 3 e
+  "Ver mais". Formulário de preenchimento manual (salvar RR) e "Histórico
+  de RRs" removidos da tela a pedido do usuário; os registros seguem em
+  `rr_history` no banco, sem tela. `src/lib/exportPdf.ts` e as funções de
+  `rr_history` do `api.ts` foram apagados (sem uso). O card "Dados
+  manuais" (Reclame Aqui, RA XGROW, temas do NPS) continua — alimenta o
+  PPTX.
+- **Favicon próprio do Hub** (o usuário pediu pra não usar o símbolo da
+  Greenn, que é o do Greenn Adm; um headset genérico também foi recusado):
+  escolhido entre 3 opções, é o **balão da Greenn** com o degradê do
+  símbolo oficial (#90BF26 → #52AD5C → #009A7F → #008E95) e três nós de
+  rede dentro no lugar do check, sobre o fundo escuro Verdee #001816.
+  Desenhado em `public/icon.svg` (fonte da verdade;
+  os PNGs saem dele renderizado no Chrome headless + redimensionado com
+  PIL). Em `public/`: `icon.svg`, `favicon.ico` 16/32/48, `favicon.png`,
+  `apple-touch-icon.png` (fundo cheio, o iOS arredonda), `icon-192/512.png`
+  + `site.webmanifest`; `theme-color` #009488 no `index.html`.
+- **RR: período personalizado** — terceira opção "Personalizado" usa o
+  `DateRangePopover` do Hub (1º clique início, 2º fim, 3º recomeça; só
+  aplica com o intervalo completo). Comparação com o intervalo de mesmo
+  tamanho imediatamente anterior. Semanal = quarta 00:00 a terça 23:59:59
+  (rótulo mostra "quarta a quarta" com a quarta final exclusiva).
+- **PPTX da RR em escuro ou claro:** seletor "Tema do PPTX" na
+  pré-visualização do relatório (lembrado no navegador, `rr:temaPptx`).
+  `exportResultadosSacToPptx(data, tema)` troca a paleta inteira
+  (`PALETAS.escuro` = Verdee escuro; `PALETAS.claro` = fundo #F0F2F5, cards
+  brancos, texto #1B2124, acento #009488/#00766D/#005952). `COR.bg` é
+  também a cor do texto sobre o acento, por isso funciona nos dois temas.
+  O mesmo seletor ("Tema") troca a pré-visualização e, por consequência,
+  o PDF impresso dela: `RelatorioResultadosSac` usa `PALETA_ESCURA` /
+  `PALETA_CLARA` (tokens `--color-*` redeclarados + `--rel-acento`,
+  `--rel-sobre-acento`, `--rel-bom`), sem hex fixo no JSX. PPTX testado
+  gerando os dois arquivos no Node e conferindo as cores no XML dos slides
+  (sem renderização visual).
+
+**Leva de 2026-09-25:** card "Detratores" do Dashboard do CSAT abre um
+pop-up com as avaliações de nota 1 a 3 do período (mesmas linhas que o
+card conta; reaproveita o pop-up de "CSAT por colaborador", com coluna
+Atendente; clique na linha abre o `CsatDetalheDialog`). NPS ganhou filtro
+de período (`DateRangePopover`, padrão "Este ano", `nps:preset`/
+`nps:personalizado`; `fetchNpsResponses` já aceitava `inicio`/`fim`) que
+vale para os cards, o gráfico mensal e a lista; busca e classificação
+subiram para o cabeçalho, ao lado do período e de "Nova resposta".
 
 ## 12. Convenções de código
 

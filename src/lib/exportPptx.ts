@@ -39,18 +39,46 @@ const FONT_BODY = "Plus Jakarta Sans";
 // escuro do guia, acento verde-azulado claro (#64BFB8, da escala primária
 // #009488) legível tanto como texto no fundo escuro quanto como fundo sob
 // texto escuro (cabeçalho das tabelas, painel da capa).
-const COR = {
-  bg: "001816",
-  cardBg: "002320",
-  cardBg2: "002F2B", // linha alternada (zebra) das tabelas — só um tom acima de cardBg
-  cardBorder: "30625E",
-  ink: "E1F4F3",
-  inkSoft: "8FB1AE",
-  inkFraco: "5F8986",
-  branco: "FFFFFF",
-  mint: "64BFB8",
-  rust: "FF6337",
+// Duas paletas (tema escolhido na pré-visualização do relatório,
+// 2026-09-24). `bg` também é a cor do texto sobre o acento (cabeçalho das
+// tabelas, painel da capa): escuro no tema escuro, claro no tema claro —
+// nos dois casos contrasta com o acento do mesmo tema.
+export type TemaPptx = "escuro" | "claro";
+
+const PALETAS: Record<TemaPptx, {
+  bg: string; cardBg: string; cardBg2: string; cardBorder: string;
+  ink: string; inkSoft: string; inkFraco: string; branco: string; mint: string; rust: string;
+}> = {
+  escuro: {
+    bg: "001816",
+    cardBg: "002320",
+    cardBg2: "002F2B", // linha alternada (zebra) das tabelas — só um tom acima de cardBg
+    cardBorder: "30625E",
+    ink: "E1F4F3",
+    inkSoft: "8FB1AE",
+    inkFraco: "5F8986",
+    branco: "FFFFFF",
+    mint: "64BFB8",
+    rust: "FF6337",
+  },
+  // Verdee claro: fundo cinza-esverdeado, cards brancos, texto #1B2124,
+  // acento verde-azulado escuro o bastante pra texto sobre branco.
+  claro: {
+    bg: "F0F2F5",
+    cardBg: "FFFFFF",
+    cardBg2: "F7F8F9",
+    cardBorder: "E5E7E7",
+    ink: "1B2124",
+    inkSoft: "666D6D",
+    inkFraco: "999E9D",
+    branco: "FFFFFF",
+    mint: "009488",
+    rust: "C71307",
+  },
 };
+
+// Paleta ativa (trocada no início de cada exportação).
+const COR = { ...PALETAS.escuro };
 
 // Tons de verde sorteados a cada exportação (pedido do usuário em
 // 2026-09-24) — um tom só por arquivo, aplicado em todo acento do deck
@@ -58,11 +86,20 @@ const COR = {
 // dentro do mesmo PPTX. Todos claros o bastante pro texto escuro
 // (`COR.bg`) do cabeçalho das tabelas continuar legível e pro texto em
 // cima do fundo preto ter contraste.
-const TONS_VERDE = [
-  "64BFB8", // verde-azulado claro (Verdee)
-  "96D4CF", // verde-azulado mais claro (Verdee)
-  "5EC4B8", // entre os dois
-];
+const TONS_VERDE: Record<TemaPptx, string[]> = {
+  escuro: [
+    "64BFB8", // verde-azulado claro (Verdee)
+    "96D4CF", // verde-azulado mais claro (Verdee)
+    "5EC4B8", // entre os dois
+  ],
+  // No claro o acento precisa ser escuro (texto sobre branco e fundo do
+  // cabeçalho com texto claro por cima).
+  claro: [
+    "009488", // primária Verdee
+    "00766D",
+    "005952",
+  ],
+};
 
 interface CardInfo {
   label: string;
@@ -138,8 +175,10 @@ function tfrCorridoSeg(abertura: string, primeiraResposta: string | null): numbe
   return seg >= 0 ? seg : null;
 }
 
-export async function exportResultadosSacToPptx(data: ResultadosSacData): Promise<void> {
-  COR.mint = TONS_VERDE[Math.floor(Math.random() * TONS_VERDE.length)];
+export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: TemaPptx = "escuro"): Promise<void> {
+  Object.assign(COR, PALETAS[tema]);
+  const tons = TONS_VERDE[tema];
+  COR.mint = tons[Math.floor(Math.random() * tons.length)];
   const pptx = new PptxGenJS();
   pptx.defineLayout({ name: "HUB_SAC", width: 13.333, height: 7.5 });
   pptx.layout = "HUB_SAC";
@@ -276,7 +315,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData): Promis
 
     seloGreenn(slide, 1.35, 1.15, 0.62);
     slide.addText("HUB SAC GREENN", { x: 0.75, y: 2.55, w: xMenta - 1.3, h: 0.35, fontSize: 12, bold: true, color: COR.mint, charSpacing: 2, fontFace: FONT_BODY });
-    slide.addText("Reunião de\nResultados", { x: 0.72, y: 2.95, w: xMenta - 1.2, h: 1.9, fontSize: 46, bold: true, color: COR.branco, fontFace: FONT_DISPLAY, lineSpacing: 46 });
+    slide.addText("Reunião de\nResultados", { x: 0.72, y: 2.95, w: xMenta - 1.2, h: 1.9, fontSize: 46, bold: true, color: COR.ink, fontFace: FONT_DISPLAY, lineSpacing: 46 });
     slide.addText(data.periodoAtualLabel, { x: 0.75, y: 4.95, w: xMenta - 1.3, h: 0.4, fontSize: 16, color: COR.mint, fontFace: FONT_BODY });
     slide.addText(`Comparado a ${data.periodoAnteriorLabel}`, { x: 0.75, y: 5.35, w: xMenta - 1.3, h: 0.35, fontSize: 11, color: COR.inkSoft, fontFace: FONT_BODY });
     slide.addText(`Gerado em ${new Date().toLocaleString("pt-BR", { dateStyle: "long", timeStyle: "short" })}`, {

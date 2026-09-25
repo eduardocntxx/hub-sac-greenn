@@ -176,6 +176,7 @@ export default function Csat() {
   const [page, setPage] = useState(0);
   const [detalhe, setDetalhe] = useState<DbCsatResult | null>(null);
   const [atendenteDetalhe, setAtendenteDetalhe] = useState<{ chave: string; nome: string } | null>(null);
+  const [detratoresAbertos, setDetratoresAbertos] = useState(false);
 
   const { inicio, fim } = useMemo(() => resolvePeriodo(preset, personalizado), [preset, personalizado]);
   const { inicio: inicioAnterior, fim: fimAnterior } = useMemo(
@@ -317,6 +318,26 @@ export default function Csat() {
       .sort((a, b) => new Date(b.data_hora).getTime() - new Date(a.data_hora).getTime());
   }, [dashboardRows, atendenteDetalhe, aliasMap]);
 
+  // Pop-up do card "Detratores": mesmas linhas que o card conta (nota 1 a 3,
+  // período do Dashboard), então lista e card nunca divergem.
+  const avaliacoesDetratores = useMemo(() => {
+    if (!detratoresAbertos) return [];
+    return (dashboardRows ?? [])
+      .filter((r) => classificacaoPorNota(r.nota) === "Detrator")
+      .sort((a, b) => new Date(b.data_hora).getTime() - new Date(a.data_hora).getTime());
+  }, [dashboardRows, detratoresAbertos]);
+
+  const popupLista = atendenteDetalhe
+    ? { titulo: atendenteDetalhe.nome, rows: avaliacoesDoAtendenteDetalhe, mostrarAtendente: false }
+    : detratoresAbertos
+      ? { titulo: "Detratores (notas 1 a 3)", rows: avaliacoesDetratores, mostrarAtendente: true }
+      : null;
+
+  function fecharPopupLista() {
+    setAtendenteDetalhe(null);
+    setDetratoresAbertos(false);
+  }
+
   function rotuloCsat(pct: number | null) {
     if (pct === null) return "—";
     if (pct >= 90) return "Ótimo";
@@ -438,14 +459,22 @@ export default function Csat() {
             valueClassName="text-forest-600"
             meta="notas 4 e 5"
           />
-          <Kpi
-            label="Detratores"
-            value={`${resumoAtual.detratores} / ${resumoAtual.total ? ((resumoAtual.detratores / resumoAtual.total) * 100).toFixed(0) : 0}%`}
-            delta={deltaRelativo(resumoAtual.detratores, resumoAnterior.detratores)}
-            invertDeltaColor
-            valueClassName="text-rust-600"
-            meta="notas 1 a 3"
-          />
+          <button
+            type="button"
+            onClick={() => setDetratoresAbertos(true)}
+            disabled={resumoAtual.detratores === 0}
+            title={resumoAtual.detratores > 0 ? "Ver as avaliações ruins do período" : undefined}
+            className="rounded-2xl text-left transition-shadow enabled:cursor-pointer enabled:hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-400"
+          >
+            <Kpi
+              label="Detratores"
+              value={`${resumoAtual.detratores} / ${resumoAtual.total ? ((resumoAtual.detratores / resumoAtual.total) * 100).toFixed(0) : 0}%`}
+              delta={deltaRelativo(resumoAtual.detratores, resumoAnterior.detratores)}
+              invertDeltaColor
+              valueClassName="text-rust-600"
+              meta="notas 1 a 3"
+            />
+          </button>
         </div>
       )}
 
@@ -676,26 +705,26 @@ export default function Csat() {
         </>
       )}
 
-      {atendenteDetalhe && (
-        <Dialog onClose={() => setAtendenteDetalhe(null)} className="max-w-3xl">
+      {popupLista && (
+        <Dialog onClose={fecharPopupLista} className="max-w-3xl">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="font-display text-base font-semibold text-ink">{atendenteDetalhe.nome}</h3>
+              <h3 className="font-display text-base font-semibold text-ink">{popupLista.titulo}</h3>
               <p className="text-xs text-ink/50">
-                {avaliacoesDoAtendenteDetalhe.length} avaliações no período selecionado — clique numa linha pra ver o
+                {popupLista.rows.length} avaliações no período selecionado — clique numa linha pra ver o
                 chamado completo.
               </p>
             </div>
             <button
               type="button"
-              onClick={() => setAtendenteDetalhe(null)}
+              onClick={fecharPopupLista}
               className="text-ink/40 hover:text-ink"
             >
               <X size={16} />
             </button>
           </div>
 
-          {avaliacoesDoAtendenteDetalhe.length === 0 ? (
+          {popupLista.rows.length === 0 ? (
             <p className="mt-4 text-sm text-ink/50">Nenhuma avaliação encontrada.</p>
           ) : (
             <div className="mt-4 max-h-[60vh] overflow-y-auto rounded-xl border border-sand-line">
@@ -704,13 +733,14 @@ export default function Csat() {
                   <tr>
                     <th className="px-3 py-2 font-medium">Data</th>
                     <th className="px-3 py-2 font-medium">Cliente</th>
+                    {popupLista.mostrarAtendente && <th className="px-3 py-2 font-medium">Atendente</th>}
                     <th className="px-3 py-2 font-medium">Nota</th>
                     <th className="px-3 py-2 font-medium">Classificação</th>
                     <th className="px-3 py-2 font-medium">Comentário</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {avaliacoesDoAtendenteDetalhe.map((r) => (
+                  {popupLista.rows.map((r) => (
                     <tr
                       key={r.id}
                       onClick={() => setDetalhe(r)}
@@ -720,6 +750,9 @@ export default function Csat() {
                         {new Date(r.data_hora).toLocaleDateString("pt-BR")}
                       </td>
                       <td className="px-3 py-2 text-ink">{r.cliente ?? "—"}</td>
+                      {popupLista.mostrarAtendente && (
+                        <td className="px-3 py-2 text-ink/70">{r.atendente || "—"}</td>
+                      )}
                       <td className="px-3 py-2">{r.nota ?? "—"}</td>
                       <td className="px-3 py-2">
                         <Badge

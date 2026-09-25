@@ -1,22 +1,16 @@
 import { useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Download, Trash2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Download } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Kpi } from "@/components/ui/Kpi";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { Dialog } from "@/components/ui/Dialog";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { DateRangePopover } from "@/components/ui/DateRangePopover";
+import { resolvePeriodo, type PeriodoPreset } from "@/lib/dateRanges";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   fetchCsatForUser,
-  fetchRRHistory,
-  insertRRHistory,
-  updateRRHistory,
-  deleteRRHistory,
   fetchMinhasConversasMetricas,
   fetchDashboardAtendimentoSummary,
   fetchAtendentePerformance,
@@ -41,18 +35,24 @@ import {
   type AtendentePerformanceRow,
 } from "@/services/api";
 import { formatDuration } from "@/lib/formatDuration";
-// exportRRHistoricoToPdf/exportRRUnicaToPdf/exportResultadosSacToPptx são
+// exportResultadosSacToPptx é
 // sempre importados dinamicamente (`await import(...)`) dentro do próprio
-// clique — pptxgenjs/jspdf só baixam quando alguém de fato exporta, não no
+// clique — pptxgenjs só baixa quando alguém de fato exporta, não no
 // bundle inicial da página (ver PR#11, "lazy loading de rotas").
 import { manualDataVazia, type ResultadosSacData, type ManualData, type NpsResumo } from "@/lib/resultadosSac";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { RelatorioResultadosSac } from "@/components/RelatorioResultadosSac";
 
 const NOME_BOT = "IA Greenn";
-import type { DbRRHistory } from "@/types/database";
 
-type Granularidade = "mensal" | "semanal";
+// "personalizado": intervalo escolhido no calendário (id = "AAAA-MM-DD_AAAA-MM-DD",
+// fim incluído); comparação com o intervalo de mesmo tamanho logo antes.
+type Granularidade = "mensal" | "semanal" | "personalizado";
+
+function limitesPersonalizado(periodoId: string) {
+  const [ini, fim] = periodoId.split("_");
+  return { inicio: new Date(ini + "T00:00:00"), fim: new Date(fim + "T23:59:59.999") };
+}
 
 function media(vals: (number | null)[]) {
   const validos = vals.filter((v): v is number => v !== null);
@@ -102,10 +102,18 @@ function limitesDaSemana(periodoId: string) {
 }
 
 function limitesDoPeriodo(granularidade: Granularidade, periodoId: string) {
+  if (granularidade === "personalizado") return limitesPersonalizado(periodoId);
   return granularidade === "mensal" ? limitesDoMes(periodoId) : limitesDaSemana(periodoId);
 }
 
 function periodoAnteriorId(granularidade: Granularidade, periodoId: string) {
+  if (granularidade === "personalizado") {
+    const { inicio, fim } = limitesPersonalizado(periodoId);
+    const dias = Math.round((new Date(fim.getFullYear(), fim.getMonth(), fim.getDate()).getTime() - inicio.getTime()) / 86_400_000) + 1;
+    const fimAnt = new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate() - 1);
+    const iniAnt = new Date(fimAnt.getFullYear(), fimAnt.getMonth(), fimAnt.getDate() - (dias - 1));
+    return `${toISODate(iniAnt)}_${toISODate(fimAnt)}`;
+  }
   if (granularidade === "mensal") {
     const [ano, mes] = periodoId.split("-").map(Number);
     const d = new Date(ano, mes - 2, 1);
@@ -116,6 +124,7 @@ function periodoAnteriorId(granularidade: Granularidade, periodoId: string) {
 }
 
 function ultimosPeriodos(granularidade: Granularidade, n: number) {
+  if (granularidade === "personalizado") return [];
   if (granularidade === "mensal") {
     const hoje = new Date();
     return Array.from({ length: n }).map((_, i) => {
@@ -149,6 +158,10 @@ function ultimosPeriodos(granularidade: Granularidade, n: number) {
 // qualquer — precisa funcionar pro período anterior também, que pode cair
 // fora da janela dos 6 períodos listados no dropdown.
 function labelDoPeriodo(granularidade: Granularidade, inicio: Date, fim: Date): string {
+  if (granularidade === "personalizado") {
+    const f = (d: Date) => d.toLocaleDateString("pt-BR");
+    return `${f(inicio)} a ${f(fim)}`;
+  }
   if (granularidade === "mensal") {
     const label = inicio.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
     return label.charAt(0).toUpperCase() + label.slice(1);
@@ -170,22 +183,6 @@ function agregarPorPeriodo(csat: { data_hora: string; nota: number | null }[], i
   const mediaNota = rows.length ? rows.reduce((acc, r) => acc + (r.nota ?? 0), 0) / rows.length : 0;
   return { media: mediaNota, total: rows.length };
 }
-
-const rrSchema = z.object({
-  aprendizados: z.string().min(1, "Descreva os aprendizados do período"),
-  dificuldades: z.string().min(1, "Descreva as dificuldades enfrentadas"),
-  planoDeAcao: z.string().optional(),
-  objetivos: z.string().optional(),
-});
-
-const CAMPOS_RR = [
-  ["aprendizados", "Aprendizados"],
-  ["dificuldades", "Dificuldades"],
-  ["planoDeAcao", "Plano de ação (opcional)"],
-  ["objetivos", "Objetivos para o próximo período (opcional)"],
-] as const;
-
-type RRForm = z.infer<typeof rrSchema>;
 
 function CampoManual({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
@@ -219,7 +216,6 @@ function CampoManualArea({ label, value, onChange, placeholder }: { label: strin
 
 export default function ReuniaoResultados() {
   const { user, isAdmin } = useAuth();
-  const queryClient = useQueryClient();
 
   // Padrão sempre semanal, com a semana atual — pedido explícito do
   // usuário em 2026-09-22 (a RR roda toda quarta, ver `quartaOf()` acima).
@@ -228,25 +224,29 @@ export default function ReuniaoResultados() {
   const [granularidade, setGranularidade] = useState<Granularidade>("semanal");
   const periodos = useMemo(() => ultimosPeriodos(granularidade, 6), [granularidade]);
   const [periodo, setPeriodo] = useState(periodos[0].id);
-  const [salvo, setSalvo] = useState(false);
-  const [salvando, setSalvando] = useState(false);
-  const [salvarErro, setSalvarErro] = useState<string | null>(null);
+  // Calendário do modo "Personalizado" (mesmo componente do resto do Hub:
+  // 1º clique = início, 2º = fim, 3º recomeça). Só aplica quando o
+  // intervalo está completo.
+  const [presetPerso, setPresetPerso] = useState<PeriodoPreset>("personalizado");
+  const [rangePerso, setRangePerso] = useState({ inicio: "", fim: "" });
 
   function mudarGranularidade(g: Granularidade) {
     setGranularidade(g);
+    if (g === "personalizado") {
+      // Começa na semana atual da RR (quarta a terça) já selecionada.
+      const { inicio, fim } = limitesDaSemana(ultimosPeriodos("semanal", 1)[0].id);
+      const r = { inicio: toISODate(inicio), fim: toISODate(fim) };
+      setRangePerso(r);
+      setPresetPerso("personalizado");
+      setPeriodo(`${r.inicio}_${r.fim}`);
+      return;
+    }
     setPeriodo(ultimosPeriodos(g, 6)[0].id);
-    setSalvo(false);
   }
 
   const { data: csat, isLoading: loadingCsat } = useQuery({
     queryKey: ["csat", user?.id],
     queryFn: () => fetchCsatForUser(user!.email),
-    enabled: Boolean(user?.id),
-  });
-
-  const { data: historico } = useQuery({
-    queryKey: ["rr-history", user?.id],
-    queryFn: () => fetchRRHistory(user!.id),
     enabled: Boolean(user?.id),
   });
 
@@ -566,12 +566,6 @@ export default function ReuniaoResultados() {
   const chamadosDeltaValor = teamSummaryAnterior?.total_chamados
     ? ((chamadosValor - teamSummaryAnterior.total_chamados) / teamSummaryAnterior.total_chamados) * 100
     : 0;
-  // Valor persistido em rr_history.atendimentos ao salvar: pro time, chamados
-  // (pondera reabertura, é a definição oficial de "chamado" da plataforma);
-  // pro colaborador, continua sendo a contagem de avaliações (nunca existiu
-  // "chamados" pessoal pra essa métrica).
-  const atendimentosParaSalvar = isAdmin ? chamadosValor : conversasValor;
-  const atendimentosDeltaParaSalvar = isAdmin ? chamadosDeltaValor : conversasDeltaValor;
   const carregandoPrincipais = isAdmin ? loadingTeamSummary : loadingCsat;
 
   const tempoResolucaoSeg = isAdmin
@@ -601,8 +595,10 @@ export default function ReuniaoResultados() {
         ? ((r.total_avaliacoes - ant.total_avaliacoes) / ant.total_avaliacoes) * 100
         : undefined;
       return { ...r, deltaChamados, deltaAvaliacoes };
-    });
+    }).sort((a, b) => b.total_atendimentos - a.total_atendimentos);
   }, [perfAtual, perfAnterior]);
+  // Detalhamento por atendente: só os 3 com mais chamados; o resto com "Ver mais".
+  const [detalhamentoCompleto, setDetalhamentoCompleto] = useState(false);
 
   // Ranking humano por volume — deriva de perfAtual/perfAnterior (já
   // buscados acima), sem query nova. Bot fica de fora (mesma exclusão do
@@ -730,6 +726,8 @@ export default function ReuniaoResultados() {
 
   const [mostrarRelatorio, setMostrarRelatorio] = useState(false);
   const [exportandoPptx, setExportandoPptx] = useState(false);
+  // Tema do PPTX escolhido na pré-visualização; fica lembrado neste navegador.
+  const [temaPptx, setTemaPptx] = usePersistedState<"escuro" | "claro">("rr:temaPptx", "escuro");
 
   // Dado que o Hub não captura (Reclame Aqui, RA XGROW, Migrações, NPS
   // qualitativo) — preenchido à mão, persistido pra não perder toda semana.
@@ -829,116 +827,6 @@ export default function ReuniaoResultados() {
     ]
   );
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors },
-  } = useForm<RRForm>({ resolver: zodResolver(rrSchema) });
-
-  const [visualizando, setVisualizando] = useState<DbRRHistory | null>(null);
-  const [editando, setEditando] = useState<DbRRHistory | null>(null);
-  const [salvandoEdicao, setSalvandoEdicao] = useState(false);
-  const [erroEdicao, setErroEdicao] = useState<string | null>(null);
-  // Separado de erroEdicao: exclusão pode ser disparada de fora do dialog de
-  // edição (ícone de lixeira na lista, ou botão Excluir dentro do dialog de
-  // visualização) — erroEdicao só é renderizado dentro do form de edição, e
-  // ficava mostrando erro em lugar nenhum se o delete falhasse por qualquer
-  // motivo (achado real: usuário reportou "botão de excluir não funciona",
-  // e a falha ficava silenciosa mesmo quando de fato falhava).
-  const [erroExclusao, setErroExclusao] = useState<string | null>(null);
-  // Confirmação própria em vez de window.confirm(): nativo pode ficar
-  // silenciosamente bloqueado pelo navegador depois de várias chamadas na
-  // mesma página ("impedir que esta página crie mais diálogos") — nesse
-  // caso confirm() retorna false na hora, sem mostrar nada, e o botão
-  // parece simplesmente não fazer nada (achado real, reportado pelo
-  // usuário mesmo com o delete em si funcionando via chamada direta).
-  const [confirmandoExclusao, setConfirmandoExclusao] = useState<DbRRHistory | null>(null);
-  const [excluindo, setExcluindo] = useState(false);
-  const {
-    register: registerEdicao,
-    handleSubmit: handleSubmitEdicao,
-    reset: resetEdicao,
-    formState: { errors: errorsEdicao },
-  } = useForm<RRForm>({ resolver: zodResolver(rrSchema) });
-
-  function abrirEdicaoRR(rr: DbRRHistory) {
-    setErroEdicao(null);
-    resetEdicao({
-      aprendizados: rr.aprendizados ?? "",
-      dificuldades: rr.dificuldades ?? "",
-      planoDeAcao: rr.plano_de_acao ?? "",
-      objetivos: rr.objetivos ?? "",
-    });
-    setEditando(rr);
-  }
-
-  async function excluirRR(rr: DbRRHistory) {
-    if (!user) return;
-    setErroExclusao(null);
-    setExcluindo(true);
-    try {
-      await deleteRRHistory(rr.id);
-      await queryClient.invalidateQueries({ queryKey: ["rr-history", user.id] });
-      setVisualizando(null);
-      setConfirmandoExclusao(null);
-    } catch (err) {
-      setErroExclusao(err instanceof Error ? err.message : "Não foi possível excluir.");
-    } finally {
-      setExcluindo(false);
-    }
-  }
-
-  async function onSubmitEdicao(data: RRForm) {
-    if (!editando || !user) return;
-    setSalvandoEdicao(true);
-    setErroEdicao(null);
-    try {
-      await updateRRHistory(editando.id, {
-        aprendizados: data.aprendizados,
-        dificuldades: data.dificuldades,
-        plano_de_acao: data.planoDeAcao || null,
-        objetivos: data.objetivos || null,
-      });
-      await queryClient.invalidateQueries({ queryKey: ["rr-history", user.id] });
-      setEditando(null);
-    } catch (err) {
-      setErroEdicao(err instanceof Error ? err.message : "Não foi possível salvar.");
-    } finally {
-      setSalvandoEdicao(false);
-    }
-  }
-
-  async function onSubmit(data: RRForm) {
-    if (!user) return;
-    setSalvando(true);
-    setSalvarErro(null);
-    try {
-      await insertRRHistory({
-        user_id: user.id,
-        periodo: periodos.find((p) => p.id === periodo)?.label ?? periodo,
-        csat: Number(csatValor.toFixed(2)),
-        csat_variacao: Number(csatDeltaValor.toFixed(1)),
-        atendimentos: atendimentosParaSalvar,
-        atendimentos_variacao: Number(atendimentosDeltaParaSalvar.toFixed(1)),
-        tempo_medio: tempoResolucaoSeg !== null ? formatDuration(tempoResolucaoSeg) : null,
-        tempo_medio_variacao: tempoResolucaoDelta !== undefined ? Number(tempoResolucaoDelta.toFixed(1)) : null,
-        meta_batida: csatValor >= 4.5,
-        aprendizados: data.aprendizados,
-        dificuldades: data.dificuldades,
-        plano_de_acao: data.planoDeAcao || null,
-        objetivos: data.objetivos || null,
-      });
-      setSalvo(true);
-      reset();
-      queryClient.invalidateQueries({ queryKey: ["rr-history", user.id] });
-    } catch (err) {
-      setSalvarErro(err instanceof Error ? err.message : "Não foi possível salvar.");
-    } finally {
-      setSalvando(false);
-    }
-  }
-
   return (
     <>
       {/* print:hidden — a única coisa que deve sair na impressão/PDF é o
@@ -961,15 +849,31 @@ export default function ReuniaoResultados() {
         </div>
         <div className="flex items-center gap-2">
           <SegmentedControl
-            options={[["mensal", "Mensal"], ["semanal", "Semanal"]] as const}
+            options={[["mensal", "Mensal"], ["semanal", "Semanal"], ["personalizado", "Personalizado"]] as const}
             value={granularidade}
             onChange={mudarGranularidade}
           />
+          {granularidade === "personalizado" ? (
+            <DateRangePopover
+              preset={presetPerso}
+              personalizado={rangePerso}
+              onChangePreset={(p) => {
+                setPresetPerso(p);
+                if (p === "personalizado") return;
+                const { inicio, fim } = resolvePeriodo(p);
+                setPeriodo(`${toISODate(inicio)}_${toISODate(fim)}`);
+              }}
+              onChangePersonalizado={(v) => {
+                setRangePerso(v);
+                setPresetPerso("personalizado");
+                if (v.inicio && v.fim) setPeriodo(`${v.inicio}_${v.fim}`);
+              }}
+            />
+          ) : (
           <select
             value={periodo}
             onChange={(e) => {
               setPeriodo(e.target.value);
-              setSalvo(false);
             }}
             className="h-10 rounded-xl border border-sand-line bg-sand-surface px-3 text-sm"
           >
@@ -979,6 +883,7 @@ export default function ReuniaoResultados() {
               </option>
             ))}
           </select>
+          )}
           {isAdmin && (
             <Button variant="secondary" disabled={relatorioCarregando} onClick={() => setMostrarRelatorio(true)}>
               <Download size={14} /> {relatorioCarregando ? "Carregando dados..." : "Exportar"}
@@ -1110,7 +1015,7 @@ export default function ReuniaoResultados() {
                     </tr>
                   </thead>
                   <tbody>
-                    {perfComparativo.map((r) => (
+                    {(detalhamentoCompleto ? perfComparativo : perfComparativo.slice(0, 3)).map((r) => (
                       <tr key={r.operator_nome} className="border-t border-sand-line">
                         <td className="py-2 pr-4 font-medium text-ink">{r.operator_nome}</td>
                         <td className="py-2 pr-4 text-ink/70">
@@ -1134,235 +1039,21 @@ export default function ReuniaoResultados() {
                     ))}
                   </tbody>
                 </table>
+                {perfComparativo.length > 3 && (
+                  <button
+                    type="button"
+                    onClick={() => setDetalhamentoCompleto((v) => !v)}
+                    className="mt-3 text-sm font-semibold text-forest-700 hover:text-forest-600 dark:text-forest-300"
+                  >
+                    {detalhamentoCompleto ? "Ver menos" : `Ver mais (${perfComparativo.length - 3})`}
+                  </button>
+                )}
               </div>
             )}
           </div>
         </Card>
       )}
 
-      <Card>
-        <div className="p-5 pb-0">
-          <h2 className="font-display text-sm font-semibold text-ink">
-            Preenchimento manual
-          </h2>
-          <p className="mt-1 text-sm text-ink/60">
-            Estes campos não são calculados automaticamente — refletem sua análise qualitativa do período.
-          </p>
-        </div>
-        <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            {CAMPOS_RR.map(([field, label]) => (
-              <div key={field}>
-                <label className="mb-1 block text-sm font-medium text-ink">
-                  {label}
-                </label>
-                <textarea
-                  {...register(field)}
-                  rows={3}
-                  className="w-full rounded-xl border border-sand-line bg-sand-surface p-3 text-sm outline-none focus:border-forest-500"
-                  placeholder={`Descreva ${label.toLowerCase()}...`}
-                />
-                {errors[field] && (
-                  <p className="mt-1 text-xs text-rust-500">
-                    {errors[field]?.message}
-                  </p>
-                )}
-              </div>
-            ))}
-            <div className="flex items-center gap-3">
-              <Button type="submit" disabled={salvando}>
-                {salvando ? "Salvando..." : "Salvar Reunião de Resultados"}
-              </Button>
-              {salvo && (
-                <span className="text-sm text-forest-600">Salvo com sucesso.</span>
-              )}
-              {salvarErro && (
-                <span className="text-sm text-rust-500">{salvarErro}</span>
-              )}
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      <div>
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <h2 className="font-display text-sm font-semibold text-ink">
-            Histórico de RRs
-          </h2>
-          {historico && historico.length > 0 && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={async () => {
-                const { exportRRHistoricoToPdf } = await import("@/lib/exportPdf");
-                exportRRHistoricoToPdf(user?.nome ?? "—", historico);
-              }}
-            >
-              <Download size={14} /> Baixar histórico
-            </Button>
-          )}
-        </div>
-        {erroExclusao && <p className="mb-3 text-sm text-rust-500">{erroExclusao}</p>}
-        {!historico || historico.length === 0 ? (
-          <p className="text-sm text-ink/50">Nenhuma RR registrada ainda.</p>
-        ) : (
-          <div className="space-y-3">
-            {historico.map((rr) => (
-              <Card
-                key={rr.id}
-                className="cursor-pointer p-4 transition-colors hover:bg-sand-bg/50"
-                onClick={() => {
-                  setErroExclusao(null);
-                  setVisualizando(rr);
-                }}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-ink">{rr.periodo}</span>
-                    <Badge tone={rr.meta_batida ? "success" : "danger"}>
-                      {rr.meta_batida ? "Meta batida" : "Meta não atingida"}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-ink/50" title="Valor salvo no momento da RR — snapshots antigos podiam ser 'conversas', saves recentes já são 'chamados' (pondera reabertura); não dá pra distinguir retroativamente qual era qual.">
-                      CSAT {rr.csat ?? "—"} · {rr.atendimentos ?? 0} chamados
-                    </span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); abrirEdicaoRR(rr); }}
-                      title="Corrigir esta RR"
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/40 hover:bg-sand-bg hover:text-ink"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    {isAdmin && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setErroExclusao(null); setConfirmandoExclusao(rr); }}
-                        title="Excluir esta RR"
-                        className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/40 hover:bg-rust-500/10 hover:text-rust-500"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {visualizando && (
-        <Dialog onClose={() => setVisualizando(null)}>
-          <div className="flex items-start justify-between gap-2">
-            <h2 className="font-display text-base font-semibold text-ink">{visualizando.periodo}</h2>
-            <Badge tone={visualizando.meta_batida ? "success" : "danger"}>
-              {visualizando.meta_batida ? "Meta batida" : "Meta não atingida"}
-            </Badge>
-          </div>
-
-          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-            <div className="rounded-lg bg-sand-bg p-2">
-              <p className="text-[10px] uppercase text-ink/40">CSAT</p>
-              <p className="font-display text-sm font-semibold text-ink">{visualizando.csat ?? "—"}</p>
-            </div>
-            <div className="rounded-lg bg-sand-bg p-2" title="Valor salvo no momento da RR — snapshots antigos podiam ser 'conversas', saves recentes já são 'chamados' (pondera reabertura); não dá pra distinguir retroativamente qual era qual.">
-              <p className="text-[10px] uppercase text-ink/40">Chamados</p>
-              <p className="font-display text-sm font-semibold text-ink">{visualizando.atendimentos ?? 0}</p>
-            </div>
-            <div className="rounded-lg bg-sand-bg p-2">
-              <p className="text-[10px] uppercase text-ink/40">Tempo médio</p>
-              <p className="font-display text-sm font-semibold text-ink">{visualizando.tempo_medio ?? "—"}</p>
-            </div>
-          </div>
-
-          <div className="mt-4 space-y-3 text-sm">
-            {([
-              ["Aprendizados", visualizando.aprendizados],
-              ["Dificuldades", visualizando.dificuldades],
-              ["Plano de ação", visualizando.plano_de_acao],
-              ["Objetivos", visualizando.objetivos],
-            ] as const).map(([label, texto]) =>
-              texto ? (
-                <div key={label}>
-                  <p className="text-xs font-medium text-ink/50">{label}</p>
-                  <p className="mt-0.5 whitespace-pre-wrap text-ink/80">{texto}</p>
-                </div>
-              ) : null
-            )}
-          </div>
-
-          {erroExclusao && <p className="mt-4 text-sm text-rust-500">{erroExclusao}</p>}
-          <div className="mt-5 flex justify-end gap-2">
-            {isAdmin && (
-              <Button variant="danger" onClick={() => { setErroExclusao(null); setConfirmandoExclusao(visualizando); }}>
-                <Trash2 size={14} /> Excluir
-              </Button>
-            )}
-            <Button
-              variant="secondary"
-              onClick={() => {
-                const rr = visualizando;
-                setVisualizando(null);
-                abrirEdicaoRR(rr);
-              }}
-            >
-              <Pencil size={14} /> Editar
-            </Button>
-            <Button
-              onClick={async () => {
-                const { exportRRUnicaToPdf } = await import("@/lib/exportPdf");
-                exportRRUnicaToPdf(user?.nome ?? "—", visualizando);
-              }}
-            >
-              <Download size={14} /> Baixar PDF
-            </Button>
-          </div>
-        </Dialog>
-      )}
-
-      {editando && (
-        <Dialog onClose={() => setEditando(null)}>
-          <h2 className="font-display text-base font-semibold text-ink">Corrigir RR — {editando.periodo}</h2>
-          <p className="mt-1 text-xs text-ink/50">
-            Os números (CSAT, atendimentos, tempo médio) foram calculados no momento em que essa RR foi salva e não mudam aqui — só o texto qualitativo pode ser corrigido.
-          </p>
-          <form onSubmit={handleSubmitEdicao(onSubmitEdicao)} className="mt-4 space-y-3">
-            {CAMPOS_RR.map(([field, label]) => (
-              <div key={field}>
-                <label className="mb-1 block text-xs font-medium text-ink/70">{label}</label>
-                <textarea
-                  {...registerEdicao(field)}
-                  rows={3}
-                  className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm outline-none focus:border-forest-500"
-                />
-                {errorsEdicao[field] && <p className="mt-1 text-xs text-rust-500">{errorsEdicao[field]?.message}</p>}
-              </div>
-            ))}
-            {erroEdicao && <p className="text-sm text-rust-500">{erroEdicao}</p>}
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setEditando(null)}>Cancelar</Button>
-              <Button type="submit" disabled={salvandoEdicao}>{salvandoEdicao ? "Salvando..." : "Salvar"}</Button>
-            </div>
-          </form>
-        </Dialog>
-      )}
-
-      {confirmandoExclusao && (
-        <Dialog onClose={() => !excluindo && setConfirmandoExclusao(null)} className="max-w-sm">
-          <h2 className="font-display text-base font-semibold text-ink">Excluir RR</h2>
-          <p className="mt-2 text-sm text-ink/70">
-            Excluir a RR de <strong className="text-ink">"{confirmandoExclusao.periodo}"</strong>? Essa ação não pode ser desfeita.
-          </p>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={() => setConfirmandoExclusao(null)} disabled={excluindo}>
-              Cancelar
-            </Button>
-            <Button variant="danger" onClick={() => excluirRR(confirmandoExclusao)} disabled={excluindo}>
-              {excluindo ? "Excluindo..." : "Excluir"}
-            </Button>
-          </div>
-        </Dialog>
-      )}
       </div>
 
       {mostrarRelatorio && (
@@ -1370,12 +1061,14 @@ export default function ReuniaoResultados() {
           data={dadosRelatorio}
           onClose={() => setMostrarRelatorio(false)}
           exportandoPptx={exportandoPptx}
+          temaPptx={temaPptx}
+          onChangeTemaPptx={setTemaPptx}
           onExportarPptx={async () => {
             setExportandoPptx(true);
             try {
               // pptxgenjs só baixa quando alguém de fato exporta (ver PR#11).
               const { exportResultadosSacToPptx } = await import("@/lib/exportPptx");
-              await exportResultadosSacToPptx(dadosRelatorio);
+              await exportResultadosSacToPptx(dadosRelatorio, temaPptx);
             } finally {
               setExportandoPptx(false);
             }
