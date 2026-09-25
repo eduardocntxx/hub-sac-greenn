@@ -127,7 +127,9 @@ com o código-fonte real de `invite-user`/`self-signup`/`complete-oauth-
 signup`, mantido em sincronia manualmente (editar aqui e rodar `supabase
 functions deploy <nome> --project-ref riiwphsvqlatqtaqaemd` até esse fluxo
 virar CI). `supabase/.temp/` (cache local da CLI, criado por `supabase
-link`) está no `.gitignore` — nunca commitar.
+link`) está no `.gitignore` — nunca commitar. `supabase/sql/` (desde
+2026-09-25) guarda o SQL de mudanças de segurança já aplicadas em produção,
+com o rollback ao lado — é registro, não migration executada por ferramenta.
 
 ## 5. Fluxo de autenticação
 
@@ -5394,6 +5396,9 @@ public to anon, authenticated;`.
    Management API foi bloqueada pelo classificador do modo automático (2026-09-21)
    — ainda pendente; fazer pelo Dashboard (Authentication → Sign In / Providers e
    URL Configuration) ou com permissão explícita.**
+   **Leitura por `authenticated` sem aprovação — RESOLVIDO em 2026-09-25**
+   (ver "Acesso só pra aprovado" no fim desta seção). Signup direto,
+   SMTP/rate limit, `site_url` e senha mínima continuam pendentes.
 3. **Frontend — RESOLVIDO** (PR "Lazy loading das rotas", 2026-09-21): entry
    2.347 kB → 415 kB (669 → 127 kB gzip); carregamento inicial ~207 kB gzip;
    `jspdf`/`pptxgenjs` só ao exportar. Ver convenção na seção 15.
@@ -5985,6 +5990,50 @@ de período (`DateRangePopover`, padrão "Este ano", `nps:preset`/
 vale para os cards, o gráfico mensal e a lista; busca e classificação
 subiram para o cabeçalho, ao lado do período e de "Nova resposta".
 
+**Acesso só pra aprovado (2026-09-25, aplicado em produção via Management
+API):** qualquer pessoa conseguia criar conta no Auth chamando
+`/auth/v1/signup` direto (a trava de `@greenn.com.br` só existe na Edge
+Function `self-signup`), e essa conta — sem linha em `public.users` —
+já era `authenticated`: lia ~25 tabelas com SELECT `using (true)` (quem está
+online, escalas, férias, comunicados, aliases de operador com e-mail...) e
+chamava funções `security definer` sem checagem nenhuma, inclusive de
+**escrita** do n8n (`marcar_conversa_estado`, `marcar_conversa_resolvida`,
+`resetar_csat_pending_se_livre`, `upsert_operator_alias`). No Auth só
+existiam Eduardo, Vittor e Felipe (todos vinculados e aprovados), então
+nada indica que tenha sido explorado. Correção
+(`supabase/sql/2026-09-25_acesso_aprovado.sql`, rollback no arquivo
+`_rollback` ao lado):
+- `public.usuario_aprovado()` (security definer, stable): existe linha em
+  `users` com `auth_id = auth.uid()`, `ativo` e `aprovado`, ou `is_admin()`.
+- As 25 policies de SELECT `using (true)` viraram `using ((select
+  public.usuario_aprovado()))` — **exceto `roles`**, que continua aberta
+  porque `fetchCurrentProfile` faz join nela pro usuário pendente. Helpdesk
+  `finalizado` também passou a exigir aprovado.
+- Execute revogado de `authenticated` em 10 funções que o front não chama
+  (n8n/internas): `_primeiras_respostas_humanas`,
+  `reopened_count_real_periodo`, `horario_por_nome`,
+  `marcar_conversa_estado`, `marcar_conversa_resolvida`,
+  `refresh_cobertura_semanal`, `resetar_csat_pending_se_livre`,
+  `team_csat_monthly`, `team_ranking`, `upsert_operator_alias`. As funções
+  do Overview que chamam as internas seguem funcionando (são `security
+  definer` do `postgres`); o n8n usa `service_role`, que mantém execute.
+- As 12 RPCs do front sem checagem (`analytics_evolucao`,
+  `analytics_summary`, `atendente_escalado_sabado`, `chamados_evolucao`,
+  `colaboradores_online`, `conversas_evolucao`,
+  `dashboard_atendimento_summary`, `distinct_canais`,
+  `distribuicao_canal_conversas`, `distribuicao_status_conversas`,
+  `migracoes_por_plataforma`, `migracoes_resumo`) viraram
+  `_<nome>_base` (sem execute pra `authenticated`) + wrapper com a mesma
+  assinatura que devolve vazio se `usuario_aprovado()` for falso — mesmo
+  padrão do wrapper de `relogio_posse_periodo`. **Ao editar uma dessas,
+  editar a `_base`.**
+Validado com JWT simulado: admin e colaborador (Vittor) com os mesmos
+números de antes (resumo de 7 dias: 2.140 conversas); `auth.uid()` sem
+linha em `users` → 0 em tudo, execute negado em `marcar_conversa_resolvida`;
+n8n seguiu gravando mensagens logo depois. `minutos_uteis_entre_time` ficou
+de fora de propósito (chamada por linha dentro das métricas; só expõe a
+cobertura de horário do time).
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
@@ -6046,6 +6095,7 @@ subiram para o cabeçalho, ao lado do período e de "Nova resposta".
   já corrigido nas tabelas de calendário (seção 10, 2026-09-01) e em
   `missions`/`reclame_aqui_cases`/`helpdesks` (anteriormente).
 - **Função nova de métrica sobre conversas**: sempre `and not public.cliente_e_teste(cc.cliente_nome, cc.cliente_email) and not public.operador_fora_sac(cc.operator_crisp_id)` na base (seção 10, 2026-09-24).
+- **Tabela nova / RPC nova**: policy de SELECT usa `(select public.usuario_aprovado())`, nunca `using (true)`; função `security definer` nova checa `usuario_aprovado()`/`pode_ver_overview()`/`is_admin()` ou fica sem execute pra `authenticated` (seção 10, 2026-09-25).
 - **`crisp_conversations.canal` para WhatsApp é sempre o URN cru
   `urn:crisp.im:whatsapp:0`, nunca `"WhatsApp"`** (só `csat_results.canal`
   grava a versão formatada — pipeline n8n diferente). Qualquer função nova
