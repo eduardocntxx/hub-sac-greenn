@@ -185,6 +185,8 @@ const NOME_BOT_RESULTADOS = "IA Greenn";
 export function nomeCanal(canal: string): string {
   if (canal === "chat") return "Chat";
   if (canal === "email") return "E-mail";
+  // Conversa que o n8n gravou sem canal (a função SQL devolve "Outros").
+  if (canal === "Outros") return "Sem canal";
   return canal;
 }
 

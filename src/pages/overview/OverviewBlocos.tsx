@@ -204,14 +204,14 @@ export function PrecisaAtencao({
                 type="button"
                 disabled={!onAbrirAtendente}
                 onClick={() => onAbrirAtendente?.(r.atendente)}
-                className="grid grid-cols-[120px_1fr_70px] items-center gap-2.5 rounded-lg text-left text-[12.5px] transition enabled:hover:bg-sand-subtle disabled:cursor-default"
+                className="grid grid-cols-[120px_1fr_auto] items-center gap-2.5 rounded-lg text-left text-[12.5px] transition enabled:hover:bg-sand-subtle disabled:cursor-default"
               >
                 <span className="truncate text-ink" title={r.atendente}>{r.atendente.split(" ").slice(0, 2).join(" ")}</span>
                 <span className="flex h-2.5 overflow-hidden rounded-full bg-sand-subtle">
                   <BarraAnimada className="bg-rust-500" largura={(r.parados_48h / maxAbertos) * 100} />
                   <BarraAnimada className="bg-forest-500" largura={((r.abertos - r.parados_48h) / maxAbertos) * 100} atraso={0.15} />
                 </span>
-                <span className="text-right tabular-nums text-ink/50"><b className="text-ink">{fmtNum(r.abertos)}</b> · {fmtNum(r.parados_48h)}</span>
+                <span className="whitespace-nowrap text-right tabular-nums text-ink/50"><b className="text-ink">{fmtNum(r.abertos)}</b> {r.abertos === 1 ? "aberta" : "abertas"}{r.parados_48h > 0 && <span className="text-rust-600 dark:text-rust-400"> · {fmtNum(r.parados_48h)} {r.parados_48h === 1 ? "parada" : "paradas"}</span>}</span>
               </button>
             ))
           )}

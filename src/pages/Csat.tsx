@@ -11,7 +11,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { HorizontalBarChart, corPorFaixa } from "@/components/ui/BarChart";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { fetchDistinctOperadores, fetchCsatFiltered, fetchCsatForDashboard, fetchAtendenteAliases, fetchDashboardAtendimentoSummary } from "@/services/api";
+import { fetchDistinctOperadores, fetchCsatFiltered, fetchCsatForDashboard, fetchAtendenteAliases, fetchDashboardAtendimentoSummary, fetchCsatEnviosPorAtendente } from "@/services/api";
 import type { CsatFilters } from "@/services/api";
 import type { DbCsatResult } from "@/types/database";
 import { CsatDetalheDialog } from "@/components/CsatDetalheDialog";
@@ -221,14 +221,31 @@ export default function Csat() {
     enabled: aba === "dashboard",
   });
 
-  // Denominador da "taxa de resposta da pesquisa": aproximação por
-  // conversas resolvidas no período (não temos, hoje, quantas pesquisas
-  // foram efetivamente enviadas pelo Crisp — só quem respondeu).
+  // Reserva da "taxa de resposta" quando não há dado de envio (a função de
+  // envios é admin-only): aproximação por conversas resolvidas no período.
   const { data: resumoAtendimento } = useQuery({
     queryKey: ["dashboard-atendimento-summary", inicio, fim],
     queryFn: () => fetchDashboardAtendimentoSummary(inicio, fim),
     enabled: aba === "dashboard",
   });
+
+  // Pesquisas enviadas no período (csat_pending, pela data de envio) e quantas
+  // dessas conversas foram avaliadas. Função admin-only: sem acesso vem vazio.
+  const { data: envios } = useQuery({
+    queryKey: ["csat-envios-por-atendente", inicio, fim],
+    queryFn: () => fetchCsatEnviosPorAtendente(inicio, fim),
+    enabled: aba === "dashboard",
+  });
+  const { data: enviosAnterior } = useQuery({
+    queryKey: ["csat-envios-por-atendente", inicioAnterior, fimAnterior],
+    queryFn: () => fetchCsatEnviosPorAtendente(inicioAnterior, fimAnterior),
+    enabled: aba === "dashboard",
+  });
+  const totalEnvios = useMemo(() => {
+    const somar = (l?: { enviadas: number; respondidas: number }[]) =>
+      (l ?? []).reduce((t, r) => ({ enviadas: t.enviadas + r.enviadas, respondidas: t.respondidas + r.respondidas }), { enviadas: 0, respondidas: 0 });
+    return { atual: somar(envios), anterior: somar(enviosAnterior) };
+  }, [envios, enviosAnterior]);
 
   function alternarOrdenacao(campo: string) {
     if (sortBy === campo) setSortAsc(!sortAsc);
@@ -444,13 +461,25 @@ export default function Csat() {
           />
           <Kpi label="Total de Avaliações" value={String(resumoAtual.total)} delta={deltaRelativo(resumoAtual.total, resumoAnterior.total)} />
           <Kpi
+            label="Pesquisas enviadas"
+            value={totalEnvios.atual.enviadas > 0 ? String(totalEnvios.atual.enviadas) : "—"}
+            delta={totalEnvios.atual.enviadas > 0 ? deltaRelativo(totalEnvios.atual.enviadas, totalEnvios.anterior.enviadas) : undefined}
+            meta="pela data de envio"
+          />
+          <Kpi
             label="Taxa de resposta"
             value={
-              resumoAtendimento?.conversas_resolvidas
-                ? `${((resumoAtual.total / resumoAtendimento.conversas_resolvidas) * 100).toFixed(0)}%`
-                : "—"
+              totalEnvios.atual.enviadas > 0
+                ? `${((totalEnvios.atual.respondidas / totalEnvios.atual.enviadas) * 100).toFixed(0)}%`
+                : resumoAtendimento?.conversas_resolvidas
+                  ? `${((resumoAtual.total / resumoAtendimento.conversas_resolvidas) * 100).toFixed(0)}%`
+                  : "—"
             }
-            meta="aprox. vs. resolvidos"
+            meta={
+              totalEnvios.atual.enviadas > 0
+                ? `${totalEnvios.atual.respondidas} de ${totalEnvios.atual.enviadas} enviadas foram respondidas`
+                : "aprox. vs. resolvidos"
+            }
           />
           <Kpi
             label="Promotores"
