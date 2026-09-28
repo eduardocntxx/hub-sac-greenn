@@ -335,6 +335,8 @@ export default function Performance() {
     enabled: waveDoisHabilitada && naDashboard,
   });
   const funilLinhas = useMemo(() => linhasFunil(csatFunil ?? [], []), [csatFunil]);
+  // Pesquisas enviadas no período (conversas iniciadas no período, time inteiro).
+  const csatEnviadas = csatFunil ? csatFunil.reduce((s, f) => s + f.enviadas, 0) : null;
   const filtraAtendente = (lista: typeof atendido) =>
     (lista ?? []).filter((r) => atendenteNomes.length === 0 || atendenteNomes.includes(r.atendente));
   const atendidoResumo = useMemo(
@@ -767,14 +769,14 @@ export default function Performance() {
               indice={1}
               valor={fmtNum(reaberturaKpi?.total_resolvidos)}
               delta={deltaPercentual(reaberturaKpi?.total_resolvidos, reaberturaKpiAnterior?.total_resolvidos, false)}
-              contexto={reaberturaKpi && contagem && contagem.total_conversas > 0 ? `${fmtPct1((reaberturaKpi.total_resolvidos / contagem.total_conversas) * 100)} das conversas do período` : undefined}
+              contexto={reaberturaKpi && contagem && contagem.total_conversas > 0 ? `de ${fmtNum(contagem.total_conversas)} conversas no período (${fmtPct1((reaberturaKpi.total_resolvidos / contagem.total_conversas) * 100)})` : undefined}
             />
             <SaudeKpi
               label="CSAT · avaliações boas"
               indice={2}
               valor={fmtPct1(csatBoasPct)}
               delta={deltaPontos(csatBoasPct, csatBoasPctAnterior, false)}
-              contexto={csatDist ? `${fmtNum(csatDist.boas)} de ${fmtNum(csatDist.total)} avaliações (nota 4–5)` : undefined}
+              contexto={csatDist ? `${fmtNum(csatDist.boas)} boas (nota 4–5) de ${fmtNum(csatDist.total)} avaliações recebidas${csatEnviadas != null && atendenteNomes.length === 0 ? ` · ${fmtNum(csatEnviadas)} pesquisas enviadas` : ""}` : undefined}
             />
             <SaudeKpi
               label="1ª resposta · mediana"

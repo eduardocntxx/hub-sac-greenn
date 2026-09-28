@@ -151,7 +151,7 @@ export function PrecisaAtencao({
   atendido: AtendidoNaoResolvido[];
   paradosPct: number | null;
   deltaAbertos?: DeltaInfo;
-  funil: { canal: string; taxa: number | null; total: boolean; resolvidas: number; respondidas: number; conversas: number }[];
+  funil: { canal: string; taxa: number | null; total: boolean; resolvidas: number; enviadas: number; respondidas: number; conversas: number }[];
   backlog: BacklogFaixa[];
   filtroAtivo: boolean;
   // Sem callback (colaborador que não é admin): itens não clicáveis.
@@ -234,7 +234,7 @@ export function PrecisaAtencao({
           )}
           {totalFunil && (
             <p className="text-xs text-ink/50">
-              {fmtNum(totalFunil.conversas)} conversas → {fmtNum(totalFunil.resolvidas)} resolvidas → {fmtNum(totalFunil.respondidas)} respondidas.
+              {fmtNum(totalFunil.conversas)} conversas → {fmtNum(totalFunil.resolvidas)} resolvidas → {fmtNum(totalFunil.enviadas)} pesquisas enviadas → {fmtNum(totalFunil.respondidas)} respondidas.
             </p>
           )}
         </BlocoAtencao>
