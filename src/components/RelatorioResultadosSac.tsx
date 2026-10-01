@@ -12,6 +12,10 @@ import {
   linhasFunil,
   resumoAtendido,
   nomeCanal,
+  textosPeriodo,
+  avisoSemTipo,
+  taxaReaberturaChamados,
+  fmtHorasExpediente,
 } from "@/lib/resultadosSac";
 
 const NOME_BOT = "IA Greenn";
@@ -174,6 +178,8 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
   const botDist = data.csatPorAtendenteDist.find((d) => d.atendente === NOME_BOT);
 
   const porTipoChamados = A.tipoCliente.filter((t) => t.tipo_cliente !== "Geral" && t.chamados > 0);
+  const TP = textosPeriodo(data.granularidade);
+  const aviso = avisoSemTipo(A.tipoCliente);
   const csatPorTipo = A.csatPorTipoCliente.filter((c) => c.total > 0);
   const funil = linhasFunil(A.csatFunil, P.csatFunil);
   const atendido = resumoAtendido(A.atendidoNaoResolvido, P.atendidoNaoResolvido);
@@ -224,11 +230,15 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             Hub SAC Greenn · Reunião de Resultados
           </p>
           <h1 className="text-balance text-3xl font-extrabold uppercase tracking-tight text-ink sm:text-4xl" style={FONT_DISPLAY}>
-            Resultados da semana
+            {TP.titulo}
           </h1>
           <p className="mt-2 text-[15px] text-ink/60">
-            Período de <b className="font-semibold text-ink">{data.periodoAtualLabel}</b>, comparado à semana anterior (
-            <b className="font-semibold text-ink">{data.periodoAnteriorLabel}</b>).
+            Período de <b className="font-semibold text-ink">{data.periodoAtualLabel}</b>
+            {data.semComparacao ? (
+              <>. Sem comparação: o {TP.anterior} ({data.periodoAnteriorLabel}) não tem dados suficientes no Hub.</>
+            ) : (
+              <>, comparado ao {TP.anterior} (<b className="font-semibold text-ink">{data.periodoAnteriorLabel}</b>).</>
+            )}
           </p>
         </header>
 
@@ -264,6 +274,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
               ))}
             </div>
           )}
+          {aviso && <p className="mt-2 text-xs text-ink/50">{aviso}</p>}
         </section>
 
         {A.tipoCliente.length > 0 && (
@@ -327,8 +338,8 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             />
             <MetricaCard
               label="Relógio de trabalho ativo"
-              valor={formatDuration(A.horasExpedienteMin != null ? A.horasExpedienteMin * 60 : null)}
-              delta={deltaPercentual(A.horasExpedienteMin, P.horasExpedienteMin, false, (v) => formatDuration(v * 60))}
+              valor={fmtHorasExpediente(A.horasExpedienteMin)}
+              delta={deltaPercentual(A.horasExpedienteMin, P.horasExpedienteMin, false, (v) => fmtHorasExpediente(v))}
               nota="Expediente cadastrado do time (cobertura, não presença real)"
             />
           </MetricaGrid>
@@ -593,7 +604,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             </div>
           )}
           <p className="mt-3 text-[11px] text-ink/40">
-            Funil = conversas iniciadas no período; taxa = respondidas ÷ resolvidas. "Respondidas" pode diferir do Total de avaliações acima, que conta pela data da avaliação. "Atendido e não resolvido" = conversa do período que teve resposta humana e continua aberta, por dono atual; parado = sem mensagem nova há 48h. O período anterior é medido hoje (o que daquela semana ainda está aberto agora).
+            Funil = conversas iniciadas no período; taxa = respondidas ÷ resolvidas. "Respondidas" pode diferir do Total de avaliações acima, que conta pela data da avaliação. "Atendido e não resolvido" = conversa do período que teve resposta humana e continua aberta, por dono atual; parado = sem mensagem nova há 48h. O período anterior é medido hoje (o que {TP.daquele} ainda está aberto agora).
           </p>
         </section>
 
@@ -621,13 +632,19 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
         </section>
 
         <section className="mt-11 print:mt-8">
-          <SecaoHead titulo="Reabertura" tag="novo" nota="Conversa resolvida que o cliente reabriu." />
-          <MetricaGrid>
+          <SecaoHead titulo="Reabertura" tag="novo" nota="Cliente que voltou numa conversa já resolvida." />
+          <MetricaGrid cols={4}>
             <MetricaCard
-              label="Taxa de reabertura"
+              label="Reabertura (chamados)"
+              valor={fmtPct1(taxaReaberturaChamados(A))}
+              delta={deltaPontos(taxaReaberturaChamados(A), taxaReaberturaChamados(P), true)}
+              nota={A.reabertura && A.contagem ? `${fmtNum(A.reabertura.total_eventos)} dos ${fmtNum(A.contagem.total_chamados)} chamados foram reabertura` : undefined}
+            />
+            <MetricaCard
+              label="Reabertura (conversas)"
               valor={fmtPct1(A.reabertura?.taxa_pct)}
               delta={deltaPontos(A.reabertura?.taxa_pct, P.reabertura?.taxa_pct, true)}
-              nota={A.reabertura ? `de ${fmtNum(A.reabertura.total_resolvidos)} conversas resolvidas no período` : undefined}
+              nota={A.reabertura ? `${fmtNum(A.reabertura.total_reabertos)} de ${fmtNum(A.reabertura.total_resolvidos)} conversas resolvidas reabriram` : undefined}
             />
             <MetricaCard
               label="Conversas reabertas"
@@ -635,7 +652,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
               delta={deltaPercentual(A.reabertura?.total_reabertos, P.reabertura?.total_reabertos, true)}
             />
             <MetricaCard
-              label="Eventos de reabertura"
+              label="Chamados de reabertura"
               valor={fmtNum(A.reabertura?.total_eventos)}
               delta={deltaPercentual(A.reabertura?.total_eventos, P.reabertura?.total_eventos, true)}
               nota="Uma conversa pode reabrir mais de uma vez"
@@ -723,7 +740,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                 <MetricaCard
                   label="Total de reclamações"
                   valor={M?.reclameAqui.totalReclamacoes || "—"}
-                  nota={M?.reclameAqui.deltaPct ? `${M.reclameAqui.deltaPct} vs. semana anterior` : undefined}
+                  nota={M?.reclameAqui.deltaPct ? `${M.reclameAqui.deltaPct} vs. ${TP.anterior}` : undefined}
                 />
               </div>
               {M?.reclameAqui.produtorDestaque && (

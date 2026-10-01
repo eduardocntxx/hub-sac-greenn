@@ -11,6 +11,10 @@ import {
   linhasFunil,
   resumoAtendido,
   nomeCanal,
+  textosPeriodo,
+  avisoSemTipo,
+  taxaReaberturaChamados,
+  fmtHorasExpediente,
 } from "@/lib/resultadosSac";
 
 const NOME_BOT = "IA Greenn";
@@ -177,6 +181,7 @@ function tfrCorridoSeg(abertura: string, primeiraResposta: string | null): numbe
 
 export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: TemaPptx = "escuro"): Promise<void> {
   Object.assign(COR, PALETAS[tema]);
+  const TP = textosPeriodo(data.granularidade);
   const tons = TONS_VERDE[tema];
   COR.mint = tons[Math.floor(Math.random() * tons.length)];
   const pptx = new PptxGenJS();
@@ -209,7 +214,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
       slide.addText(subtitulo, { x: MX, y: 1.1, w: 10.3, h: 0.28, fontSize: 10.5, color: COR.inkSoft, fontFace: FONT_BODY });
     }
     seloGreenn(slide, 12.72, 0.62, 0.62);
-    slide.addText(`${data.periodoAtualLabel}  ·  comparado a ${data.periodoAnteriorLabel}`, {
+    slide.addText(data.semComparacao ? `${data.periodoAtualLabel}  ·  sem comparação (${TP.anterior} sem dados)` : `${data.periodoAtualLabel}  ·  comparado a ${data.periodoAnteriorLabel}`, {
       x: MX, y: 7.1, w: CW, h: 0.3, fontSize: 9, color: COR.inkFraco, fontFace: FONT_BODY,
     });
     return slide;
@@ -317,7 +322,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
     slide.addText("HUB SAC GREENN", { x: 0.75, y: 2.55, w: xMenta - 1.3, h: 0.35, fontSize: 12, bold: true, color: COR.mint, charSpacing: 2, fontFace: FONT_BODY });
     slide.addText("Reunião de\nResultados", { x: 0.72, y: 2.95, w: xMenta - 1.2, h: 1.9, fontSize: 46, bold: true, color: COR.ink, fontFace: FONT_DISPLAY, lineSpacing: 46 });
     slide.addText(data.periodoAtualLabel, { x: 0.75, y: 4.95, w: xMenta - 1.3, h: 0.4, fontSize: 16, color: COR.mint, fontFace: FONT_BODY });
-    slide.addText(`Comparado a ${data.periodoAnteriorLabel}`, { x: 0.75, y: 5.35, w: xMenta - 1.3, h: 0.35, fontSize: 11, color: COR.inkSoft, fontFace: FONT_BODY });
+    slide.addText(data.semComparacao ? `Sem comparação: o ${TP.anterior} não tem dados suficientes no Hub` : `Comparado a ${data.periodoAnteriorLabel}`, { x: 0.75, y: 5.35, w: xMenta - 1.3, h: 0.35, fontSize: 11, color: COR.inkSoft, fontFace: FONT_BODY });
     slide.addText(`Gerado em ${new Date().toLocaleString("pt-BR", { dateStyle: "long", timeStyle: "short" })}`, {
       x: 0.75, y: 6.95, w: xMenta - 1.3, h: 0.3, fontSize: 9, color: COR.inkFraco, fontFace: FONT_BODY,
     });
@@ -326,7 +331,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
     const destaques = [
       A.contagem?.total_chamados != null ? `${fmtNum(A.contagem.total_chamados)} chamados` : null,
       A.csat?.total != null ? `CSAT: ${fmtNum(A.csat.total)} avaliações` : null,
-      A.reabertura?.taxa_pct != null ? `${fmtPct1(A.reabertura.taxa_pct)} de reabertura` : null,
+      taxaReaberturaChamados(A) != null ? `${fmtPct1(taxaReaberturaChamados(A))} de reabertura` : null,
       A.rankingHumano[0] ? `${A.rankingHumano[0].operator_nome} lidera o ranking` : null,
     ].filter((t): t is string => t !== null);
     destaques.forEach((t, i) => {
@@ -377,13 +382,17 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
         slide.addText(fmtNum(t.chamados), { x: x + w * 0.45, y, w: w * 0.55 - 0.15, h, fontSize: 17, bold: true, color: COR.mint, fontFace: FONT_DISPLAY, align: "right", valign: "middle" });
       });
     }
+    const aviso = avisoSemTipo(A.tipoCliente);
+    if (porTipo.length > 0 && aviso) {
+      slide.addText(aviso, { x: MX, y: 4.47, w: CW, h: 0.16, fontSize: 8, color: COR.inkFraco, fontFace: FONT_BODY });
+    }
 
     rotulo("RELÓGIOS DO ATENDIMENTO", 4.62);
     linha(4.92, [
       { label: "Relógio do cliente", valor: formatDuration(A.percentis?.ttr_media ?? null), delta: deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true, formatDuration), nota: "Mesmo valor de Velocidade, do ponto de vista de quem esperou" },
       { label: "Relógio de espera do cliente", valor: formatDuration(A.relogioEspera?.minutos_espera_medio != null ? A.relogioEspera.minutos_espera_medio * 60 : null), delta: deltaPercentual(A.relogioEspera?.minutos_espera_medio, P.relogioEspera?.minutos_espera_medio, true, (v) => formatDuration(v * 60)), nota: A.relogioEspera ? `${A.relogioEspera.amostras} janelas até resposta humana (bot não conta)` : undefined },
       (() => {
-        const valor = formatDuration(A.horasExpedienteMin != null ? A.horasExpedienteMin * 60 : null);
+        const valor = fmtHorasExpediente(A.horasExpedienteMin);
         // Pedido do usuário: número grande + unidade pequena/mais apagada
         // (ex: "2" grande + "d" pequeno, " 21" grande + "h" pequeno) — só
         // esse card mistura 2 unidades (dias+horas) no valor, os outros
@@ -392,7 +401,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
         // tinha sido ligado, mesmo o dado do período anterior já existindo.
         const card: CardInfo = {
           label: "Relógio de trabalho ativo", valor,
-          delta: deltaPercentual(A.horasExpedienteMin, P.horasExpedienteMin, false, (v) => formatDuration(v * 60)),
+          delta: deltaPercentual(A.horasExpedienteMin, P.horasExpedienteMin, false, (v) => fmtHorasExpediente(v)),
           nota: "Expediente cadastrado do time (cobertura, não presença real)",
         };
         if (valor !== "—") card.valorRuns = duracaoEmRuns(valor, 26, 13);
@@ -743,10 +752,11 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
   }
 
   // ---------- Reabertura ----------
-  metricasSlide("Reabertura", "Conversa resolvida que o cliente reabriu.", [
-    { label: "Taxa de reabertura", valor: fmtPct1(A.reabertura?.taxa_pct), delta: deltaPontos(A.reabertura?.taxa_pct, P.reabertura?.taxa_pct, true), nota: A.reabertura ? `de ${fmtNum(A.reabertura.total_resolvidos)} conversas resolvidas` : undefined },
+  metricasSlide("Reabertura", "Cliente que voltou numa conversa já resolvida.", [
+    { label: "Reabertura (chamados)", valor: fmtPct1(taxaReaberturaChamados(A)), delta: deltaPontos(taxaReaberturaChamados(A), taxaReaberturaChamados(P), true), nota: A.reabertura && A.contagem ? `${fmtNum(A.reabertura.total_eventos)} de ${fmtNum(A.contagem.total_chamados)} chamados` : undefined },
+    { label: "Reabertura (conversas)", valor: fmtPct1(A.reabertura?.taxa_pct), delta: deltaPontos(A.reabertura?.taxa_pct, P.reabertura?.taxa_pct, true), nota: A.reabertura ? `${fmtNum(A.reabertura.total_reabertos)} de ${fmtNum(A.reabertura.total_resolvidos)} conversas resolvidas` : undefined },
     { label: "Conversas reabertas", valor: fmtNum(A.reabertura?.total_reabertos), delta: deltaPercentual(A.reabertura?.total_reabertos, P.reabertura?.total_reabertos, true) },
-    { label: "Eventos de reabertura", valor: fmtNum(A.reabertura?.total_eventos), delta: deltaPercentual(A.reabertura?.total_eventos, P.reabertura?.total_eventos, true), nota: "Uma conversa pode reabrir mais de uma vez" },
+    { label: "Chamados de reabertura", valor: fmtNum(A.reabertura?.total_eventos), delta: deltaPercentual(A.reabertura?.total_eventos, P.reabertura?.total_eventos, true), nota: "Uma conversa pode reabrir mais de uma vez" },
   ]);
 
   // ---------- NPS (números reais de nps_responses; "temas" continua manual) ----------
@@ -807,8 +817,8 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
     const preenchido = !!(ra && (ra.nota || ra.totalReclamacoes));
     const slide = metricasSlide("Reclame Aqui", "Dado manual — não vem do Hub (sem integração com a RA API hoje).", [
       { label: "Nota", valor: ra?.nota || "—" },
-      { label: "Total de reclamações", valor: ra?.totalReclamacoes || "—", nota: ra?.deltaPct ? `${ra.deltaPct} vs. semana anterior` : undefined },
-    ], preenchido ? undefined : "Sem dado preenchido nesta semana — nada foi estimado.");
+      { label: "Total de reclamações", valor: ra?.totalReclamacoes || "—", nota: ra?.deltaPct ? `${ra.deltaPct} vs. ${TP.anterior}` : undefined },
+    ], preenchido ? undefined : `Sem dado preenchido ${TP.neste} — nada foi estimado.`);
     if (ra?.produtorDestaque) {
       slide.addText("Produtor destaque", { x: MX, y: 4.7, w: CW, h: 0.35, fontSize: 13, bold: true, color: COR.ink, fontFace: FONT_BODY });
       slide.addText(ra.produtorDestaque, { x: MX, y: 5.1, w: CW, h: 1.6, fontSize: 11, color: COR.inkSoft, fontFace: FONT_BODY, valign: "top" });
@@ -822,7 +832,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
     metricasSlide("RA XGROW", "Dado manual — mesma fonte externa do Reclame Aqui, empresa XGROW.", [
       { label: "Total de reclamações", valor: rx?.totalReclamacoes || "—" },
       { label: "Nota", valor: rx?.nota || "—", nota: rx?.notaAnterior ? `Nota anterior: ${rx.notaAnterior}` : undefined },
-    ], preenchido ? undefined : "Sem dado preenchido nesta semana — nada foi estimado.");
+    ], preenchido ? undefined : `Sem dado preenchido ${TP.neste} — nada foi estimado.`);
   }
 
   // periodoAtualLabel tem "/" pra granularidade Semanal (ex: "16/09 a
