@@ -127,7 +127,9 @@ com o código-fonte real de `invite-user`/`self-signup`/`complete-oauth-
 signup`, mantido em sincronia manualmente (editar aqui e rodar `supabase
 functions deploy <nome> --project-ref riiwphsvqlatqtaqaemd` até esse fluxo
 virar CI). `supabase/.temp/` (cache local da CLI, criado por `supabase
-link`) está no `.gitignore` — nunca commitar.
+link`) está no `.gitignore` — nunca commitar. `supabase/sql/` (desde
+2026-09-25) guarda o SQL de mudanças de segurança já aplicadas em produção,
+com o rollback ao lado — é registro, não migration executada por ferramenta.
 
 ## 5. Fluxo de autenticação
 
@@ -260,6 +262,10 @@ geração automática de tipos configurada). Tabelas principais, por domínio:
   porque nome sozinho não é confiável pra identidade: "Ana" no Crisp é
   **duas pessoas diferentes** (Ana Paula Maximiano de Souza e Ana Franca,
   `operator_crisp_id` distintos) — ver `docs/HISTORICO.md`, fix de 2026-08-17.
+- `csat_pending` — uma linha por conversa que já recebeu a pesquisa do
+  Widget CSAT; enquanto existir, a conversa não recebe pesquisa nova. O n8n
+  apaga numa reabertura real. **Não usar `respondido` pra medir resposta**
+  (ver `docs/HISTORICO.md`, 2026-09-24 e 2026-09-25).
 - `crisp_ratings`, `nps_followups`, view `analytics_sac` — **schema
   paralelo, reservado, com 0 linhas** (ver decisão arquitetural na seção
   14). Não usar como fonte de dado hoje.
@@ -616,8 +622,9 @@ ver seção 6 para a lógica de seções por permissão),
 `components/GlobalSearch.tsx` (busca no Header) e
 `components/CollaboratorsOnline.tsx` (seção da Home, Realtime).
 
-**Bug estrutural grave corrigido em 2026-09-02 — Ranking de operadores e
-as 3 distribuições (Por canal/status/tópico) do Analytics usavam
+Histórico de bugs e decisões (ranking de operadores, distribuições,
+CSAT etc.) em `docs/HISTORICO.md`.
+
 ## 12. Convenções de código
 
 - **Nomenclatura de dados em português, código em inglês**: nomes de
@@ -679,6 +686,7 @@ as 3 distribuições (Por canal/status/tópico) do Analytics usavam
   já corrigido nas tabelas de calendário (`docs/HISTORICO.md`, 2026-09-01) e em
   `missions`/`reclame_aqui_cases`/`helpdesks` (anteriormente).
 - **Função nova de métrica sobre conversas**: sempre `and not public.cliente_e_teste(cc.cliente_nome, cc.cliente_email) and not public.operador_fora_sac(cc.operator_crisp_id)` na base (`docs/HISTORICO.md`, 2026-09-24).
+- **Tabela nova / RPC nova**: policy de SELECT usa `(select public.usuario_aprovado())`, nunca `using (true)`; função `security definer` nova checa `usuario_aprovado()`/`pode_ver_overview()`/`is_admin()` ou fica sem execute pra `authenticated` (`docs/HISTORICO.md`, 2026-09-25).
 - **`crisp_conversations.canal` para WhatsApp é sempre o URN cru
   `urn:crisp.im:whatsapp:0`, nunca `"WhatsApp"`** (só `csat_results.canal`
   grava a versão formatada — pipeline n8n diferente). Qualquer função nova

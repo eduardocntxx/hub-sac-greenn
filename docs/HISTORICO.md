@@ -5610,6 +5610,116 @@ RLS: SELECT só admin. Testado com transação desfeita (alteração irrelevante
 não loga; as outras gravam usuário e colunas certas).
 
 
+**Acesso só pra aprovado (2026-09-25, aplicado em produção via Management
+API):** qualquer pessoa conseguia criar conta no Auth chamando
+`/auth/v1/signup` direto (a trava de `@greenn.com.br` só existe na Edge
+Function `self-signup`), e essa conta — sem linha em `public.users` —
+já era `authenticated`: lia ~25 tabelas com SELECT `using (true)` (quem está
+online, escalas, férias, comunicados, aliases de operador com e-mail...) e
+chamava funções `security definer` sem checagem nenhuma, inclusive de
+**escrita** do n8n (`marcar_conversa_estado`, `marcar_conversa_resolvida`,
+`resetar_csat_pending_se_livre`, `upsert_operator_alias`). No Auth só
+existiam Eduardo, Vittor e Felipe (todos vinculados e aprovados), então
+nada indica que tenha sido explorado. Correção
+(`supabase/sql/2026-09-25_acesso_aprovado.sql`, rollback no arquivo
+`_rollback` ao lado):
+- `public.usuario_aprovado()` (security definer, stable): existe linha em
+  `users` com `auth_id = auth.uid()`, `ativo` e `aprovado`, ou `is_admin()`.
+- As 25 policies de SELECT `using (true)` viraram `using ((select
+  public.usuario_aprovado()))` — **exceto `roles`**, que continua aberta
+  porque `fetchCurrentProfile` faz join nela pro usuário pendente. Helpdesk
+  `finalizado` também passou a exigir aprovado.
+- Execute revogado de `authenticated` em 10 funções que o front não chama
+  (n8n/internas): `_primeiras_respostas_humanas`,
+  `reopened_count_real_periodo`, `horario_por_nome`,
+  `marcar_conversa_estado`, `marcar_conversa_resolvida`,
+  `refresh_cobertura_semanal`, `resetar_csat_pending_se_livre`,
+  `team_csat_monthly`, `team_ranking`, `upsert_operator_alias`. As funções
+  do Overview que chamam as internas seguem funcionando (são `security
+  definer` do `postgres`); o n8n usa `service_role`, que mantém execute.
+- As 12 RPCs do front sem checagem (`analytics_evolucao`,
+  `analytics_summary`, `atendente_escalado_sabado`, `chamados_evolucao`,
+  `colaboradores_online`, `conversas_evolucao`,
+  `dashboard_atendimento_summary`, `distinct_canais`,
+  `distribuicao_canal_conversas`, `distribuicao_status_conversas`,
+  `migracoes_por_plataforma`, `migracoes_resumo`) viraram
+  `_<nome>_base` (sem execute pra `authenticated`) + wrapper com a mesma
+  assinatura que devolve vazio se `usuario_aprovado()` for falso — mesmo
+  padrão do wrapper de `relogio_posse_periodo`. **Ao editar uma dessas,
+  editar a `_base`.**
+Validado com JWT simulado: admin e colaborador (Vittor) com os mesmos
+números de antes (resumo de 7 dias: 2.140 conversas); `auth.uid()` sem
+linha em `users` → 0 em tudo, execute negado em `marcar_conversa_resolvida`;
+n8n seguiu gravando mensagens logo depois. `minutos_uteis_entre_time` ficou
+de fora de propósito (chamada por linha dentro das métricas; só expõe a
+cobertura de horário do time).
+
+**Resposta à pesquisa de CSAT reiniciava o chamado (2026-09-25, corrigido
+no banco + nó novo no n8n):** no fluxo **Crisp → Hub**, a resposta do
+cliente à pesquisa (sempre depois da conversa resolvida) é tratada como
+reabertura: `HTTP Request1/9/12` (mensagem do cliente com status
+`resolved`) e o `Code in JavaScript` do `session:set_state` (gap > 60 s)
+movem `current_started_at` pro momento da resposta. Efeito: o chamado muda
+de dia, o TFR some (a resposta humana fica antes do "início") e o TTR vira
+segundos (ex.: `session_4fee048d`, aberto 24/09 15:25, TFR 4 min, virou
+"início 25/09 13:35, TTR 16 s"). Nos 14 dias anteriores, de 172 conversas
+avaliadas com resposta humana, só 57 tinham TFR. Janela de tempo não
+separa resposta à pesquisa de conversa nova (nos primeiros 10 min após a
+pesquisa: 76 respostas × 45 outras mensagens), então a regra é a de
+conteúdo já usada em `reopened_count_real_periodo`. As mensagens
+automáticas da pesquisa têm `operator_crisp_id` nulo, então só a resposta
+do cliente reabre. Correção
+(`supabase/sql/2026-09-25_ciclo_pos_pesquisa.sql`, rollback ao lado):
+- `_reaberturas_conversa(session)` lista as transições resolved →
+  pending/unresolved marcando `eh_real` com a mesma regra.
+- `corrigir_ciclo_pos_pesquisa(session)` (só `service_role`): só age em
+  conversa `resolved`, iniciada depois de 18/08/2026 (início do histórico
+  de estado), cujo início atual cai (±2 min) numa reabertura não real e
+  não numa real. Volta o início pra última reabertura real (ou
+  `started_at`), `reopened_count` = reaberturas reais, `resolved_at` =
+  primeira resolução depois desse início (a do atendente), recalcula TTR,
+  e só recalcula 1ª resposta/1ª resposta humana se estiverem fora do
+  intervalo início–resolução. Idempotente.
+- Backfill: 771 linhas copiadas em `_bkp_ciclo_pesquisa_2026_09_25`
+  (resultado por conversa em `_res_ciclo_2026_09_25`, as duas com RLS e sem
+  acesso pra anon/authenticated), **522 corrigidas**; nelas, TFR válido
+  foi de 64 pra 290 e nenhuma ficou com resposta humana antes do início.
+- Daqui pra frente: no **Widget CSAT | Edu DEF**, depois de `Crisp |
+  Resolver Conversa (Pós-CSAT)` e `(Pós-Comentário)`, um Wait de 15 s (pro
+  Crisp → Hub terminar de gravar o "resolvido", senão ele sobrescreve a
+  correção) e um POST em `/rest/v1/rpc/corrigir_ciclo_pos_pesquisa`
+  (`HTTP`/`HTTP2`). O Crisp → Hub não foi mexido: a decisão ali depende da
+  ordem em que mensagem e mudança de estado chegam, e corrigir depois que
+  tudo assentou evita essa corrida.
+- Limitação: cliente que usa a resposta da pesquisa pra relatar problema
+  novo continua tratado como resposta à pesquisa (mesma regra do banco).
+  Conversa que ficou aberta depois da pesquisa não é tocada.
+
+**Widget CSAT (AskGreenn) é a única pesquisa desde 2026-09-25; revisão dos
+fluxos de CSAT:** decisão do usuário. A pesquisa nativa por link do Crisp
+("Muito Bom…", `crisp.beta.limited/rate`) ainda era enviada (89 conversas em
+14 dias) e as notas dela nunca chegavam ao Hub: o ramo "Crisp Rating" do
+Crisp → Hub (`Tratamento Dos Dados1`) só gravava no Google Sheets e ainda
+tinha JSON quebrado (vírgula faltando depois de "nathaliac@xgrow.com"). O
+usuário desligou essa pesquisa no Crisp e o ramo no n8n. Achados na revisão:
+- Resposta citada (reply) ao picker: 113 de 118 viraram nota; 1 perda real
+  ("Ótimo"). Nota escrita "2 min" (21/09) virou nota 2 da Ketlin — apagada.
+  O `Code in JavaScript` do Widget foi trocado (rótulos Muito satisfeito…Muito
+  insatisfeito → 5..1, nota digitada só se for o 1º conteúdo da 1ª linha,
+  picker pelo `message:updated` `greenn_csat`).
+- `Resetar CSAT Pending (Reabertura)` usava `{{ $json.session_id }}` vazio,
+  então o registro em `csat_pending` nunca saía numa reabertura real e a
+  conversa não recebia pesquisa nova ao resolver de novo (82 casos em 14
+  dias). URL passou a usar `$('Code in JavaScript').first().json.session_id`
+  e `Aguardar Confirmar Reabertura` foi pra 10 s. As 368 linhas presas (nos
+  últimos 40 dias, com reabertura real depois da pesquisa; liberam 162
+  conversas abertas) foram apagadas.
+- Nota do bot e PATCHes do Crisp → Hub: sem problema.
+Limpeza em `supabase/sql/2026-09-25_limpeza_csat.sql` (rollback ao lado);
+backups `_bkp_csat_nota_falsa_2026_09_25` (1 linha) e
+`_bkp_csat_pending_presos_2026_09_25` (368), com RLS e sem acesso pra
+anon/authenticated.
+
 **2026-09-30 — volta do Mr. Greenn pra IA é regra da Crisp; fila do Mr.
 Greenn medida; conferência do n8n.** O usuário confirmou por teste que a
 volta da conversa do Mr. Greenn pra IA Greenn quando o cliente escreve
