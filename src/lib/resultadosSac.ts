@@ -170,6 +170,17 @@ export function taxaReaberturaChamados(p: ResultadosSacPeriodoData): number | nu
   return Math.round((eventos / chamados) * 1000) / 10;
 }
 
+// Horas de expediente coberto (2026-10-01): soma de horas úteis, não uma
+// duração corrida. formatDuration convertia em dias de 24h e o mês (289h)
+// aparecia como "1sem 5d". Sempre em horas: "289h", "66h 30min".
+export function fmtHorasExpediente(min: number | null | undefined): string {
+  if (min == null) return "—";
+  const total = Math.round(min);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return m > 0 ? `${h}h ${m}min` : `${h}h`;
+}
+
 export function fmtNum(v: number | null | undefined): string {
   return v === null || v === undefined ? "—" : v.toLocaleString("pt-BR");
 }

@@ -14,6 +14,7 @@ import {
   textosPeriodo,
   avisoSemTipo,
   taxaReaberturaChamados,
+  fmtHorasExpediente,
 } from "@/lib/resultadosSac";
 
 const NOME_BOT = "IA Greenn";
@@ -391,7 +392,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
       { label: "Relógio do cliente", valor: formatDuration(A.percentis?.ttr_media ?? null), delta: deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true, formatDuration), nota: "Mesmo valor de Velocidade, do ponto de vista de quem esperou" },
       { label: "Relógio de espera do cliente", valor: formatDuration(A.relogioEspera?.minutos_espera_medio != null ? A.relogioEspera.minutos_espera_medio * 60 : null), delta: deltaPercentual(A.relogioEspera?.minutos_espera_medio, P.relogioEspera?.minutos_espera_medio, true, (v) => formatDuration(v * 60)), nota: A.relogioEspera ? `${A.relogioEspera.amostras} janelas até resposta humana (bot não conta)` : undefined },
       (() => {
-        const valor = formatDuration(A.horasExpedienteMin != null ? A.horasExpedienteMin * 60 : null);
+        const valor = fmtHorasExpediente(A.horasExpedienteMin);
         // Pedido do usuário: número grande + unidade pequena/mais apagada
         // (ex: "2" grande + "d" pequeno, " 21" grande + "h" pequeno) — só
         // esse card mistura 2 unidades (dias+horas) no valor, os outros
@@ -400,7 +401,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
         // tinha sido ligado, mesmo o dado do período anterior já existindo.
         const card: CardInfo = {
           label: "Relógio de trabalho ativo", valor,
-          delta: deltaPercentual(A.horasExpedienteMin, P.horasExpedienteMin, false, (v) => formatDuration(v * 60)),
+          delta: deltaPercentual(A.horasExpedienteMin, P.horasExpedienteMin, false, (v) => fmtHorasExpediente(v)),
           nota: "Expediente cadastrado do time (cobertura, não presença real)",
         };
         if (valor !== "—") card.valorRuns = duracaoEmRuns(valor, 26, 13);

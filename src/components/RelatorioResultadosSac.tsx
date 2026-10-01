@@ -15,6 +15,7 @@ import {
   textosPeriodo,
   avisoSemTipo,
   taxaReaberturaChamados,
+  fmtHorasExpediente,
 } from "@/lib/resultadosSac";
 
 const NOME_BOT = "IA Greenn";
@@ -337,8 +338,8 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             />
             <MetricaCard
               label="Relógio de trabalho ativo"
-              valor={formatDuration(A.horasExpedienteMin != null ? A.horasExpedienteMin * 60 : null)}
-              delta={deltaPercentual(A.horasExpedienteMin, P.horasExpedienteMin, false, (v) => formatDuration(v * 60))}
+              valor={fmtHorasExpediente(A.horasExpedienteMin)}
+              delta={deltaPercentual(A.horasExpedienteMin, P.horasExpedienteMin, false, (v) => fmtHorasExpediente(v))}
               nota="Expediente cadastrado do time (cobertura, não presença real)"
             />
           </MetricaGrid>
