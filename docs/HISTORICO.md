@@ -5815,3 +5815,16 @@ denominador soma o evento `resolved` do histórico às colunas
 setembro não têm evento de estado. TFR e TTR de setembro recalculados por
 fora batem com `tfr_ttr_percentis` (TFR p50 3.595,6 s úteis, 4.127 amostras).
 `reabertura_casos` e `reabertura_por_tipo_cliente` migradas em seguida para a mesma base (casos: 907 linhas, soma 1.377 = card; por tipo: Final 10,1%, Produtor 30,8%, Sem tipo 7,1%).
+Mais no mesmo dia: (a) relatório lento/erro 500 — `chamados_periodo_base`
+levava ~9 s e era chamada 12 vezes; reaberturas reais agora pré-calculadas
+em `reaberturas_reais` (`atualizar_reaberturas_reais(desde)`, pg_cron
+`reaberturas-reais-5min` para os últimos 7 dias e `reaberturas-reais-diario`
+para 60 dias, 06:30 UTC); as RPCs da RR caíram para 0,3–3 s. (b) Top 5 de
+TFR com casos falsos (ex.: Paulo Cesar, chamado de 01/09 respondido no dia
+aparecia com 17 dias): resposta de 01–07/09 apagada junto com as mensagens.
+`_primeiras_respostas_humanas` virou wrapper de `_primeiras_respostas_humanas_bruto`
+que descarta chamado iniciado antes da 1ª mensagem guardada com 1ª resposta
+registrada depois dela (119 chamados de setembro; TFR p50 3.481 s úteis,
+4.036 amostras). (c) "Relógio de trabalho ativo" = janela de cobertura
+(07h–20h dias úteis + sáb 08h–12h; setembro 289h), agora exibido em horas
+(`fmtHorasExpediente`); Nathalia e Amanda sem jornada cadastrada.

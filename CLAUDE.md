@@ -485,7 +485,7 @@ conversas (avaliadas ou não).
   aberta = 1 chamado). `backlog_por_idade` tem `com_humano`.
 - **FCR/Recontato**: por conversa (mesmo `people_id` + `topico` idêntico em
   7 dias, `crisp_id` diferente). Bot resolvendo conta.
-- **TFR**: `_primeiras_respostas_humanas()` é a fonte de todo TFR. Prioriza
+- **TFR**: `_primeiras_respostas_humanas()` é a fonte de todo TFR (wrapper de `_bruto` que descarta chamado iniciado no buraco de mensagens de 01–07/09 com resposta registrada depois — TFR desconhecido). Prioriza
   `crisp_conversations.first_human_response_at` (se `>= current_started_at`
   e não bot), cai para `crisp_messages`. Exclui a macro de encerramento
   "não recebemos novas mensagens neste chamado". TFR = quem de fato
