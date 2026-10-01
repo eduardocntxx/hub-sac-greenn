@@ -15,6 +15,8 @@ import { SortableHeader } from "@/components/ui/SortableHeader";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRealtimeConversas } from "@/hooks/useRealtimeConversas";
 import { usePersistedState } from "@/hooks/usePersistedState";
+import { usePermissions } from "@/hooks/usePermissions";
+import { useNavigate } from "react-router-dom";
 import {
   fetchAtendentePerformance,
   fetchDistinctCanais,
@@ -111,6 +113,9 @@ function tempoCurto(min: number | null | undefined): string {
 export default function Performance() {
   useRealtimeConversas();
   const { isAdmin } = useAuth();
+  const { hasPermission } = usePermissions();
+  const podeVerCsat = hasPermission("csat");
+  const navigate = useNavigate();
   // Overview aberto a todo colaborador (2026-09-24): quem não é admin vê só
   // a aba Dashboard; listas de conversas e clientes (aba Atendimentos, IA
   // genérica, pop-ups de casos) continuam só pra admin — no banco também.
@@ -774,6 +779,8 @@ export default function Performance() {
             <SaudeKpi
               label="CSAT · avaliações boas"
               indice={2}
+              onClick={podeVerCsat ? () => navigate("/csat", { state: { periodoOverview: { preset, personalizado } } }) : undefined}
+              dica={podeVerCsat ? "Abrir o CSAT com o mesmo período" : undefined}
               valor={fmtPct1(csatBoasPct)}
               delta={deltaPontos(csatBoasPct, csatBoasPctAnterior, false)}
               contexto={csatDist ? `${fmtNum(csatDist.boas)} boas (nota 4–5) de ${fmtNum(csatDist.total)} avaliações recebidas${csatEnviadas != null && atendenteNomes.length === 0 ? ` · ${fmtNum(csatEnviadas)} pesquisas enviadas` : ""}` : undefined}
@@ -783,7 +790,7 @@ export default function Performance() {
               indice={3}
               valor={formatDuration(velocidadeKpi?.tfr_p50_uteis_seg ?? null)}
               delta={deltaPercentual(velocidadeKpi?.tfr_p50_uteis_seg, velocidadeKpiAnterior?.tfr_p50_uteis_seg, true, (v) => formatDuration(v))}
-              contexto="horas úteis, 1ª resposta humana"
+              contexto={`média ${formatDuration(velocidadeKpi?.tfr_media_uteis_seg ?? null)} · horas úteis, 1ª resposta humana`}
             />
             <SaudeKpi
               label="Reabertura"

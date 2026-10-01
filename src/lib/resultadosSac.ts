@@ -87,7 +87,14 @@ export function manualDataVazia(): ManualData {
   };
 }
 
+export type GranularidadeRR = "semanal" | "mensal" | "personalizado";
+
 export interface ResultadosSacData {
+  granularidade: GranularidadeRR;
+  // true quando o período anterior não tem base pra comparar (menos de 20%
+  // das conversas do atual, ex.: agosto/2026, antes do banco atual): o
+  // relatório mostra só o período atual, sem variações.
+  semComparacao: boolean;
   periodoAtualLabel: string;
   periodoAnteriorLabel: string;
   atual: ResultadosSacPeriodoData;
@@ -121,6 +128,46 @@ export interface ResultadosSacData {
   // Opcional: se não vier, o relatório mostra os blocos de "preencher
   // manualmente" como antes (nada foi estimado ou inventado).
   manual?: ManualData;
+}
+
+// Período "vazio" usado no lugar do anterior quando `semComparacao`: todos os
+// deltas viram undefined (deltaPercentual/deltaPontos já tratam null).
+export function periodoVazio(): ResultadosSacPeriodoData {
+  return {
+    contagem: null, percentis: null, tipoCliente: [], rankingHumano: [], csat: null,
+    csatPorTipoCliente: [], reabertura: null, relogioEspera: null, horasExpedienteMin: null,
+    tempoRespostaBot: null, npsResumo: null, migracoes: null, migracoesPorPlataforma: [],
+    csatFunil: [], atendidoNaoResolvido: [],
+  };
+}
+
+// Textos que dependem da granularidade (antes era sempre "semana").
+export function textosPeriodo(g: GranularidadeRR) {
+  if (g === "mensal") return { titulo: "Resultados do mês", anterior: "mês anterior", neste: "neste mês", daquele: "daquele mês" };
+  if (g === "semanal") return { titulo: "Resultados da semana", anterior: "semana anterior", neste: "nesta semana", daquele: "daquela semana" };
+  return { titulo: "Resultados do período", anterior: "período anterior", neste: "neste período", daquele: "daquele período" };
+}
+
+// Aviso quando muitos chamados ficam "Sem tipo" de cliente (2026-09-30):
+// desde 09/09/2026 a Crisp deixou de marcar seller/consumidor na maioria
+// das conversas de e-mail (confirmado pelas etiquetas gravadas no CSAT),
+// então o "Sem tipo" cresce e a divisão por público fica incompleta.
+export function avisoSemTipo(tipos: { tipo_cliente: string; chamados: number }[]): string | null {
+  const semTipo = tipos.find((t) => t.tipo_cliente === "Sem tipo")?.chamados ?? 0;
+  const total = tipos.filter((t) => t.tipo_cliente !== "Geral").reduce((acc, t) => acc + t.chamados, 0);
+  if (!total || semTipo / total < 0.2) return null;
+  const pct = ((semTipo / total) * 100).toFixed(0);
+  return `${fmtNum(semTipo)} chamados (${pct}%) sem tipo de cliente: a Crisp não marcou seller/consumidor. Desde 09/09, quase todo e-mail chega sem essa etiqueta.`;
+}
+
+// Reabertura em CHAMADOS (2026-10-01): reaberturas do período ÷ chamados do
+// período. Mesma base nos dois lados (chamados_periodo_base): reaberturas =
+// chamados - conversas. A taxa de reabertura_resumo é em conversas.
+export function taxaReaberturaChamados(p: ResultadosSacPeriodoData): number | null {
+  const eventos = p.reabertura?.total_eventos;
+  const chamados = p.contagem?.total_chamados;
+  if (eventos == null || !chamados) return null;
+  return Math.round((eventos / chamados) * 1000) / 10;
 }
 
 export function fmtNum(v: number | null | undefined): string {

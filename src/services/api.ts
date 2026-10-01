@@ -1224,6 +1224,8 @@ export async function fetchContagemPeriodo(inicio: Date, fim: Date, canal?: stri
 export interface BacklogFaixa {
   faixa: string;
   total: number;
+  // Quantas das abertas tiveram resposta humana; o resto (total − com_humano) só teve o bot.
+  com_humano: number;
 }
 
 export interface VolumeDiaHora {

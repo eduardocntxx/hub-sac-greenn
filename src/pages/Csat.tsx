@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Download, ArrowUpDown, Star, ArrowUpRight, ArrowDownRight, SlidersHorizontal, Check, X } from "lucide-react";
@@ -165,6 +166,19 @@ export default function Csat() {
   const [aba, setAba] = usePersistedState<"planilha" | "dashboard">("csat:aba", "dashboard");
   const [preset, setPreset] = usePersistedState<PeriodoPreset>("csat:preset", "30dias");
   const [personalizado, setPersonalizado] = usePersistedState("csat:personalizado", { inicio: "", fim: "" });
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Vindo do card de CSAT do Overview: adota o mesmo período e abre o
+  // Dashboard. Limpa o state da navegação pra não reaplicar ao recarregar.
+  useEffect(() => {
+    const vindo = (location.state as { periodoOverview?: { preset: PeriodoPreset; personalizado: { inicio: string; fim: string } } } | null)?.periodoOverview;
+    if (!vindo) return;
+    setPreset(vindo.preset);
+    setPersonalizado(vindo.personalizado);
+    setAba("dashboard");
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate, setPreset, setPersonalizado, setAba]);
   const [busca, setBusca] = useState("");
   const [emailAtendente, setEmailAtendente] = usePersistedState("csat:emailAtendente", "");
   const [topico, setTopico] = usePersistedState("csat:topico", "");

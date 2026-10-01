@@ -39,7 +39,7 @@ import { formatDuration } from "@/lib/formatDuration";
 // sempre importados dinamicamente (`await import(...)`) dentro do próprio
 // clique — pptxgenjs só baixa quando alguém de fato exporta, não no
 // bundle inicial da página (ver PR#11, "lazy loading de rotas").
-import { manualDataVazia, type ResultadosSacData, type ManualData, type NpsResumo } from "@/lib/resultadosSac";
+import { manualDataVazia, periodoVazio, type ResultadosSacData, type ManualData, type NpsResumo } from "@/lib/resultadosSac";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { RelatorioResultadosSac } from "@/components/RelatorioResultadosSac";
 
@@ -149,9 +149,18 @@ function ultimosPeriodos(granularidade: Granularidade, n: number) {
     const proximaQua = new Date(qua);
     proximaQua.setDate(proximaQua.getDate() + 7);
     const id = toISODate(qua);
-    const label = `${String(qua.getDate()).padStart(2, "0")}/${String(qua.getMonth() + 1).padStart(2, "0")} a ${String(proximaQua.getDate()).padStart(2, "0")}/${String(proximaQua.getMonth() + 1).padStart(2, "0")}`;
+    const label = `${String(qua.getDate()).padStart(2, "0")}/${String(qua.getMonth() + 1).padStart(2, "0")} a ${String(proximaQua.getDate()).padStart(2, "0")}/${String(proximaQua.getMonth() + 1).padStart(2, "0")}${i === 0 ? " (em andamento)" : ""}`;
     return { id, label };
   });
+}
+
+// Período que a tela abre por padrão. Semanal = última semana COMPLETA
+// (2026-09-30): a RR acontece na quarta, justo o dia em que a semana nova
+// começa, e abrir nela comparava só as horas do dia com a semana anterior
+// inteira. A semana em andamento continua no seletor, marcada como tal.
+function periodoPadrao(granularidade: Granularidade) {
+  const lista = ultimosPeriodos(granularidade, 6);
+  return (granularidade === "semanal" ? lista[1] : lista[0]).id;
 }
 
 // Mesmo formato de label de ultimosPeriodos(), mas pra um par inicio/fim
@@ -217,13 +226,13 @@ function CampoManualArea({ label, value, onChange, placeholder }: { label: strin
 export default function ReuniaoResultados() {
   const { user, isAdmin } = useAuth();
 
-  // Padrão sempre semanal, com a semana atual — pedido explícito do
+  // Padrão sempre semanal, na última semana completa — pedido explícito do
   // usuário em 2026-09-22 (a RR roda toda quarta, ver `quartaOf()` acima).
   // Não é persistido de propósito (`useState`, não `usePersistedState`):
   // o padrão é fixo, não "lembrar a última escolha".
   const [granularidade, setGranularidade] = useState<Granularidade>("semanal");
   const periodos = useMemo(() => ultimosPeriodos(granularidade, 6), [granularidade]);
-  const [periodo, setPeriodo] = useState(periodos[0].id);
+  const [periodo, setPeriodo] = useState(() => periodoPadrao("semanal"));
   // Calendário do modo "Personalizado" (mesmo componente do resto do Hub:
   // 1º clique = início, 2º = fim, 3º recomeça). Só aplica quando o
   // intervalo está completo.
@@ -233,15 +242,15 @@ export default function ReuniaoResultados() {
   function mudarGranularidade(g: Granularidade) {
     setGranularidade(g);
     if (g === "personalizado") {
-      // Começa na semana atual da RR (quarta a terça) já selecionada.
-      const { inicio, fim } = limitesDaSemana(ultimosPeriodos("semanal", 1)[0].id);
+      // Começa na última semana completa da RR (quarta a terça).
+      const { inicio, fim } = limitesDaSemana(periodoPadrao("semanal"));
       const r = { inicio: toISODate(inicio), fim: toISODate(fim) };
       setRangePerso(r);
       setPresetPerso("personalizado");
       setPeriodo(`${r.inicio}_${r.fim}`);
       return;
     }
-    setPeriodo(ultimosPeriodos(g, 6)[0].id);
+    setPeriodo(periodoPadrao(g));
   }
 
   const { data: csat, isLoading: loadingCsat } = useQuery({
@@ -546,8 +555,21 @@ export default function ReuniaoResultados() {
     retry: 1,
   });
 
+  // Período anterior sem base de comparação (2026-09-30): o banco começa em
+  // setembro/2026, então "Setembro contra Agosto" comparava com 78 conversas
+  // e mostrava variações absurdas. Se o anterior tem menos de 20% das
+  // conversas do atual, a tela e o relatório mostram só o período atual.
+  const semBaseAnterior =
+    isAdmin &&
+    teamSummary != null &&
+    teamSummaryAnterior != null &&
+    (teamSummary.total_conversas ?? 0) > 0 &&
+    (teamSummaryAnterior.total_conversas ?? 0) < 0.2 * (teamSummary.total_conversas ?? 0);
+
   const csatValor = isAdmin ? teamSummary?.csat_medio ?? 0 : atual.media;
-  const csatDeltaValor = isAdmin
+  const csatDeltaValor = semBaseAnterior
+    ? undefined
+    : isAdmin
     ? teamSummaryAnterior?.csat_medio
       ? ((csatValor - teamSummaryAnterior.csat_medio) / teamSummaryAnterior.csat_medio) * 100
       : 0
@@ -557,13 +579,17 @@ export default function ReuniaoResultados() {
   // essa tela sempre mostrou pro self-review). "Chamados" só existe pro time
   // (pondera reabertura) — não há conceito de "chamados pessoais" aqui.
   const conversasValor = isAdmin ? teamSummary?.total_conversas ?? 0 : atual.total;
-  const conversasDeltaValor = isAdmin
+  const conversasDeltaValor = semBaseAnterior
+    ? undefined
+    : isAdmin
     ? teamSummaryAnterior?.total_conversas
       ? ((conversasValor - teamSummaryAnterior.total_conversas) / teamSummaryAnterior.total_conversas) * 100
       : 0
     : atendimentosDelta;
   const chamadosValor = teamSummary?.total_chamados ?? 0;
-  const chamadosDeltaValor = teamSummaryAnterior?.total_chamados
+  const chamadosDeltaValor = semBaseAnterior
+    ? undefined
+    : teamSummaryAnterior?.total_chamados
     ? ((chamadosValor - teamSummaryAnterior.total_chamados) / teamSummaryAnterior.total_chamados) * 100
     : 0;
   const carregandoPrincipais = isAdmin ? loadingTeamSummary : loadingCsat;
@@ -579,13 +605,13 @@ export default function ReuniaoResultados() {
       : null
     : tempoResolucaoPessoalAnteriorSeg;
   const tempoResolucaoDelta =
-    tempoResolucaoSeg !== null && tempoResolucaoAnteriorSeg
+    !semBaseAnterior && tempoResolucaoSeg !== null && tempoResolucaoAnteriorSeg
       ? ((tempoResolucaoSeg - tempoResolucaoAnteriorSeg) / tempoResolucaoAnteriorSeg) * 100
       : undefined;
 
   const perfComparativo = useMemo(() => {
     const anteriorPorNome = new Map<string, AtendentePerformanceRow>();
-    (perfAnterior ?? []).forEach((r) => anteriorPorNome.set(r.operator_nome, r));
+    if (!semBaseAnterior) (perfAnterior ?? []).forEach((r) => anteriorPorNome.set(r.operator_nome, r));
     return (perfAtual ?? []).map((r) => {
       const ant = anteriorPorNome.get(r.operator_nome);
       const deltaChamados = ant?.total_atendimentos
@@ -596,7 +622,7 @@ export default function ReuniaoResultados() {
         : undefined;
       return { ...r, deltaChamados, deltaAvaliacoes };
     }).sort((a, b) => b.total_atendimentos - a.total_atendimentos);
-  }, [perfAtual, perfAnterior]);
+  }, [perfAtual, perfAnterior, semBaseAnterior]);
   // Detalhamento por atendente: só os 3 com mais chamados; o resto com "Ver mais".
   const [detalhamentoCompleto, setDetalhamentoCompleto] = useState(false);
 
@@ -738,6 +764,8 @@ export default function ReuniaoResultados() {
 
   const dadosRelatorio: ResultadosSacData = useMemo(
     () => ({
+      granularidade,
+      semComparacao: semBaseAnterior,
       periodoAtualLabel: labelDoPeriodo(granularidade, inicioPeriodo, fimPeriodo),
       periodoAnteriorLabel: labelDoPeriodo(granularidade, inicioPeriodoAnterior, fimPeriodoAnterior),
       atual: {
@@ -757,7 +785,7 @@ export default function ReuniaoResultados() {
         csatFunil: csatFunilAtual ?? [],
         atendidoNaoResolvido: atendidoNaoResolvidoAtual ?? [],
       },
-      anterior: {
+      anterior: semBaseAnterior ? periodoVazio() : {
         contagem: contagemAnterior ?? null,
         percentis: percentisAnterior ?? null,
         tipoCliente: tipoClienteAnterior ?? [],
@@ -784,6 +812,7 @@ export default function ReuniaoResultados() {
     }),
     [
       granularidade,
+      semBaseAnterior,
       inicioPeriodo,
       fimPeriodo,
       inicioPeriodoAnterior,
