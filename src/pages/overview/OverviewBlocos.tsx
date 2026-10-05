@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { ExternalLink, Hourglass, Inbox, MessageSquareHeart, type LucideIcon } from "lucide-react";
+import { ArrowUpRight, ExternalLink, Hourglass, Inbox, MessageSquareHeart, type LucideIcon } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Dialog } from "@/components/ui/Dialog";
@@ -85,16 +85,27 @@ function SeloDelta({ delta }: { delta?: DeltaInfo }) {
 }
 
 // Entrada em sequência (fade + sobe 8px), `indice` define o atraso.
-export function SaudeKpi({ label, valor, delta, contexto, indice = 0 }: { label: string; valor: string; delta?: DeltaInfo; contexto?: string; indice?: number }) {
+export function SaudeKpi({ label, valor, delta, contexto, indice = 0, onClick, dica }: { label: string; valor: string; delta?: DeltaInfo; contexto?: string; indice?: number; onClick?: () => void; dica?: string }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: "easeOut", delay: indice * 0.06 }}
       whileHover={{ y: -2 }}
+      className="h-full"
     >
-    <Card className="flex h-full flex-col gap-2 p-4 transition-shadow hover:shadow-card-hover">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/50">{label}</span>
+    <Card
+      className={cn("flex h-full flex-col gap-2 p-4 transition-shadow hover:shadow-card-hover", onClick && "cursor-pointer hover:ring-1 hover:ring-forest-500/40")}
+      onClick={onClick}
+      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+      role={onClick ? "link" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      title={dica}
+    >
+      <span className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink/50">
+        {label}
+        {onClick && <ArrowUpRight size={13} className="shrink-0 text-ink/40" />}
+      </span>
       <span className="font-display text-[28px] font-bold leading-none tracking-tight tabular-nums text-ink">{valor}</span>
       <SeloDelta delta={delta} />
       {contexto && <span className="text-xs leading-snug text-ink/50">{contexto}</span>}
@@ -161,10 +172,13 @@ export function PrecisaAtencao({
   const abertos = atendido.reduce((t, r) => t + r.abertos, 0);
   const parados = atendido.reduce((t, r) => t + r.parados_48h, 0);
   const maxAbertos = Math.max(1, ...atendido.map((r) => r.abertos));
-  const canais = funil.filter((f) => !f.total);
+  // "Outros" (conversa sem canal no Crisp) é ruído de dado, não canal: fica fora.
+  const canais = funil.filter((f) => !f.total && f.canal !== "Outros");
   const totalFunil = funil.find((f) => f.total);
-  const backlogOrdenado = ORDEM_BACKLOG.map((faixa) => backlog.find((b) => b.faixa === faixa) ?? { faixa, total: 0 });
+  const backlogOrdenado = ORDEM_BACKLOG.map((faixa) => backlog.find((b) => b.faixa === faixa) ?? { faixa, total: 0, com_humano: 0 });
   const backlogTotal = backlogOrdenado.reduce((t, b) => t + b.total, 0);
+  const backlogHumano = backlogOrdenado.reduce((t, b) => t + (b.com_humano ?? 0), 0);
+  const backlogSoBot = backlogTotal - backlogHumano;
   const backlogVelho = backlogOrdenado.find((b) => b.faixa === "+7 dias")?.total ?? 0;
 
   return (
@@ -204,37 +218,49 @@ export function PrecisaAtencao({
                 type="button"
                 disabled={!onAbrirAtendente}
                 onClick={() => onAbrirAtendente?.(r.atendente)}
-                className="grid grid-cols-[120px_1fr_70px] items-center gap-2.5 rounded-lg text-left text-[12.5px] transition enabled:hover:bg-sand-subtle disabled:cursor-default"
+                className="grid grid-cols-[120px_1fr_auto] items-center gap-2.5 rounded-lg text-left text-[12.5px] transition enabled:hover:bg-sand-subtle disabled:cursor-default"
               >
                 <span className="truncate text-ink" title={r.atendente}>{r.atendente.split(" ").slice(0, 2).join(" ")}</span>
                 <span className="flex h-2.5 overflow-hidden rounded-full bg-sand-subtle">
                   <BarraAnimada className="bg-rust-500" largura={(r.parados_48h / maxAbertos) * 100} />
                   <BarraAnimada className="bg-forest-500" largura={((r.abertos - r.parados_48h) / maxAbertos) * 100} atraso={0.15} />
                 </span>
-                <span className="text-right tabular-nums text-ink/50"><b className="text-ink">{fmtNum(r.abertos)}</b> · {fmtNum(r.parados_48h)}</span>
+                <span className="whitespace-nowrap text-right tabular-nums text-ink/50"><b className="text-ink">{fmtNum(r.abertos)}</b> {r.abertos === 1 ? "aberta" : "abertas"}{r.parados_48h > 0 && <span className="text-rust-600 dark:text-rust-400"> · {fmtNum(r.parados_48h)} {r.parados_48h === 1 ? "parada" : "paradas"}</span>}</span>
               </button>
             ))
           )}
         </BlocoAtencao>
 
         <BlocoAtencao icone={MessageSquareHeart} titulo="Funil do CSAT · taxa de resposta">
-          <p className="text-xs text-ink/50">Respondidas ÷ resolvidas, por canal.</p>
+          <p className="text-xs text-ink/50">Taxa = avaliadas ÷ resolvidas, por canal.</p>
           {canais.length === 0 ? (
             <p className="text-xs text-ink/50">Sem conversas resolvidas no período.</p>
           ) : (
-            canais.map((f) => (
-              <div key={f.canal} className="grid grid-cols-[76px_1fr_56px] items-center gap-2.5 text-[12.5px]">
-                <span className="text-ink">{nomeCanal(f.canal)}</span>
-                <span className="h-3.5 overflow-hidden rounded-full bg-sand-subtle">
-                  <BarraAnimada className="bg-forest-500" largura={f.taxa ?? 0} />
-                </span>
-                <span className="text-right font-semibold tabular-nums text-ink">{fmtPct1(f.taxa)}</span>
-              </div>
-            ))
+            <div className="grid grid-cols-[minmax(0,1fr)_repeat(4,auto)] items-center gap-x-3 gap-y-1.5 text-[12.5px]">
+              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-ink/40">Canal</span>
+              <span className="text-right text-[10.5px] font-semibold uppercase tracking-wide text-ink/40">Resolv.</span>
+              <span className="text-right text-[10.5px] font-semibold uppercase tracking-wide text-ink/40">Enviadas</span>
+              <span className="text-right text-[10.5px] font-semibold uppercase tracking-wide text-ink/40">Avaliadas</span>
+              <span className="text-right text-[10.5px] font-semibold uppercase tracking-wide text-ink/40">Taxa</span>
+              {canais.map((f) => (
+                <Fragment key={f.canal}>
+                  <span className="flex min-w-0 flex-col gap-1">
+                    <span className="truncate text-ink">{nomeCanal(f.canal)}</span>
+                    <span className="h-1.5 overflow-hidden rounded-full bg-sand-subtle">
+                      <BarraAnimada className="bg-forest-500" largura={f.taxa ?? 0} />
+                    </span>
+                  </span>
+                  <span className="text-right tabular-nums text-ink/70">{fmtNum(f.resolvidas)}</span>
+                  <span className="text-right tabular-nums text-ink/70">{fmtNum(f.enviadas)}</span>
+                  <span className="text-right tabular-nums text-ink/70">{fmtNum(f.respondidas)}</span>
+                  <span className="text-right font-semibold tabular-nums text-ink">{fmtPct1(f.taxa)}</span>
+                </Fragment>
+              ))}
+            </div>
           )}
           {totalFunil && (
             <p className="text-xs text-ink/50">
-              {fmtNum(totalFunil.conversas)} conversas → {fmtNum(totalFunil.resolvidas)} resolvidas → {fmtNum(totalFunil.enviadas)} pesquisas enviadas → {fmtNum(totalFunil.respondidas)} respondidas.
+              Total: {fmtNum(totalFunil.conversas)} conversas → {fmtNum(totalFunil.resolvidas)} resolvidas → {fmtNum(totalFunil.enviadas)} pesquisas enviadas → {fmtNum(totalFunil.respondidas)} avaliadas ({fmtPct1(totalFunil.taxa)}).
             </p>
           )}
         </BlocoAtencao>
@@ -261,7 +287,23 @@ export function PrecisaAtencao({
               </button>
             ))}
           </div>
-          <p className="text-xs text-ink/50">A maior parte do que passa de 7 dias só teve resposta do bot e nunca foi fechada.</p>
+          {backlogTotal > 0 && (
+            <div className="space-y-1.5">
+              <span className="flex h-2.5 overflow-hidden rounded-full bg-sand-subtle">
+                <BarraAnimada className="bg-forest-500" largura={(backlogHumano / backlogTotal) * 100} />
+                <BarraAnimada className="bg-ink/25" largura={(backlogSoBot / backlogTotal) * 100} atraso={0.15} />
+              </span>
+              <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-1 text-[12.5px]">
+                <i className="inline-block h-2 w-2 rounded-sm bg-forest-500" />
+                <span className="text-ink/70">Teve resposta humana e continua aberta</span>
+                <b className="text-right tabular-nums text-ink">{fmtNum(backlogHumano)}</b>
+                <i className="inline-block h-2 w-2 rounded-sm bg-ink/25" />
+                <span className="text-ink/70">Nunca teve resposta humana, só o bot</span>
+                <b className="text-right tabular-nums text-ink">{fmtNum(backlogSoBot)}</b>
+              </div>
+            </div>
+          )}
+          <p className="text-xs text-ink/50">"Atendido e não resolvido" conta só as com resposta humana e iniciadas no período, por isso é menor.</p>
         </BlocoAtencao>
       </div>
     </Card>

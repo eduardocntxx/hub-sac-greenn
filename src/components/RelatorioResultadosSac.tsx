@@ -10,8 +10,13 @@ import {
   deltaPercentual,
   deltaPontos,
   linhasFunil,
+  resumoApos24h,
   resumoAtendido,
   nomeCanal,
+  textosPeriodo,
+  avisoSemTipo,
+  taxaReaberturaChamados,
+  fmtHorasExpediente,
 } from "@/lib/resultadosSac";
 
 const NOME_BOT = "IA Greenn";
@@ -94,12 +99,13 @@ function TagChipFixo({ tone, children }: { tone: "info" | "success"; children: R
 function SecaoHead({ titulo, tag, nota }: { titulo: string; tag?: "crisp" | "novo"; nota?: string }) {
   return (
     <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3">
-      <h2 className="flex items-center gap-2 text-lg font-bold uppercase tracking-tight text-ink" style={FONT_DISPLAY}>
+      <h2 className="flex items-center gap-2 text-base font-bold uppercase tracking-tight text-ink" style={FONT_DISPLAY}>
         {titulo}
         {tag === "crisp" && <TagChipFixo tone="info">Crisp</TagChipFixo>}
         {tag === "novo" && <TagChipFixo tone="success">Novo</TagChipFixo>}
       </h2>
-      {nota && <p className="max-w-[44ch] text-right text-[12px] text-ink/40">{nota}</p>}
+      {/* `nota` (descrição) deixou de ser exibida a pedido do usuário (2026-10-02). */}
+      {nota ? null : null}
     </div>
   );
 }
@@ -174,9 +180,12 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
   const botDist = data.csatPorAtendenteDist.find((d) => d.atendente === NOME_BOT);
 
   const porTipoChamados = A.tipoCliente.filter((t) => t.tipo_cliente !== "Geral" && t.chamados > 0);
+  const TP = textosPeriodo(data.granularidade);
+  const aviso = avisoSemTipo(A.tipoCliente);
   const csatPorTipo = A.csatPorTipoCliente.filter((c) => c.total > 0);
-  const funil = linhasFunil(A.csatFunil, P.csatFunil);
+  const funil = linhasFunil(A.csatFunil, P.csatFunil, A.resolvidasApos24h);
   const atendido = resumoAtendido(A.atendidoNaoResolvido, P.atendidoNaoResolvido);
+  const apos24 = resumoApos24h(A.resolvidasApos24h);
   const maxAbertos = Math.max(1, ...atendido.porAtendente.map((r) => r.abertos));
 
   return (
@@ -224,11 +233,15 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             Hub SAC Greenn · Reunião de Resultados
           </p>
           <h1 className="text-balance text-3xl font-extrabold uppercase tracking-tight text-ink sm:text-4xl" style={FONT_DISPLAY}>
-            Resultados da semana
+            {TP.titulo}
           </h1>
           <p className="mt-2 text-[15px] text-ink/60">
-            Período de <b className="font-semibold text-ink">{data.periodoAtualLabel}</b>, comparado à semana anterior (
-            <b className="font-semibold text-ink">{data.periodoAnteriorLabel}</b>).
+            Período de <b className="font-semibold text-ink">{data.periodoAtualLabel}</b>
+            {data.semComparacao ? (
+              <>. Sem comparação: o {TP.anterior} ({data.periodoAnteriorLabel}) não tem dados suficientes no Hub.</>
+            ) : (
+              <>, comparado ao {TP.anterior} (<b className="font-semibold text-ink">{data.periodoAnteriorLabel}</b>).</>
+            )}
           </p>
         </header>
 
@@ -264,7 +277,48 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
               ))}
             </div>
           )}
+          {aviso && <p className="mt-2 text-xs text-ink/50">{aviso}</p>}
         </section>
+
+        <section className="mt-11 print:mt-8">
+          <SecaoHead titulo="Reabertura e Bot" tag="novo" />
+          <MetricaGrid cols={2}>
+            <MetricaCard
+              label="Reabertura (chamados)"
+              valor={fmtPct1(taxaReaberturaChamados(A))}
+              delta={deltaPontos(taxaReaberturaChamados(A), taxaReaberturaChamados(P), true)}
+              nota={A.reabertura && A.contagem ? `${fmtNum(A.reabertura.total_eventos)} dos ${fmtNum(A.contagem.total_chamados)} chamados foram reabertura` : undefined}
+            />
+            <MetricaCard
+              label="Reabertura (conversas)"
+              valor={fmtPct1(A.reabertura?.taxa_pct)}
+              delta={deltaPontos(A.reabertura?.taxa_pct, P.reabertura?.taxa_pct, true)}
+              nota={A.reabertura ? `${fmtNum(A.reabertura.total_reabertos)} de ${fmtNum(A.reabertura.total_resolvidos)} conversas resolvidas reabriram` : undefined}
+            />
+          </MetricaGrid>
+          <p className="mb-3 mt-6 text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Bot (IA Greenn)</p>
+          <MetricaGrid>
+            <MetricaCard label="Chamados" valor={fmtNum(bot?.total_atendimentos)} />
+            <MetricaCard
+              label="CSAT médio"
+              valor={bot?.csat_medio != null ? bot.csat_medio.toFixed(2).replace(".", ",") : "—"}
+              nota={bot ? `${bot.total_avaliacoes} avaliações` : undefined}
+            />
+            <MetricaCard
+              label="Tempo de resposta (mediana)"
+              valor={formatDuration(A.tempoRespostaBot?.tempo_medio_seg ?? null)}
+              delta={deltaPercentual(A.tempoRespostaBot?.tempo_medio_seg, P.tempoRespostaBot?.tempo_medio_seg, true, formatDuration)}
+              nota={A.tempoRespostaBot ? `${fmtNum(A.tempoRespostaBot.amostras)} respostas do bot no período` : undefined}
+            />
+          </MetricaGrid>
+          {botDist && botDist.total > 0 && (
+            <p className="mt-3 text-[12px] text-ink/50">
+              {botDist.total} avaliações — {botDist.boas} boa(s) (4–5), {botDist.ruins} ruim(ns) (1–3)
+            </p>
+          )}
+        </section>
+
+
 
         {A.tipoCliente.length > 0 && (
           <section className="mt-11 print:mt-8">
@@ -303,6 +357,58 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                 );
               })}
             </MetricaGrid>
+
+            {(data.topTfrProdutor.length > 0 || data.topTfrFinal.length > 0) && (
+              <div className="mt-5">
+                <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>
+                  Maiores tempos de 1ª resposta — 7 piores de cada grupo (mediana do período, útil: {formatDuration(A.percentis?.tfr_p50 ?? null)})
+                </p>
+                <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 print:grid-cols-2">
+                  {[
+                    { titulo: "Produtor", casos: data.topTfrProdutor.slice(0, 7) },
+                    { titulo: "Cliente Final", casos: data.topTfrFinal.slice(0, 7) },
+                  ].map(({ titulo, casos }) => (
+                    <div key={titulo} className="print:break-inside-avoid">
+                      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-[rgb(var(--rel-acento))]" style={FONT_LABEL}>{titulo}</p>
+                      {casos.length === 0 ? (
+                        <p className="text-xs italic text-ink/40">Sem casos no período.</p>
+                      ) : (
+                        <div className="overflow-hidden rounded-2xl border border-sand-line shadow-card print:shadow-none">
+                          <table className="w-full text-xs">
+                            <thead className="bg-[rgb(var(--rel-acento))] uppercase tracking-wide text-[rgb(var(--rel-sobre-acento))]">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-bold">Cliente</th>
+                                <th className="px-3 py-2 text-left font-bold">1ª resposta</th>
+                                <th className="px-3 py-2 text-right font-bold">TFR útil</th>
+                                <th className="px-3 py-2 text-right font-bold">Corrido</th>
+                                <th className="px-3 py-2 text-center font-bold">Chamado</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {casos.map((c) => (
+                                <tr key={c.id} className="border-t border-sand-line bg-sand-surface">
+                                  <td className="px-3 py-2 font-medium text-ink">{c.cliente_nome || "—"}</td>
+                                  <td className="px-3 py-2 text-ink/70">{fmtDataHora(c.primeira_resposta_humana_at)}</td>
+                                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-[rgb(var(--rel-acento))]">{formatDuration(c.tempo_primeira_resposta_seg)}</td>
+                                  <td className="px-3 py-2 text-right tabular-nums text-ink/70">{formatDuration(tfrCorridoSeg(c.current_started_at, c.primeira_resposta_humana_at))}</td>
+                                  <td className="px-3 py-2 text-center">
+                                    {c.link_chamado ? (
+                                      <a href={c.link_chamado} target="_blank" rel="noreferrer" className="text-[rgb(var(--rel-acento))] underline">Ver ↗</a>
+                                    ) : (
+                                      <span className="text-ink/30">—</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
         )}
 
@@ -327,79 +433,12 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             />
             <MetricaCard
               label="Relógio de trabalho ativo"
-              valor={formatDuration(A.horasExpedienteMin != null ? A.horasExpedienteMin * 60 : null)}
-              delta={deltaPercentual(A.horasExpedienteMin, P.horasExpedienteMin, false, (v) => formatDuration(v * 60))}
+              valor={fmtHorasExpediente(A.horasExpedienteMin)}
+              delta={deltaPercentual(A.horasExpedienteMin, P.horasExpedienteMin, false, (v) => fmtHorasExpediente(v))}
               nota="Expediente cadastrado do time (cobertura, não presença real)"
             />
           </MetricaGrid>
         </section>
-
-        {/* Uma seção só, duas tabelas (Produtor / Cliente Final) — um top 5
-            misto sempre saía dominado por Final (maioria via bot, TFR
-            humano naturalmente mais longo, sem a mesma pressão de SLA que
-            Produtor tem), escondendo os casos de Produtor que de fato
-            importam pra essa análise; as duas tabelas ficam juntas, sem
-            virar duas seções separadas (pedido explícito do usuário). */}
-        {(data.topTfrProdutor.length > 0 || data.topTfrFinal.length > 0) && (
-          <section className="mt-11 print:mt-8">
-            <SecaoHead
-              titulo="Top 5 — Maiores tempos de 1ª resposta"
-              tag="novo"
-              nota={`Mediana do período (útil): ${formatDuration(A.percentis?.tfr_p50 ?? null)} — os 5 de cada grupo abaixo são os piores casos, não o típico.`}
-            />
-            <div className="flex flex-col gap-6">
-              {[
-                { titulo: "Produtor", casos: data.topTfrProdutor },
-                { titulo: "Cliente Final", casos: data.topTfrFinal },
-              ].map(
-                ({ titulo, casos }) =>
-                  casos.length > 0 && (
-                    <div key={titulo} className="print:break-inside-avoid">
-                      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-[rgb(var(--rel-acento))]" style={FONT_LABEL}>
-                        {titulo}
-                      </p>
-                      <div className="overflow-hidden rounded-2xl border border-sand-line shadow-card print:shadow-none">
-                        <table className="w-full text-sm">
-                          <thead className="bg-[rgb(var(--rel-acento))] text-xs uppercase tracking-wide text-[rgb(var(--rel-sobre-acento))]">
-                            <tr>
-                              <th className="px-3 py-2.5 text-left font-bold">Cliente</th>
-                              <th className="px-3 py-2.5 text-left font-bold">Abertura</th>
-                              <th className="px-3 py-2.5 text-left font-bold">1ª resposta</th>
-                              <th className="px-3 py-2.5 text-left font-bold">Fechamento</th>
-                              <th className="px-3 py-2.5 text-right font-bold">TFR útil</th>
-                              <th className="px-3 py-2.5 text-right font-bold">TFR corrido</th>
-                              <th className="px-3 py-2.5 text-center font-bold">Chamado</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {casos.map((c) => (
-                              <tr key={c.id} className="border-t border-sand-line bg-sand-surface">
-                                <td className="px-3 py-2.5 font-medium text-ink">{c.cliente_nome || "—"}</td>
-                                <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.current_started_at)}</td>
-                                <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.primeira_resposta_humana_at)}</td>
-                                <td className="px-3 py-2.5 text-ink/70">{fmtDataHora(c.resolved_at)}</td>
-                                <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-[rgb(var(--rel-acento))]">{formatDuration(c.tempo_primeira_resposta_seg)}</td>
-                                <td className="px-3 py-2.5 text-right tabular-nums text-ink/70">{formatDuration(tfrCorridoSeg(c.current_started_at, c.primeira_resposta_humana_at))}</td>
-                                <td className="px-3 py-2.5 text-center">
-                                  {c.link_chamado ? (
-                                    <a href={c.link_chamado} target="_blank" rel="noreferrer" className="text-[rgb(var(--rel-acento))] underline">
-                                      Ver ↗
-                                    </a>
-                                  ) : (
-                                    <span className="text-ink/30">—</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )
-              )}
-            </div>
-          </section>
-        )}
 
         {A.rankingHumano.length > 0 && (
           <section className="mt-11 print:mt-8">
@@ -526,9 +565,9 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
 
         <section className="mt-11 print:mt-8">
           <SecaoHead
-            titulo="Por que temos poucas avaliações"
+            titulo="Funil de CSAT"
             tag="novo"
-            nota="A pesquisa só sai quando a conversa é resolvida — e cada canal responde num ritmo diferente."
+            nota="A pesquisa só sai quando a conversa é resolvida — e cada canal responde num ritmo diferente. Dos resolvidos, quantos levaram mais de 24h."
           />
           <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Funil do CSAT por canal</p>
           <div className="overflow-hidden rounded-2xl border border-sand-line shadow-card print:break-inside-avoid print:shadow-none">
@@ -538,6 +577,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                   <th className="px-4 py-2.5 text-left font-bold">Canal</th>
                   <th className="px-4 py-2.5 text-right font-bold">Conversas</th>
                   <th className="px-4 py-2.5 text-right font-bold">Resolvidas</th>
+                  <th className="px-4 py-2.5 text-right font-bold">Resolvidas após 24h</th>
                   <th className="px-4 py-2.5 text-right font-bold">Pesquisa enviada</th>
                   <th className="px-4 py-2.5 text-right font-bold">Respondidas</th>
                   <th className="px-4 py-2.5 text-right font-bold">Taxa de resposta</th>
@@ -549,6 +589,10 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                     <td className="px-4 py-2.5 font-medium text-ink">{nomeCanal(r.canal)}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-ink/70">{fmtNum(r.conversas)}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-ink/70">{fmtNum(r.resolvidas)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-ink/70">
+                      {fmtNum(r.apos24)}
+                      {r.apos24Pct != null && <span className="ml-1 text-[11px] text-ink/40">({fmtPct1(r.apos24Pct)})</span>}
+                    </td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-ink/70">{fmtNum(r.enviadas)}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-ink/70">{fmtNum(r.respondidas)}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums">
@@ -561,6 +605,13 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
               </tbody>
             </table>
           </div>
+
+          <p className="mb-3 mt-6 text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Chamados fechados por janela de tempo (início → resolução, horas corridas)</p>
+          <MetricaGrid cols={4}>
+            {apos24.janelas.map((j) => (
+              <MetricaCard key={j.label} label={j.label} valor={fmtPct1(j.pct)} nota={`${fmtNum(j.qtd)} chamados`} />
+            ))}
+          </MetricaGrid>
 
           <p className="mb-3 mt-6 text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Atendido e não resolvido</p>
           <MetricaGrid cols={2}>
@@ -593,56 +644,9 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             </div>
           )}
           <p className="mt-3 text-[11px] text-ink/40">
-            Funil = conversas iniciadas no período; taxa = respondidas ÷ resolvidas. "Respondidas" pode diferir do Total de avaliações acima, que conta pela data da avaliação. "Atendido e não resolvido" = conversa do período que teve resposta humana e continua aberta, por dono atual; parado = sem mensagem nova há 48h. O período anterior é medido hoje (o que daquela semana ainda está aberto agora).
+            Funil = conversas iniciadas no período; taxa = respondidas ÷ resolvidas. "Respondidas" pode diferir do Total de avaliações acima, que conta pela data da avaliação. "Atendido e não resolvido" = conversa do período que teve resposta humana e continua aberta, por dono atual; parado = sem mensagem nova há 48h. O período anterior é medido hoje (o que {TP.daquele} ainda está aberto agora).
           </p>
         </section>
-
-        <section className="mt-11 print:mt-8">
-          <SecaoHead titulo="Bot (IA Greenn)" tag="crisp" nota="Triagem automática — separado do ranking humano." />
-          <MetricaGrid>
-            <MetricaCard label="Chamados" valor={fmtNum(bot?.total_atendimentos)} />
-            <MetricaCard
-              label="CSAT médio"
-              valor={bot?.csat_medio != null ? bot.csat_medio.toFixed(2).replace(".", ",") : "—"}
-              nota={bot ? `${bot.total_avaliacoes} avaliações` : undefined}
-            />
-            <MetricaCard
-              label="Tempo de resposta (mediana)"
-              valor={formatDuration(A.tempoRespostaBot?.tempo_medio_seg ?? null)}
-              delta={deltaPercentual(A.tempoRespostaBot?.tempo_medio_seg, P.tempoRespostaBot?.tempo_medio_seg, true, formatDuration)}
-              nota={A.tempoRespostaBot ? `${fmtNum(A.tempoRespostaBot.amostras)} respostas do bot no período` : undefined}
-            />
-          </MetricaGrid>
-          {botDist && botDist.total > 0 && (
-            <p className="mt-3 text-[12px] text-ink/50">
-              {botDist.total} avaliações — {botDist.boas} boa(s) (4–5), {botDist.ruins} ruim(ns) (1–3)
-            </p>
-          )}
-        </section>
-
-        <section className="mt-11 print:mt-8">
-          <SecaoHead titulo="Reabertura" tag="novo" nota="Conversa resolvida que o cliente reabriu." />
-          <MetricaGrid>
-            <MetricaCard
-              label="Taxa de reabertura"
-              valor={fmtPct1(A.reabertura?.taxa_pct)}
-              delta={deltaPontos(A.reabertura?.taxa_pct, P.reabertura?.taxa_pct, true)}
-              nota={A.reabertura ? `de ${fmtNum(A.reabertura.total_resolvidos)} conversas resolvidas no período` : undefined}
-            />
-            <MetricaCard
-              label="Conversas reabertas"
-              valor={fmtNum(A.reabertura?.total_reabertos)}
-              delta={deltaPercentual(A.reabertura?.total_reabertos, P.reabertura?.total_reabertos, true)}
-            />
-            <MetricaCard
-              label="Eventos de reabertura"
-              valor={fmtNum(A.reabertura?.total_eventos)}
-              delta={deltaPercentual(A.reabertura?.total_eventos, P.reabertura?.total_eventos, true)}
-              nota="Uma conversa pode reabrir mais de uma vez"
-            />
-          </MetricaGrid>
-        </section>
-
 
         <section className="mt-11 print:mt-8">
           <SecaoHead titulo="NPS" tag="novo" nota="Respostas reais da pesquisa NPS (Typeform), pela data da resposta." />
@@ -723,7 +727,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                 <MetricaCard
                   label="Total de reclamações"
                   valor={M?.reclameAqui.totalReclamacoes || "—"}
-                  nota={M?.reclameAqui.deltaPct ? `${M.reclameAqui.deltaPct} vs. semana anterior` : undefined}
+                  nota={M?.reclameAqui.deltaPct ? `${M.reclameAqui.deltaPct} vs. ${TP.anterior}` : undefined}
                 />
               </div>
               {M?.reclameAqui.produtorDestaque && (

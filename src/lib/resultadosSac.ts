@@ -16,6 +16,7 @@ import type {
   MigracaoPorPlataforma,
   CsatFunilCanal,
   AtendidoNaoResolvido,
+  ResolvidasApos24h,
 } from "@/services/api";
 
 export interface NpsResumo {
@@ -62,6 +63,8 @@ export interface ResultadosSacPeriodoData {
   // poucas avaliações"); o "anterior" serve pros deltas.
   csatFunil: CsatFunilCanal[];
   atendidoNaoResolvido: AtendidoNaoResolvido[];
+  // Resolvidas após 24h e backlog +24h/+48h/+72h das conversas do período.
+  resolvidasApos24h: ResolvidasApos24h[];
 }
 
 // Dado que o Hub não captura (Reclame Aqui, RA XGROW) — sempre texto
@@ -87,7 +90,14 @@ export function manualDataVazia(): ManualData {
   };
 }
 
+export type GranularidadeRR = "semanal" | "mensal" | "personalizado";
+
 export interface ResultadosSacData {
+  granularidade: GranularidadeRR;
+  // true quando o período anterior não tem base pra comparar (menos de 20%
+  // das conversas do atual, ex.: agosto/2026, antes do banco atual): o
+  // relatório mostra só o período atual, sem variações.
+  semComparacao: boolean;
   periodoAtualLabel: string;
   periodoAnteriorLabel: string;
   atual: ResultadosSacPeriodoData;
@@ -121,6 +131,57 @@ export interface ResultadosSacData {
   // Opcional: se não vier, o relatório mostra os blocos de "preencher
   // manualmente" como antes (nada foi estimado ou inventado).
   manual?: ManualData;
+}
+
+// Período "vazio" usado no lugar do anterior quando `semComparacao`: todos os
+// deltas viram undefined (deltaPercentual/deltaPontos já tratam null).
+export function periodoVazio(): ResultadosSacPeriodoData {
+  return {
+    contagem: null, percentis: null, tipoCliente: [], rankingHumano: [], csat: null,
+    csatPorTipoCliente: [], reabertura: null, relogioEspera: null, horasExpedienteMin: null,
+    tempoRespostaBot: null, npsResumo: null, migracoes: null, migracoesPorPlataforma: [],
+    csatFunil: [], atendidoNaoResolvido: [], resolvidasApos24h: [],
+  };
+}
+
+// Textos que dependem da granularidade (antes era sempre "semana").
+export function textosPeriodo(g: GranularidadeRR) {
+  if (g === "mensal") return { titulo: "Resultados do mês", anterior: "mês anterior", neste: "neste mês", daquele: "daquele mês" };
+  if (g === "semanal") return { titulo: "Resultados da semana", anterior: "semana anterior", neste: "nesta semana", daquele: "daquela semana" };
+  return { titulo: "Resultados do período", anterior: "período anterior", neste: "neste período", daquele: "daquele período" };
+}
+
+// Aviso quando muitos chamados ficam "Sem tipo" de cliente (2026-09-30):
+// desde 09/09/2026 a Crisp deixou de marcar seller/consumidor na maioria
+// das conversas de e-mail (confirmado pelas etiquetas gravadas no CSAT),
+// então o "Sem tipo" cresce e a divisão por público fica incompleta.
+export function avisoSemTipo(tipos: { tipo_cliente: string; chamados: number }[]): string | null {
+  const semTipo = tipos.find((t) => t.tipo_cliente === "Sem tipo")?.chamados ?? 0;
+  const total = tipos.filter((t) => t.tipo_cliente !== "Geral").reduce((acc, t) => acc + t.chamados, 0);
+  if (!total || semTipo / total < 0.2) return null;
+  const pct = ((semTipo / total) * 100).toFixed(0);
+  return `${fmtNum(semTipo)} chamados (${pct}%) sem tipo de cliente: a Crisp não marcou seller/consumidor. Desde 09/09, quase todo e-mail chega sem essa etiqueta.`;
+}
+
+// Reabertura em CHAMADOS (2026-10-01): reaberturas do período ÷ chamados do
+// período. Mesma base nos dois lados (chamados_periodo_base): reaberturas =
+// chamados - conversas. A taxa de reabertura_resumo é em conversas.
+export function taxaReaberturaChamados(p: ResultadosSacPeriodoData): number | null {
+  const eventos = p.reabertura?.total_eventos;
+  const chamados = p.contagem?.total_chamados;
+  if (eventos == null || !chamados) return null;
+  return Math.round((eventos / chamados) * 1000) / 10;
+}
+
+// Horas de expediente coberto (2026-10-01): soma de horas úteis, não uma
+// duração corrida. formatDuration convertia em dias de 24h e o mês (289h)
+// aparecia como "1sem 5d". Sempre em horas: "289h", "66h 30min".
+export function fmtHorasExpediente(min: number | null | undefined): string {
+  if (min == null) return "—";
+  const total = Math.round(min);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return m > 0 ? `${h}h ${m}min` : `${h}h`;
 }
 
 export function fmtNum(v: number | null | undefined): string {
@@ -185,6 +246,8 @@ const NOME_BOT_RESULTADOS = "IA Greenn";
 export function nomeCanal(canal: string): string {
   if (canal === "chat") return "Chat";
   if (canal === "email") return "E-mail";
+  // Conversa que o n8n gravou sem canal (a função SQL devolve "Outros").
+  if (canal === "Outros") return "Sem canal";
   return canal;
 }
 
@@ -209,14 +272,25 @@ export function taxaResposta(r: CsatFunilCanal | undefined): number | null {
 
 // Linhas do funil (canais, maior volume primeiro, até 4) + linha Total,
 // cada uma já com a taxa e o delta em p.p. contra o período anterior.
-export function linhasFunil(atual: CsatFunilCanal[], anterior: CsatFunilCanal[]) {
+export function linhasFunil(atual: CsatFunilCanal[], anterior: CsatFunilCanal[], apos24: ResolvidasApos24h[] = []) {
   const canais = [...atual].sort((a, b) => b.conversas - a.conversas).slice(0, 4);
   const total = somarFunil(atual);
   const totalAnt = anterior.length > 0 ? somarFunil(anterior) : undefined;
+  // Resolvidas que levaram mais de 24h (horas corridas) por canal; o Total
+  // soma todos os canais, inclusive os que ficaram fora do top 4.
+  const apos24Total = apos24.reduce((t, r) => t + r.apos_24h, 0);
   return [...canais, total].map((r) => {
     const prev = r.canal === "Total" ? totalAnt : anterior.find((p) => p.canal === r.canal);
     const taxa = taxaResposta(r);
-    return { ...r, total: r.canal === "Total", taxa, delta: deltaPontos(taxa, taxaResposta(prev), false) };
+    const apos24Canal = r.canal === "Total" ? apos24Total : apos24.find((a) => a.canal === r.canal)?.apos_24h ?? 0;
+    return {
+      ...r,
+      total: r.canal === "Total",
+      taxa,
+      delta: deltaPontos(taxa, taxaResposta(prev), false),
+      apos24: apos24.length > 0 ? apos24Canal : null,
+      apos24Pct: apos24.length > 0 && r.resolvidas > 0 ? (apos24Canal / r.resolvidas) * 100 : null,
+    };
   });
 }
 
@@ -233,5 +307,31 @@ export function resumoAtendido(atual: AtendidoNaoResolvido[], anterior: Atendido
     parados,
     paradosPct: abertos > 0 ? (parados / abertos) * 100 : null,
     deltaAbertos: humanosAnt.length > 0 ? deltaPercentual(abertos, abertosAnt, true) : undefined,
+  };
+}
+
+// Soma dos canais: resolvidos por janela de tempo até a resolução (até 24h /
+// 24–48h / 48–72h / +72h), cada uma com % sobre os resolvidos do período.
+export function resumoApos24h(atual: ResolvidasApos24h[]) {
+  const t = atual.reduce(
+    (acc, r) => ({
+      resolvidas: acc.resolvidas + r.resolvidas,
+      apos_24h: acc.apos_24h + r.apos_24h,
+      ate_24h: acc.ate_24h + r.ate_24h,
+      de_24_48h: acc.de_24_48h + r.de_24_48h,
+      de_48_72h: acc.de_48_72h + r.de_48_72h,
+      mais_72h: acc.mais_72h + r.mais_72h,
+    }),
+    { resolvidas: 0, apos_24h: 0, ate_24h: 0, de_24_48h: 0, de_48_72h: 0, mais_72h: 0 }
+  );
+  const pct = (n: number) => (t.resolvidas > 0 ? (n / t.resolvidas) * 100 : null);
+  return {
+    ...t,
+    janelas: [
+      { label: "Até 24h", qtd: t.ate_24h, pct: pct(t.ate_24h) },
+      { label: "24h a 48h", qtd: t.de_24_48h, pct: pct(t.de_24_48h) },
+      { label: "48h a 72h", qtd: t.de_48_72h, pct: pct(t.de_48_72h) },
+      { label: "Mais de 72h", qtd: t.mais_72h, pct: pct(t.mais_72h) },
+    ],
   };
 }

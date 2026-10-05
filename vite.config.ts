@@ -11,5 +11,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    watch: {
+      // Pastas locais do design-sync: o cache tem symlinks para node_modules do
+      // próprio projeto, e o watcher entrava em loop (sem memória / ELOOP).
+      ignored: ["**/.design-sync/**", "**/.ds-sync/**", "**/ds-bundle/**", "**/dist/**"],
+    },
   },
 });
