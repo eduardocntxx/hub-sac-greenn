@@ -23,6 +23,7 @@ import {
   fetchCsatEnviosPorAtendente,
   fetchCsatFunilCanal,
   fetchAtendidoNaoResolvido,
+  fetchResolvidasApos24h,
   fetchReaberturaResumo,
   fetchRelogioEsperaCliente,
   fetchHorasExpedientePeriodo,
@@ -223,6 +224,9 @@ function CampoManualArea({ label, value, onChange, placeholder }: { label: strin
   );
 }
 
+// SDR (leads da equipe comercial) não é do time de SAC: fora do relatório.
+const semSdr = <T extends { tipo_cliente: string }>(lista: T[]): T[] => lista.filter((t) => t.tipo_cliente.trim().toUpperCase() !== "SDR");
+
 export default function ReuniaoResultados() {
   const { user, isAdmin } = useAuth();
 
@@ -405,6 +409,12 @@ export default function ReuniaoResultados() {
     enabled: estagio1Habilitado,
     retry: 1,
   });
+  const { data: resolvidasApos24hAtual } = useQuery({
+    queryKey: ["resolvidas-apos-24h", inicioPeriodo, fimPeriodo],
+    queryFn: () => fetchResolvidasApos24h(inicioPeriodo, fimPeriodo),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
   // Backlog não tem filtro de período — é sempre "o que está aberto agora",
   // não faz sentido "backlog do mês passado". Uma busca só, sem par
   // "Anterior".
@@ -465,7 +475,7 @@ export default function ReuniaoResultados() {
         ordenarPor: "tfr",
         direcao: "desc",
         page: 0,
-        pageSize: 5,
+        pageSize: 7,
       }),
     enabled: estagio1Habilitado,
     retry: 1,
@@ -481,7 +491,7 @@ export default function ReuniaoResultados() {
         ordenarPor: "tfr",
         direcao: "desc",
         page: 0,
-        pageSize: 5,
+        pageSize: 7,
       }),
     enabled: estagio1Habilitado,
     retry: 1,
@@ -498,6 +508,7 @@ export default function ReuniaoResultados() {
     csatEnvios !== undefined &&
     csatFunilAtual !== undefined &&
     atendidoNaoResolvidoAtual !== undefined &&
+    resolvidasApos24hAtual !== undefined &&
     backlogAtual !== undefined &&
     npsRespostasAtual !== undefined &&
     migracoesAtual !== undefined &&
@@ -731,6 +742,12 @@ export default function ReuniaoResultados() {
     enabled: estagio5Habilitado,
     retry: 1,
   });
+  const { data: resolvidasApos24hAnterior } = useQuery({
+    queryKey: ["resolvidas-apos-24h", inicioPeriodoAnterior, fimPeriodoAnterior],
+    queryFn: () => fetchResolvidasApos24h(inicioPeriodoAnterior, fimPeriodoAnterior),
+    enabled: estagio5Habilitado,
+    retry: 1,
+  });
 
   // "Pronto" = a última onda (5) inteira já resolveu — cobre os gaps entre
   // ondas de propósito (uma query com `enabled: false` nunca fica
@@ -747,7 +764,8 @@ export default function ReuniaoResultados() {
       horasExpedienteAnterior !== undefined &&
       tempoBotAnterior !== undefined &&
       csatFunilAnterior !== undefined &&
-      atendidoNaoResolvidoAnterior !== undefined
+      atendidoNaoResolvidoAnterior !== undefined &&
+      resolvidasApos24hAnterior !== undefined
     );
 
   const [mostrarRelatorio, setMostrarRelatorio] = useState(false);
@@ -771,7 +789,7 @@ export default function ReuniaoResultados() {
       atual: {
         contagem: contagemAtual ?? null,
         percentis: percentisAtual ?? null,
-        tipoCliente: tipoClienteAtual ?? [],
+        tipoCliente: semSdr(tipoClienteAtual ?? []),
         rankingHumano: rankingHumanoAtual,
         csat: csatDistAtual ?? null,
         csatPorTipoCliente: csatPorTipoClienteAtual ?? [],
@@ -784,11 +802,12 @@ export default function ReuniaoResultados() {
         migracoesPorPlataforma: migracoesPorPlataformaAtual ?? [],
         csatFunil: csatFunilAtual ?? [],
         atendidoNaoResolvido: atendidoNaoResolvidoAtual ?? [],
+        resolvidasApos24h: resolvidasApos24hAtual ?? [],
       },
       anterior: semBaseAnterior ? periodoVazio() : {
         contagem: contagemAnterior ?? null,
         percentis: percentisAnterior ?? null,
-        tipoCliente: tipoClienteAnterior ?? [],
+        tipoCliente: semSdr(tipoClienteAnterior ?? []),
         rankingHumano: rankingHumanoAnterior,
         csat: csatDistAnterior ?? null,
         csatPorTipoCliente: csatPorTipoClienteAnterior ?? [],
@@ -801,6 +820,7 @@ export default function ReuniaoResultados() {
         migracoesPorPlataforma: [],
         csatFunil: csatFunilAnterior ?? [],
         atendidoNaoResolvido: atendidoNaoResolvidoAnterior ?? [],
+        resolvidasApos24h: resolvidasApos24hAnterior ?? [],
       },
       csatPorAtendente: perfAtual ?? [],
       csatPorAtendenteDist: csatPorAtendenteDist ?? [],
@@ -853,6 +873,8 @@ export default function ReuniaoResultados() {
       csatFunilAnterior,
       atendidoNaoResolvidoAtual,
       atendidoNaoResolvidoAnterior,
+      resolvidasApos24hAtual,
+      resolvidasApos24hAnterior,
     ]
   );
 

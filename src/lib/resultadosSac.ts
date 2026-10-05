@@ -16,6 +16,7 @@ import type {
   MigracaoPorPlataforma,
   CsatFunilCanal,
   AtendidoNaoResolvido,
+  ResolvidasApos24h,
 } from "@/services/api";
 
 export interface NpsResumo {
@@ -62,6 +63,8 @@ export interface ResultadosSacPeriodoData {
   // poucas avaliações"); o "anterior" serve pros deltas.
   csatFunil: CsatFunilCanal[];
   atendidoNaoResolvido: AtendidoNaoResolvido[];
+  // Resolvidas após 24h e backlog +24h/+48h/+72h das conversas do período.
+  resolvidasApos24h: ResolvidasApos24h[];
 }
 
 // Dado que o Hub não captura (Reclame Aqui, RA XGROW) — sempre texto
@@ -137,7 +140,7 @@ export function periodoVazio(): ResultadosSacPeriodoData {
     contagem: null, percentis: null, tipoCliente: [], rankingHumano: [], csat: null,
     csatPorTipoCliente: [], reabertura: null, relogioEspera: null, horasExpedienteMin: null,
     tempoRespostaBot: null, npsResumo: null, migracoes: null, migracoesPorPlataforma: [],
-    csatFunil: [], atendidoNaoResolvido: [],
+    csatFunil: [], atendidoNaoResolvido: [], resolvidasApos24h: [],
   };
 }
 
@@ -269,14 +272,25 @@ export function taxaResposta(r: CsatFunilCanal | undefined): number | null {
 
 // Linhas do funil (canais, maior volume primeiro, até 4) + linha Total,
 // cada uma já com a taxa e o delta em p.p. contra o período anterior.
-export function linhasFunil(atual: CsatFunilCanal[], anterior: CsatFunilCanal[]) {
+export function linhasFunil(atual: CsatFunilCanal[], anterior: CsatFunilCanal[], apos24: ResolvidasApos24h[] = []) {
   const canais = [...atual].sort((a, b) => b.conversas - a.conversas).slice(0, 4);
   const total = somarFunil(atual);
   const totalAnt = anterior.length > 0 ? somarFunil(anterior) : undefined;
+  // Resolvidas que levaram mais de 24h (horas corridas) por canal; o Total
+  // soma todos os canais, inclusive os que ficaram fora do top 4.
+  const apos24Total = apos24.reduce((t, r) => t + r.apos_24h, 0);
   return [...canais, total].map((r) => {
     const prev = r.canal === "Total" ? totalAnt : anterior.find((p) => p.canal === r.canal);
     const taxa = taxaResposta(r);
-    return { ...r, total: r.canal === "Total", taxa, delta: deltaPontos(taxa, taxaResposta(prev), false) };
+    const apos24Canal = r.canal === "Total" ? apos24Total : apos24.find((a) => a.canal === r.canal)?.apos_24h ?? 0;
+    return {
+      ...r,
+      total: r.canal === "Total",
+      taxa,
+      delta: deltaPontos(taxa, taxaResposta(prev), false),
+      apos24: apos24.length > 0 ? apos24Canal : null,
+      apos24Pct: apos24.length > 0 && r.resolvidas > 0 ? (apos24Canal / r.resolvidas) * 100 : null,
+    };
   });
 }
 
@@ -293,5 +307,31 @@ export function resumoAtendido(atual: AtendidoNaoResolvido[], anterior: Atendido
     parados,
     paradosPct: abertos > 0 ? (parados / abertos) * 100 : null,
     deltaAbertos: humanosAnt.length > 0 ? deltaPercentual(abertos, abertosAnt, true) : undefined,
+  };
+}
+
+// Soma dos canais: resolvidos por janela de tempo até a resolução (até 24h /
+// 24–48h / 48–72h / +72h), cada uma com % sobre os resolvidos do período.
+export function resumoApos24h(atual: ResolvidasApos24h[]) {
+  const t = atual.reduce(
+    (acc, r) => ({
+      resolvidas: acc.resolvidas + r.resolvidas,
+      apos_24h: acc.apos_24h + r.apos_24h,
+      ate_24h: acc.ate_24h + r.ate_24h,
+      de_24_48h: acc.de_24_48h + r.de_24_48h,
+      de_48_72h: acc.de_48_72h + r.de_48_72h,
+      mais_72h: acc.mais_72h + r.mais_72h,
+    }),
+    { resolvidas: 0, apos_24h: 0, ate_24h: 0, de_24_48h: 0, de_48_72h: 0, mais_72h: 0 }
+  );
+  const pct = (n: number) => (t.resolvidas > 0 ? (n / t.resolvidas) * 100 : null);
+  return {
+    ...t,
+    janelas: [
+      { label: "Até 24h", qtd: t.ate_24h, pct: pct(t.ate_24h) },
+      { label: "24h a 48h", qtd: t.de_24_48h, pct: pct(t.de_24_48h) },
+      { label: "48h a 72h", qtd: t.de_48_72h, pct: pct(t.de_48_72h) },
+      { label: "Mais de 72h", qtd: t.mais_72h, pct: pct(t.mais_72h) },
+    ],
   };
 }
