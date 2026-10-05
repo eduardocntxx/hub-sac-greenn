@@ -5919,3 +5919,18 @@ conversa (`started_at` via `crisp_id`; fallback `data_hora` para as 7 avaliaçõ
 Nathalia 12 → 9; CSAT médio geral 4,13. Backup das definições antigas em `_bkp_funcoes_csat_2026_10_05` e rollback no
 arquivo `_rollback.sql`. SDR segue só filtrado nas tabelas por tipo do relatório (decisão: deixar assim por enquanto).
 Relatório Semanal mantém o rótulo "quarta a quarta" ("23/09 a 30/09" = até terça 29/09).
+
+### 2026-10-05 — Pesquisa de CSAT não saía em conversa reaberta (gatilho em csat_pending)
+
+Caso `session_546c3344...` (resolvida em 05/10, pesquisa só saiu por envio manual): a conversa já tinha uma linha em
+`csat_pending` de 03/09 (pesquisa não respondida, `respondido = false`). O workflow "Widget CSAT | Edu DEF" grava
+com `on_conflict=session_id` + ignore-duplicates, então `Criou Pending Agora?` dava falso e nada era enviado; o
+"Resetar CSAT Pending (Reabertura)" só apaga quando `respondido = true`. O envio manual usa merge-duplicates e por
+isso sempre envia. Impacto em 05/10: 451 conversas bloqueadas (pesquisa antiga não respondida + reabertura real),
+255 já resolvidas de novo sem pesquisa nova (230 desde 26/09); também inflava "enviadas" no funil. Correção só no
+banco: `trg_csat_pending_substitui_antigo` (BEFORE INSERT em `csat_pending`) apaga a linha existente de ciclo
+anterior (`created_at < current_started_at - 1 min`) antes da checagem de conflito; linha do ciclo atual segue
+bloqueando (o fluxo resolve várias vezes durante a pesquisa, sem loop). Testado em transação com rollback (antigo
+insere, ciclo atual ignora, sessão nova insere). Sem limpeza em massa: as linhas antigas são trocadas na próxima
+resolução; as 255 já resolvidas não recebem pesquisa retroativa. SQL/rollback em
+`supabase/sql/2026-10-05_csat_pending_ciclo_novo*.sql`. n8n sem alteração.

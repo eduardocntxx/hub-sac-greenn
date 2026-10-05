@@ -264,7 +264,9 @@ geração automática de tipos configurada). Tabelas principais, por domínio:
   `operator_crisp_id` distintos) — ver `docs/HISTORICO.md`, fix de 2026-08-17.
 - `csat_pending` — uma linha por conversa que já recebeu a pesquisa do
   Widget CSAT; enquanto existir, a conversa não recebe pesquisa nova. O n8n
-  apaga numa reabertura real. **Não usar `respondido` pra medir resposta**
+  apaga numa reabertura real **só se já foi respondida**; desde 2026-10-05 o gatilho `trg_csat_pending_substitui_antigo`
+  (BEFORE INSERT) troca a linha de um ciclo anterior (criada antes de `current_started_at`) quando a nova pesquisa é criada,
+  então conversa reaberta e resolvida de novo volta a receber pesquisa. **Não usar `respondido` pra medir resposta**
   (ver `docs/HISTORICO.md`, 2026-09-24 e 2026-09-25).
 - `crisp_ratings`, `nps_followups`, view `analytics_sac` — **schema
   paralelo, reservado, com 0 linhas** (ver decisão arquitetural na seção
