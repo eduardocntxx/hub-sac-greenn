@@ -1061,6 +1061,36 @@ export async function fetchCsatEnviosPorAtendente(inicio: Date, fim: Date): Prom
   }));
 }
 
+export interface ResolvidasApos24h {
+  canal: string;
+  resolvidas: number;
+  apos_24h: number;
+  ate_24h: number;
+  de_24_48h: number;
+  de_48_72h: number;
+  mais_72h: number;
+}
+
+// Conversas iniciadas no período e já resolvidas, por canal: quantas levaram
+// mais de 24h (horas corridas, início → resolução) e a distribuição por janela
+// (até 24h / 24–48h / 48–72h / +72h). Admin-only.
+export async function fetchResolvidasApos24h(inicio: Date, fim: Date): Promise<ResolvidasApos24h[]> {
+  const { data, error } = await client().rpc("resolvidas_apos_24h", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return ((data ?? []) as ResolvidasApos24h[]).map((r) => ({
+    canal: r.canal,
+    resolvidas: Number(r.resolvidas),
+    apos_24h: Number(r.apos_24h),
+    ate_24h: Number(r.ate_24h),
+    de_24_48h: Number(r.de_24_48h),
+    de_48_72h: Number(r.de_48_72h),
+    mais_72h: Number(r.mais_72h),
+  }));
+}
+
 export interface AtendidoNaoResolvido {
   atendente: string;
   abertos: number;

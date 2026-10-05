@@ -264,7 +264,9 @@ geração automática de tipos configurada). Tabelas principais, por domínio:
   `operator_crisp_id` distintos) — ver `docs/HISTORICO.md`, fix de 2026-08-17.
 - `csat_pending` — uma linha por conversa que já recebeu a pesquisa do
   Widget CSAT; enquanto existir, a conversa não recebe pesquisa nova. O n8n
-  apaga numa reabertura real. **Não usar `respondido` pra medir resposta**
+  apaga numa reabertura real **só se já foi respondida**; desde 2026-10-05 o gatilho `trg_csat_pending_substitui_antigo`
+  (BEFORE INSERT) troca a linha de um ciclo anterior (criada antes de `current_started_at`) quando a nova pesquisa é criada,
+  então conversa reaberta e resolvida de novo volta a receber pesquisa. **Não usar `respondido` pra medir resposta**
   (ver `docs/HISTORICO.md`, 2026-09-24 e 2026-09-25).
 - `crisp_ratings`, `nps_followups`, view `analytics_sac` — **schema
   paralelo, reservado, com 0 linhas** (ver decisão arquitetural na seção
@@ -508,6 +510,17 @@ conversas (avaliadas ou não).
   seguinte, pulando mensagens do bot.
 - **Transferências**: só handoff humano ↔ humano; ignorar
   `previous_operator_crisp_id = ''` (1ª atribuição) e as contas de bot.
+- **Período do CSAT = período do chamado (2026-10-05).** Avaliação, pesquisa enviada e funil pertencem ao período da
+  conversa em que nasceram (`crisp_conversations.started_at`, via `csat_results.crisp_id`), não ao dia da avaliação
+  nem do disparo: chamado de 04/09 avaliado em outubro é CSAT de setembro. O funil (`csat_funil_canal`),
+  `csat_envios_por_atendente` e `resolvidas_apos_24h` contam conversas que **nasceram** no período (mesma base do card
+  "Total de conversas"); as 10 funções de nota (`csat_distribuicao_*`, `atendente_csat_distribuicao`,
+  `_atendente_performance_base`, `_dashboard_atendimento_summary_base`, `csat_ruins_periodo`, `conversas_nota_baixa`,
+  `operador_ranking`, `_analytics_*`) usam `coalesce(started_at da conversa, data_hora)`. Nova função de CSAT: seguir
+  a mesma regra. Resolução em massa de conversas antigas (ex.: 28/09/2026) dispara pesquisa para elas, mas conta na
+  semana em que nasceram. Backup das definições antigas: `_bkp_funcoes_csat_2026_10_05`.
+- **Relatório semanal**: "23/09 a 30/09" = quarta a terça (23/09 00:00 a 29/09 23:59:59; a quarta final fica fora e abre a
+  semana seguinte). O modo Personalizado inclui o último dia inteiro (8 dias).
 - **CSAT**: classificar sempre pela `nota` (4–5 boa/Promotor, 1–3
   ruim/Detrator, não existe neutro) via `classificacaoPorNota()`. Nunca
   confiar em `classificacao_csat` (texto cru, vocabulário inconsistente).

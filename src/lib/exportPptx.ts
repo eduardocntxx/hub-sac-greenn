@@ -9,6 +9,7 @@ import {
   deltaPercentual,
   deltaPontos,
   linhasFunil,
+  resumoApos24h,
   resumoAtendido,
   nomeCanal,
   textosPeriodo,
@@ -195,6 +196,8 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
   const P = data.anterior;
   const M = data.manual;
 
+  const DY_CONTEUDO = 0.4;
+
   function slideBase(titulo: string, subtitulo?: string) {
     const slide = pptx.addSlide();
     slide.background = { color: COR.bg };
@@ -208,15 +211,26 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
     // aqui nem se contradiz com o resto do material.
     slide.addShape("rect", { x: 0, y: 0, w: 13.333, h: 0.12, fill: { color: COR.mint }, line: { type: "none" } });
     slide.addText(titulo.toUpperCase(), {
-      x: MX, y: 0.35, w: 9.6, h: 0.75, fontSize: 30, bold: true, color: COR.mint, fontFace: FONT_DISPLAY, valign: "middle", charSpacing: 0.3,
+      x: MX, y: 0.3, w: 9.6, h: 0.6, fontSize: 22, bold: true, color: COR.mint, fontFace: FONT_DISPLAY, valign: "middle", charSpacing: 0.3,
     });
-    if (subtitulo) {
-      slide.addText(subtitulo, { x: MX, y: 1.1, w: 10.3, h: 0.28, fontSize: 10.5, color: COR.inkSoft, fontFace: FONT_BODY });
-    }
-    seloGreenn(slide, 12.72, 0.62, 0.62);
+    // Subtítulo descritivo removido (pedido do usuário, 2026-10-02): o título basta.
+    void subtitulo;
+    seloGreenn(slide, 12.72, 0.55, 0.5);
     slide.addText(data.semComparacao ? `${data.periodoAtualLabel}  ·  sem comparação (${TP.anterior} sem dados)` : `${data.periodoAtualLabel}  ·  comparado a ${data.periodoAnteriorLabel}`, {
       x: MX, y: 7.1, w: CW, h: 0.3, fontSize: 9, color: COR.inkFraco, fontFace: FONT_BODY,
     });
+    // Padroniza o início do conteúdo: os slides foram desenhados com o topo em
+    // ~1,5in (quando havia subtítulo); sem subtítulo sobrava um vão grande entre o
+    // título e os dados. Tudo que é adicionado depois do cabeçalho sobe DY_CONTEUDO.
+    const sobe = <T extends { y?: number }>(o: T): T => (o && typeof o.y === "number" ? { ...o, y: o.y - DY_CONTEUDO } : o);
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const s: any = slide;
+    const addText = s.addText.bind(slide), addShape = s.addShape.bind(slide), addTable = s.addTable.bind(slide), addChart = s.addChart.bind(slide);
+    s.addText = (t: unknown, o: any) => addText(t, sobe(o));
+    s.addShape = (f: unknown, o: any) => addShape(f, sobe(o));
+    s.addTable = (r: unknown, o: any) => addTable(r, sobe(o));
+    s.addChart = (t: unknown, d: unknown, o: any) => addChart(t, d, sobe(o));
+    /* eslint-enable @typescript-eslint/no-explicit-any */
     return slide;
   }
 
@@ -298,7 +312,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
     const n = cards.length;
     const gap = 0.3;
     const w = (CW - gap * (n - 1)) / n;
-    const y = 2.1;
+    const y = 1.5;
     const h = 2.3;
     cards.forEach((card, i) => metricCard(slide, MX + i * (w + gap), y, w, h, card));
     if (notaRodape) {
@@ -410,6 +424,41 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
     ]);
   }
 
+  // ---------- Reabertura e Bot ----------
+  // Não cabem em "Crisp — Chamados" (já tem 6 cards + fileira de tipos de
+  // cliente), então dividem um slide só: reabertura em cima, bot embaixo.
+  // O backlog +24/48/72h mora no Funil de CSAT.
+  {
+    const slide = slideBase("Reabertura e Bot");
+    const bot = data.csatPorAtendente.find((c) => c.operator_nome === NOME_BOT);
+    const botDist = data.csatPorAtendenteDist.find((d) => d.atendente === NOME_BOT);
+    const gap = 0.3;
+    const h = 2.0;
+    const rotulo = (texto: string, y: number) =>
+      slide.addText(texto, { x: MX, y, w: CW, h: 0.28, fontSize: 10, bold: true, color: COR.inkSoft, charSpacing: 0.5, fontFace: FONT_BODY });
+    const linha = (y: number, cards: CardInfo[]) => {
+      const w = (CW - gap * (cards.length - 1)) / cards.length;
+      cards.forEach((card, i) => metricCard(slide, MX + i * (w + gap), y, w, h, card));
+    };
+    rotulo("REABERTURA", 1.5);
+    linha(1.8, [
+      { label: "Reabertura (chamados)", valor: fmtPct1(taxaReaberturaChamados(A)), delta: deltaPontos(taxaReaberturaChamados(A), taxaReaberturaChamados(P), true), nota: A.reabertura && A.contagem ? `${fmtNum(A.reabertura.total_eventos)} de ${fmtNum(A.contagem.total_chamados)} chamados` : undefined },
+      { label: "Reabertura (conversas)", valor: fmtPct1(A.reabertura?.taxa_pct), delta: deltaPontos(A.reabertura?.taxa_pct, P.reabertura?.taxa_pct, true), nota: A.reabertura ? `${fmtNum(A.reabertura.total_reabertos)} de ${fmtNum(A.reabertura.total_resolvidos)} conversas resolvidas` : undefined },
+    ]);
+    rotulo("BOT (IA GREENN)", 4.1);
+    linha(4.4, [
+      { label: "Chamados", valor: fmtNum(bot?.total_atendimentos) },
+      { label: "CSAT médio", valor: bot?.csat_medio != null ? bot.csat_medio.toFixed(2).replace(".", ",") : "—", nota: bot ? `${bot.total_avaliacoes} avaliações` : undefined },
+      { label: "Tempo de resposta (mediana)", valor: formatDuration(A.tempoRespostaBot?.tempo_medio_seg ?? null), delta: deltaPercentual(A.tempoRespostaBot?.tempo_medio_seg, P.tempoRespostaBot?.tempo_medio_seg, true, formatDuration), nota: A.tempoRespostaBot ? `${fmtNum(A.tempoRespostaBot.amostras)} respostas do bot no período` : undefined },
+    ]);
+    if (botDist && botDist.total > 0) {
+      slide.addText(
+        `${botDist.total} avaliações do bot — ${botDist.boas} boa(s) (4–5), ${botDist.ruins} ruim(ns) (1–3)`,
+        { x: MX, y: 6.6, w: CW, h: 0.35, fontSize: 11, color: COR.inkSoft, fontFace: FONT_BODY }
+      );
+    }
+  }
+
   // ---------- Velocidade (por tipo de cliente, dinâmico — inclui "Sem tipo") ----------
   // Tabela, não cards: são 4 números por métrica (média útil, mediana
   // útil, média corrida, mediana corrida) × TFR e TTR = denso demais pra
@@ -424,6 +473,8 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
       const th = (text: string, align?: "left" | "right") => ({
         text, options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10.5, align: align ?? ("right" as const), fontFace: FONT_BODY },
       });
+      // Sem segundos quando já há unidade maior ("1d 1h 6min 47s" → "1d 1h 6min"): evita quebra de linha nas colunas "corrido".
+      const dur = (v: number | null) => formatDuration(v).replace(/^(.*[a-z]) \d+s$/, "$1");
       const linhasTabela: PptxGenJS.TableRow[] = [
         [
           th("Tipo", "left"), th("Chamados"),
@@ -433,17 +484,17 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
         ...tipos.map((t, i) => {
           const zebra = i % 2 === 1 ? COR.cardBg2 : COR.cardBg;
           const td = (text: string, align?: "left" | "right") => ({
-            text, options: { color: COR.ink, fontSize: 10.5, align: align ?? ("right" as const), fill: { color: zebra }, fontFace: FONT_BODY },
+            text, options: { color: COR.ink, fontSize: 9.5, align: align ?? ("right" as const), fill: { color: zebra }, fontFace: FONT_BODY },
           });
           return [
-            { text: tituloTipo(t.tipo_cliente), options: { color: COR.mint, bold: true, fontSize: 11, fill: { color: zebra }, fontFace: FONT_BODY } },
+            { text: tituloTipo(t.tipo_cliente), options: { color: COR.mint, bold: true, fontSize: 10, fill: { color: zebra }, fontFace: FONT_BODY } },
             td(fmtNum(t.chamados)),
-            td(formatDuration(t.tfr_media_uteis_seg)),
-            td(formatDuration(t.tfr_p50_uteis_seg)),
-            td(`${formatDuration(t.tfr_media_corridas_seg)} / ${formatDuration(t.tfr_p50_corridas_seg)}`),
-            td(formatDuration(t.ttr_media_uteis_seg)),
-            td(formatDuration(t.ttr_p50_uteis_seg)),
-            td(`${formatDuration(t.ttr_media_corridas_seg)} / ${formatDuration(t.ttr_p50_corridas_seg)}`),
+            td(dur(t.tfr_media_uteis_seg)),
+            td(dur(t.tfr_p50_uteis_seg)),
+            td(`${dur(t.tfr_media_corridas_seg)} / ${dur(t.tfr_p50_corridas_seg)}`),
+            td(dur(t.ttr_media_uteis_seg)),
+            td(dur(t.ttr_p50_uteis_seg)),
+            td(`${dur(t.ttr_media_corridas_seg)} / ${dur(t.ttr_p50_corridas_seg)}`),
           ];
         }),
       ];
@@ -454,94 +505,82 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
       // fonte maior — folga validada gerando o pptx real e medindo a
       // altura verdadeira no XML antes de fechar (ver histórico do
       // commit). y=2.6, mantido do fix de espaço vazio de mais cedo hoje.
-      const yTabela = 2.6;
-      const rowH = [0.42, ...tipos.map(() => 0.62)];
+      const yTabela = 1.4;
+      // 5 tipos (Final, Produtor, Bluee, SDR, Sem tipo) + 2 tabelas Top 3 abaixo
+      // precisam caber em ~5,3in: linha mais baixa quanto mais tipos.
+      const hLinha = tipos.length <= 3 ? 0.48 : tipos.length <= 5 ? 0.42 : 0.34;
+      const rowH = [0.38, ...tipos.map(() => hLinha)];
       const alturaTabela = tabelaArredondada(
         slide, MX, yTabela, CW, linhasTabela,
-        [1.5, 1.0, 1.35, 1.4, 1.75, 1.35, 1.4, 1.75], rowH
+        [1.1, 0.95, 1.2, 1.3, 2.3, 1.2, 1.3, 2.3], rowH
       );
-      const y2 = yTabela + alturaTabela + 0.35;
-      slide.addText(
-        "\"Chamados\" conta todo mundo com a tag, respondido ou não — pode ser maior que a base real de TFR/TTR (só quem já tem resposta humana/resolução calculada). \"Mediana\" (p50) é o valor do meio — mais resistente a outlier do que a média (achado real: 1 chamado de dias sozinho já puxou uma média inteira). \"Corrido\" é o tempo de relógio cru, sem descontar fora do expediente — mostrado como média/mediana no mesmo formato.",
-        { x: MX, y: y2, w: CW, h: 0.6, fontSize: 9, color: COR.inkFraco, italic: true, fontFace: FONT_BODY }
-      );
+
+      // Os 3 piores TFR de cada grupo (Produtor / Cliente Final), lado a
+      // lado, no mesmo slide (antes era um slide só pra isso, com 2 tabelas
+      // de 5 linhas). Casos individuais, só nome do cliente. Mesma fonte do
+      // Overview (`atendimentos_com_metricas`, ordenar por TFR desc).
+      const gapT = 0.5;
+      const wT = (CW - gapT) / 2;
+      const yLabel = yTabela + alturaTabela + 0.4;
+      const yTop = yLabel + 0.52; // label (0,28) + respiro da moldura arredondada (0,16)
+      const thT = (text: string, align: "left" | "right" | "center" = "left") => ({
+        text, options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, align, fontFace: FONT_BODY },
+      });
+      const tabelaTop = (titulo: string, casos: typeof data.topTfrProdutor, x: number) => {
+        slide.addText(titulo.toUpperCase(), { x, y: yLabel, w: wT, h: 0.28, fontSize: 10, bold: true, color: COR.mint, charSpacing: 0.5, fontFace: FONT_BODY });
+        if (casos.length === 0) {
+          slide.addText("Sem casos no período.", { x, y: yTop, w: wT, h: 0.3, fontSize: 9, italic: true, color: COR.inkFraco, fontFace: FONT_BODY });
+          return;
+        }
+        const linhas: PptxGenJS.TableRow[] = [
+          [thT("Cliente"), thT("1ª resposta"), thT("TFR útil", "right"), thT("TFR corrido", "right"), thT("Link", "center")],
+          ...casos.map((c, i) => {
+            const zebra = i % 2 === 1 ? COR.cardBg2 : COR.cardBg;
+            return [
+              { text: c.cliente_nome || "—", options: { color: COR.ink, fontSize: 9, fill: { color: zebra }, fontFace: FONT_BODY } },
+              { text: fmtDataHora(c.primeira_resposta_humana_at), options: { color: COR.inkSoft, fontSize: 9, fill: { color: zebra }, fontFace: FONT_BODY } },
+              { text: dur(c.tempo_primeira_resposta_seg), options: { color: COR.mint, bold: true, fontSize: 9, align: "right" as const, fill: { color: zebra }, fontFace: FONT_BODY } },
+              { text: dur(tfrCorridoSeg(c.current_started_at, c.primeira_resposta_humana_at)), options: { color: COR.inkSoft, fontSize: 9, align: "right" as const, fill: { color: zebra }, fontFace: FONT_BODY } },
+              {
+                text: c.link_chamado ? "Ver ↗" : "—",
+                options: {
+                  color: c.link_chamado ? COR.mint : COR.inkFraco, fontSize: 9, align: "center" as const, fill: { color: zebra }, fontFace: FONT_BODY,
+                  hyperlink: c.link_chamado ? { url: c.link_chamado } : undefined,
+                },
+              },
+            ];
+          }),
+        ];
+        tabelaArredondada(slide, x, yTop, wT, linhas, [1.55, 1.1, 1.2, 1.2, 0.6], [0.28, ...casos.map(() => 0.32)]);
+      };
+      tabelaTop("Produtor — 7 maiores TFR", data.topTfrProdutor.slice(0, 7), MX);
+      tabelaTop("Cliente final — 7 maiores TFR", data.topTfrFinal.slice(0, 7), MX + wT + gapT);
+
     }
   }
 
-  // ---------- Top 5 — maiores tempos de 1ª resposta ----------
-  // Casos individuais (não agregado) — mesma função/critério já usado na
-  // aba Atendimentos do Overview (`atendimentos_com_metricas`, ordenar por
-  // "tfr" desc), sem RPC nova. Só nome do cliente (sem e-mail/telefone),
-  // por pedido explícito do usuário. Duas tabelas (Produtor / Cliente
-  // Final) no MESMO slide, uma embaixo da outra — um top 5 misto sempre
-  // saía dominado por Final (maioria via bot, TFR humano naturalmente
-  // mais longo, sem a mesma pressão de SLA que Produtor tem), escondendo
-  // os casos de Produtor; duas tabelas separadas resolvem isso sem
-  // precisar de um slide a mais (pedido explícito do usuário — "mesmo
-  // slide").
-  if (data.topTfrProdutor.length > 0 || data.topTfrFinal.length > 0) {
-    const slide = slideBase("Top 5 — Maiores tempos de 1ª resposta", "Os chamados que mais demoraram até a 1ª resposta humana no período.");
-    const colW = [1.9, 1.55, 1.55, 1.55, 1.25, 1.35, 1.15];
-    // Mesma moldura arredondada + zebra do resto do deck (pedido do
-    // usuário, 2026-09-22). rowH continua compacto (0,3) porque são 2
-    // tabelas empilhadas no mesmo slide — não dá pra aumentar tanto quanto
-    // a de Velocidade sem estourar o espaço disponível.
-    const tabelaTopTfr = (casos: typeof data.topTfrProdutor, y: number) => {
-      const linhas: PptxGenJS.TableRow[] = [
-        [
-          { text: "Cliente", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, fontFace: FONT_BODY } },
-          { text: "Abertura", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, fontFace: FONT_BODY } },
-          { text: "1ª resposta", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, fontFace: FONT_BODY } },
-          { text: "Fechamento", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, fontFace: FONT_BODY } },
-          { text: "TFR útil", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, align: "right", fontFace: FONT_BODY } },
-          { text: "TFR corrido", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, align: "right", fontFace: FONT_BODY } },
-          { text: "Chamado", options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 8.5, align: "center", fontFace: FONT_BODY } },
-        ],
-        ...casos.map((c, i) => {
-          const corrido = tfrCorridoSeg(c.current_started_at, c.primeira_resposta_humana_at);
-          const zebra = i % 2 === 1 ? COR.cardBg2 : COR.cardBg;
-          return [
-            { text: c.cliente_nome || "—", options: { color: COR.ink, fontSize: 8.5, fill: { color: zebra }, fontFace: FONT_BODY } },
-            { text: fmtDataHora(c.current_started_at), options: { color: COR.inkSoft, fontSize: 8, fill: { color: zebra }, fontFace: FONT_BODY } },
-            { text: fmtDataHora(c.primeira_resposta_humana_at), options: { color: COR.inkSoft, fontSize: 8, fill: { color: zebra }, fontFace: FONT_BODY } },
-            { text: fmtDataHora(c.resolved_at), options: { color: COR.inkSoft, fontSize: 8, fill: { color: zebra }, fontFace: FONT_BODY } },
-            { text: formatDuration(c.tempo_primeira_resposta_seg), options: { color: COR.mint, bold: true, fontSize: 8.5, align: "right" as const, fill: { color: zebra }, fontFace: FONT_BODY } },
-            { text: formatDuration(corrido), options: { color: COR.inkSoft, fontSize: 8, align: "right" as const, fill: { color: zebra }, fontFace: FONT_BODY } },
-            {
-              text: c.link_chamado ? "Ver ↗" : "—",
-              options: {
-                color: c.link_chamado ? COR.mint : COR.inkFraco, fontSize: 8, align: "center" as const, fill: { color: zebra }, fontFace: FONT_BODY,
-                hyperlink: c.link_chamado ? { url: c.link_chamado } : undefined,
-              },
-            },
-          ];
-        }),
-      ];
-      tabelaArredondada(slide, MX, y, CW, linhas, colW, [0.27, ...casos.map(() => 0.27)]);
-    };
-
-    // Offsets recalculados pra sobrar dos dois lados (subtítulo do banner
-    // novo termina em ~1,38in; cada moldura arredondada tem 0,16in de
-    // acolchoamento pra fora da tabela) — reconferido gerando o pptx real
-    // e medindo o XML antes de fechar.
-    slide.addText("PRODUTOR", { x: MX, y: 1.45, w: CW, h: 0.26, fontSize: 11, bold: true, color: COR.mint, charSpacing: 0.5, fontFace: FONT_BODY });
-    if (data.topTfrProdutor.length > 0) {
-      tabelaTopTfr(data.topTfrProdutor, 1.89);
-    } else {
-      slide.addText("Sem casos no período.", { x: MX, y: 1.89, w: CW, h: 0.3, fontSize: 9, italic: true, color: COR.inkFraco, fontFace: FONT_BODY });
-    }
-
-    slide.addText("CLIENTE FINAL", { x: MX, y: 3.82, w: CW, h: 0.26, fontSize: 11, bold: true, color: COR.mint, charSpacing: 0.5, fontFace: FONT_BODY });
-    if (data.topTfrFinal.length > 0) {
-      tabelaTopTfr(data.topTfrFinal, 4.26);
-    } else {
-      slide.addText("Sem casos no período.", { x: MX, y: 4.26, w: CW, h: 0.3, fontSize: 9, italic: true, color: COR.inkFraco, fontFace: FONT_BODY });
-    }
-
-    slide.addText(
-      `Mediana de TFR (horas úteis) no período: ${formatDuration(A.percentis?.tfr_p50 ?? null)} — referência pra comparar com os 5 casos de cada grupo acima, que são os piores, não o típico.`,
-      { x: MX, y: 6.19, w: CW, h: 0.4, fontSize: 8.5, color: COR.inkFraco, italic: true, fontFace: FONT_BODY }
-    );
+  // ---------- Ranking de atendentes ----------
+  if (A.rankingHumano.length > 0) {
+    const slide = slideBase("Ranking de atendentes", "Top 3 por volume, atendentes humanos.");
+    const y0 = 1.5;
+    A.rankingHumano.slice(0, 3).forEach((r, i) => {
+      const prev = P.rankingHumano.find((p) => p.operator_nome === r.operator_nome);
+      const delta = prev ? deltaPercentual(r.total_atendimentos, prev.total_atendimentos, false) : undefined;
+      // Média das notas (1–5), mesma régua da tabela "CSAT por atendente"
+      // — antes mostrava % de avaliações boas (4–5), o que gerava "100%"
+      // aqui e "4,50" lá pra mesma pessoa (pedido do usuário, 2026-09-24).
+      const csatAt = data.csatPorAtendente.find((c) => c.operator_nome === r.operator_nome);
+      const y = y0 + i * 1.1;
+      const destaque = i === 0;
+      slide.addShape("roundRect", { x: MX, y, w: CW, h: 0.9, rectRadius: 0.08, fill: { color: COR.cardBg }, line: { color: destaque ? COR.mint : COR.cardBorder, width: destaque ? 1.5 : 1 } });
+      slide.addText(`${i + 1}º`, { x: MX + 0.25, y, w: 0.9, h: 0.9, fontSize: 24, bold: true, color: destaque ? COR.mint : COR.inkFraco, valign: "middle", fontFace: FONT_DISPLAY });
+      slide.addText(r.operator_nome, { x: MX + 1.2, y, w: 5.3, h: 0.9, fontSize: 16, bold: true, color: COR.ink, valign: "middle", fontFace: FONT_BODY });
+      if (csatAt?.csat_medio != null) {
+        slide.addText(`CSAT ${csatAt.csat_medio.toFixed(2).replace(".", ",")} (${csatAt.total_avaliacoes} avaliações)`, { x: MX + 1.2, y: y + 0.5, w: 4.5, h: 0.35, fontSize: 10, color: COR.inkSoft, fontFace: FONT_BODY });
+      }
+      slide.addText(fmtNum(r.total_atendimentos), { x: CW + MX - 4.3, y, w: 2.2, h: 0.9, fontSize: 18, bold: true, color: COR.mint, align: "right", valign: "middle", fontFace: FONT_DISPLAY });
+      slide.addText(delta?.texto ?? "sem comparação", { x: CW + MX - 2.0, y, w: 1.9, h: 0.9, fontSize: 12, bold: true, color: corDelta(delta), align: "right", valign: "middle", fontFace: FONT_BODY });
+    });
   }
 
   // ---------- Avaliações (CSAT): geral + por tipo de cliente ----------
@@ -581,21 +620,21 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
     }
   }
 
-  // ---------- Por que temos poucas avaliações ----------
+  // ---------- Funil de CSAT ----------
   // Funil do CSAT por canal (esquerda) + conversas atendidas por humano que
   // continuam abertas (direita) — os dois num slide só, pedido do usuário
   // em 2026-09-24 pra não aumentar o número de páginas. A pesquisa só é
   // disparada na resolução: conversa atendida e não resolvida nunca recebe
   // pesquisa, e é aí que está o maior vazamento.
   {
-    const slide = slideBase("Por que temos poucas avaliações", "A pesquisa só sai quando a conversa é resolvida — e cada canal responde num ritmo diferente.");
+    const slide = slideBase("Funil de CSAT", "A pesquisa só sai quando a conversa é resolvida — e cada canal responde num ritmo diferente.");
     // Esquerda: funil por canal
-    const xL = MX, wL = 7.0;
-    slide.addText("FUNIL DO CSAT POR CANAL", { x: xL, y: 1.55, w: wL, h: 0.28, fontSize: 10, bold: true, color: COR.inkSoft, charSpacing: 0.5, fontFace: FONT_BODY });
-    const funil = linhasFunil(A.csatFunil, P.csatFunil);
-    const cab = (t: string, alinhar: "left" | "right" = "right") => ({ text: t, options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 10, align: alinhar, fontFace: FONT_BODY } });
+    const xL = MX, wL = 7.8;
+    slide.addText("FUNIL DO CSAT POR CANAL", { x: xL, y: 1.5, w: wL, h: 0.28, fontSize: 10, bold: true, color: COR.inkSoft, charSpacing: 0.5, fontFace: FONT_BODY });
+    const funil = linhasFunil(A.csatFunil, P.csatFunil, A.resolvidasApos24h);
+    const cab = (t: string, alinhar: "left" | "right" = "right") => ({ text: t, options: { bold: true, color: COR.bg, fill: { color: COR.mint }, fontSize: 9, align: alinhar, fontFace: FONT_BODY } });
     const linhasTabelaFunil: PptxGenJS.TableRow[] = [
-      [cab("Canal", "left"), cab("Conversas"), cab("Resolvidas"), cab("Pesquisa enviada"), cab("Respondidas"), cab("Taxa de resposta")],
+      [cab("Canal", "left"), cab("Conversas"), cab("Resolvidas"), cab("Resolvidas após 24h"), cab("Pesquisa enviada"), cab("Respondidas"), cab("Taxa de resposta")],
       ...funil.map((r, i) => {
         const zebra = r.total || i % 2 === 1 ? COR.cardBg2 : COR.cardBg;
         const cel = (t: string) => ({ text: t, options: { color: r.total ? COR.ink : COR.inkSoft, bold: r.total, fontSize: 11, align: "right" as const, fill: { color: zebra }, fontFace: FONT_BODY } });
@@ -603,6 +642,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
           { text: nomeCanal(r.canal), options: { color: COR.ink, bold: true, fontSize: 11, fill: { color: zebra }, fontFace: FONT_BODY } },
           cel(fmtNum(r.conversas)),
           cel(fmtNum(r.resolvidas)),
+          cel(r.apos24 != null ? `${fmtNum(r.apos24)}${r.apos24Pct != null ? ` (${fmtPct1(r.apos24Pct)})` : ""}` : "—"),
           cel(fmtNum(r.enviadas)),
           cel(fmtNum(r.respondidas)),
           {
@@ -615,7 +655,19 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
         ];
       }),
     ];
-    tabelaArredondada(slide, xL, 2.0, wL, linhasTabelaFunil, [1.2, 1.1, 1.1, 1.3, 1.1, 1.5], [0.42, ...funil.map(() => 0.62)]);
+    tabelaArredondada(slide, xL, 1.95, wL, linhasTabelaFunil, [1.3, 1.05, 1.05, 1.45, 1.1, 1.1, 1.2], [0.42, ...funil.map(() => 0.5)]);
+
+    // Chamados fechados por janela de tempo (início → resolução, horas corridas), embaixo do funil.
+    const apos24 = resumoApos24h(A.resolvidasApos24h);
+    slide.addText("CHAMADOS FECHADOS POR JANELA DE TEMPO", { x: xL, y: 5.2, w: wL, h: 0.28, fontSize: 10, bold: true, color: COR.inkSoft, charSpacing: 0.5, fontFace: FONT_BODY });
+    const miniL = (wL - 0.45) / 4;
+    apos24.janelas.forEach((m, i) => {
+      const x = xL + i * (miniL + 0.15);
+      slide.addShape("roundRect", { x, y: 5.55, w: miniL, h: 0.9, rectRadius: 0.1, fill: { color: COR.cardBg }, line: { color: COR.cardBorder, width: 1 } });
+      slide.addText(m.label.toUpperCase(), { x: x + 0.12, y: 5.6, w: miniL - 0.24, h: 0.22, fontSize: 7.5, bold: true, color: COR.inkSoft, fontFace: FONT_BODY });
+      slide.addText(fmtPct1(m.pct), { x: x + 0.12, y: 5.82, w: miniL - 0.24, h: 0.36, fontSize: 18, bold: true, color: i === 0 ? COR.mint : COR.rust, fontFace: FONT_DISPLAY });
+      slide.addText(`${fmtNum(m.qtd)} chamados`, { x: x + 0.12, y: 6.18, w: miniL - 0.24, h: 0.22, fontSize: 8, color: COR.inkSoft, fontFace: FONT_BODY });
+    });
 
     // Direita: atendido e não resolvido
     const xR = MX + wL + 0.45, wR = CW - wL - 0.45;
@@ -691,7 +743,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
           ];
         }),
       ];
-      const alturaTabela = tabelaArredondada(slide, MX, 1.9, CW, linhasTabela, [3.2, 1.2, 1.2, 1.2, 1.7, 1.4, 1.6], [0.4, ...linhas.map(() => 0.36)]);
+      const alturaTabela = tabelaArredondada(slide, MX, 1.6, CW, linhasTabela, [3.2, 1.2, 1.2, 1.2, 1.7, 1.4, 1.6], [0.4, ...linhas.map(() => 0.36)]);
       // Pesquisas enviadas = `csat_pending` criado no período (dono da
       // conversa na hora do envio); respondidas = dessas, as que têm
       // avaliação. Não soma igual a "Avaliações", que conta avaliação
@@ -705,59 +757,10 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
         "\"Avaliações\" = avaliações recebidas no período. \"Pesquisas enviadas\" = pesquisas disparadas no período, atribuídas a quem estava com a conversa no envio; \"Respondidas\" = dessas, quantas voltaram com nota. Os dois recortes não somam igual." +
           (semAtendente > 0 ? ` ${fmtNum(semAtendente)} avaliação(ões) do período sem atendente identificado no atendimento não aparecem aqui.` : "") +
           (linhas.length < data.csatPorAtendente.filter((c) => c.csat_medio !== null).length ? " Mostrando os 10 com maior nota." : ""),
-        { x: MX, y: 1.9 + alturaTabela + 0.3, w: CW, h: 0.5, fontSize: 9.5, color: COR.inkFraco, italic: true, fontFace: FONT_BODY }
+        { x: MX, y: 1.6 + alturaTabela + 0.3, w: CW, h: 0.5, fontSize: 9.5, color: COR.inkFraco, italic: true, fontFace: FONT_BODY }
       );
     }
   }
-
-  // ---------- Bot (IA Greenn) ----------
-  {
-    const bot = data.csatPorAtendente.find((c) => c.operator_nome === NOME_BOT);
-    const botDist = data.csatPorAtendenteDist.find((d) => d.atendente === NOME_BOT);
-    const slide = metricasSlide("Bot (IA Greenn)", "Triagem automática — separado do ranking humano.", [
-      { label: "Chamados", valor: fmtNum(bot?.total_atendimentos) },
-      { label: "CSAT médio", valor: bot?.csat_medio != null ? bot.csat_medio.toFixed(2).replace(".", ",") : "—", nota: bot ? `${bot.total_avaliacoes} avaliações` : undefined },
-      { label: "Tempo de resposta (mediana)", valor: formatDuration(A.tempoRespostaBot?.tempo_medio_seg ?? null), delta: deltaPercentual(A.tempoRespostaBot?.tempo_medio_seg, P.tempoRespostaBot?.tempo_medio_seg, true, formatDuration), nota: A.tempoRespostaBot ? `${fmtNum(A.tempoRespostaBot.amostras)} respostas do bot no período` : undefined },
-    ]);
-    if (botDist && botDist.total > 0) {
-      slide.addText(
-        `${botDist.total} avaliações — ${botDist.boas} boa(s) (4–5), ${botDist.ruins} ruim(ns) (1–3)`,
-        { x: MX, y: 4.7, w: CW, h: 0.35, fontSize: 11, color: COR.inkSoft, fontFace: FONT_BODY }
-      );
-    }
-  }
-
-  // ---------- Ranking de atendentes ----------
-  if (A.rankingHumano.length > 0) {
-    const slide = slideBase("Ranking de atendentes", "Top 3 por volume, atendentes humanos.");
-    const y0 = 2.2;
-    A.rankingHumano.slice(0, 3).forEach((r, i) => {
-      const prev = P.rankingHumano.find((p) => p.operator_nome === r.operator_nome);
-      const delta = prev ? deltaPercentual(r.total_atendimentos, prev.total_atendimentos, false) : undefined;
-      // Média das notas (1–5), mesma régua da tabela "CSAT por atendente"
-      // — antes mostrava % de avaliações boas (4–5), o que gerava "100%"
-      // aqui e "4,50" lá pra mesma pessoa (pedido do usuário, 2026-09-24).
-      const csatAt = data.csatPorAtendente.find((c) => c.operator_nome === r.operator_nome);
-      const y = y0 + i * 1.1;
-      const destaque = i === 0;
-      slide.addShape("roundRect", { x: MX, y, w: CW, h: 0.9, rectRadius: 0.08, fill: { color: COR.cardBg }, line: { color: destaque ? COR.mint : COR.cardBorder, width: destaque ? 1.5 : 1 } });
-      slide.addText(`${i + 1}º`, { x: MX + 0.25, y, w: 0.9, h: 0.9, fontSize: 24, bold: true, color: destaque ? COR.mint : COR.inkFraco, valign: "middle", fontFace: FONT_DISPLAY });
-      slide.addText(r.operator_nome, { x: MX + 1.2, y, w: 5.3, h: 0.9, fontSize: 16, bold: true, color: COR.ink, valign: "middle", fontFace: FONT_BODY });
-      if (csatAt?.csat_medio != null) {
-        slide.addText(`CSAT ${csatAt.csat_medio.toFixed(2).replace(".", ",")} (${csatAt.total_avaliacoes} avaliações)`, { x: MX + 1.2, y: y + 0.5, w: 4.5, h: 0.35, fontSize: 10, color: COR.inkSoft, fontFace: FONT_BODY });
-      }
-      slide.addText(fmtNum(r.total_atendimentos), { x: CW + MX - 4.3, y, w: 2.2, h: 0.9, fontSize: 18, bold: true, color: COR.mint, align: "right", valign: "middle", fontFace: FONT_DISPLAY });
-      slide.addText(delta?.texto ?? "sem comparação", { x: CW + MX - 2.0, y, w: 1.9, h: 0.9, fontSize: 12, bold: true, color: corDelta(delta), align: "right", valign: "middle", fontFace: FONT_BODY });
-    });
-  }
-
-  // ---------- Reabertura ----------
-  metricasSlide("Reabertura", "Cliente que voltou numa conversa já resolvida.", [
-    { label: "Reabertura (chamados)", valor: fmtPct1(taxaReaberturaChamados(A)), delta: deltaPontos(taxaReaberturaChamados(A), taxaReaberturaChamados(P), true), nota: A.reabertura && A.contagem ? `${fmtNum(A.reabertura.total_eventos)} de ${fmtNum(A.contagem.total_chamados)} chamados` : undefined },
-    { label: "Reabertura (conversas)", valor: fmtPct1(A.reabertura?.taxa_pct), delta: deltaPontos(A.reabertura?.taxa_pct, P.reabertura?.taxa_pct, true), nota: A.reabertura ? `${fmtNum(A.reabertura.total_reabertos)} de ${fmtNum(A.reabertura.total_resolvidos)} conversas resolvidas` : undefined },
-    { label: "Conversas reabertas", valor: fmtNum(A.reabertura?.total_reabertos), delta: deltaPercentual(A.reabertura?.total_reabertos, P.reabertura?.total_reabertos, true) },
-    { label: "Chamados de reabertura", valor: fmtNum(A.reabertura?.total_eventos), delta: deltaPercentual(A.reabertura?.total_eventos, P.reabertura?.total_eventos, true), nota: "Uma conversa pode reabrir mais de uma vez" },
-  ]);
 
   // ---------- NPS (números reais de nps_responses; "temas" continua manual) ----------
   {
@@ -768,8 +771,8 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
       { label: "Detratores", valor: fmtNum(A.npsResumo?.detratores), delta: deltaPercentual(A.npsResumo?.detratores, P.npsResumo?.detratores, true) },
     ]);
     if (M?.nps.temas) {
-      slide.addText("Temas mais abordados", { x: MX, y: 4.7, w: CW, h: 0.35, fontSize: 13, bold: true, color: COR.ink, fontFace: FONT_BODY });
-      slide.addText(M.nps.temas, { x: MX, y: 5.1, w: CW, h: 1.7, fontSize: 11, color: COR.inkSoft, fontFace: FONT_BODY, valign: "top" });
+      slide.addText("Temas mais abordados", { x: MX, y: 4.1, w: CW, h: 0.35, fontSize: 13, bold: true, color: COR.ink, fontFace: FONT_BODY });
+      slide.addText(M.nps.temas, { x: MX, y: 4.5, w: CW, h: 1.7, fontSize: 11, color: COR.inkSoft, fontFace: FONT_BODY, valign: "top" });
     }
   }
 
@@ -787,7 +790,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
     ]);
     const porPlataforma = data.atual.migracoesPorPlataforma.slice(0, 6);
     if (porPlataforma.length > 0) {
-      const y0 = 4.75;
+      const y0 = 4.15;
       slide.addText("POR PLATAFORMA (TOP 6)", { x: MX, y: y0, w: CW, h: 0.3, fontSize: 10, bold: true, color: COR.inkSoft, charSpacing: 0.5, fontFace: FONT_BODY });
       const gap = 0.25;
       const w = (CW - gap * (porPlataforma.length - 1)) / porPlataforma.length;
@@ -806,7 +809,7 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
     if (A.migracoes) {
       slide.addText(
         `SLA: ${fmtNum(A.migracoes.sla_ok)} dentro do prazo  ·  ${fmtNum(A.migracoes.sla_risco)} em risco  ·  ${fmtNum(A.migracoes.sla_atrasado)} atrasados`,
-        { x: MX, y: 6.35, w: CW, h: 0.4, fontSize: 10.5, bold: true, color: A.migracoes.sla_atrasado > 0 ? COR.rust : COR.inkSoft, fontFace: FONT_BODY }
+        { x: MX, y: 5.75, w: CW, h: 0.4, fontSize: 10.5, bold: true, color: A.migracoes.sla_atrasado > 0 ? COR.rust : COR.inkSoft, fontFace: FONT_BODY }
       );
     }
   }
@@ -820,8 +823,8 @@ export async function exportResultadosSacToPptx(data: ResultadosSacData, tema: T
       { label: "Total de reclamações", valor: ra?.totalReclamacoes || "—", nota: ra?.deltaPct ? `${ra.deltaPct} vs. ${TP.anterior}` : undefined },
     ], preenchido ? undefined : `Sem dado preenchido ${TP.neste} — nada foi estimado.`);
     if (ra?.produtorDestaque) {
-      slide.addText("Produtor destaque", { x: MX, y: 4.7, w: CW, h: 0.35, fontSize: 13, bold: true, color: COR.ink, fontFace: FONT_BODY });
-      slide.addText(ra.produtorDestaque, { x: MX, y: 5.1, w: CW, h: 1.6, fontSize: 11, color: COR.inkSoft, fontFace: FONT_BODY, valign: "top" });
+      slide.addText("Produtor destaque", { x: MX, y: 4.1, w: CW, h: 0.35, fontSize: 13, bold: true, color: COR.ink, fontFace: FONT_BODY });
+      slide.addText(ra.produtorDestaque, { x: MX, y: 4.5, w: CW, h: 1.6, fontSize: 11, color: COR.inkSoft, fontFace: FONT_BODY, valign: "top" });
     }
   }
 
