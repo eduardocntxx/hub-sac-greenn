@@ -5828,3 +5828,94 @@ registrada depois dela (119 chamados de setembro; TFR p50 3.481 s úteis,
 4.036 amostras). (c) "Relógio de trabalho ativo" = janela de cobertura
 (07h–20h dias úteis + sáb 08h–12h; setembro 289h), agora exibido em horas
 (`fmtHorasExpediente`); Nathalia e Amanda sem jornada cadastrada.
+
+### 2026-10-02 — "Por que temos poucas avaliações": fechados após 24h e backlog +24/48/72h
+
+Nova RPC `resolvidas_apos_24h(data_inicio, data_fim)` (`supabase/sql/2026-10-02_resolvidas_apos_24h.sql`,
+rollback ao lado; `pode_ver_overview()`, anon sem execute, 1 overload). Por canal, só conversas iniciadas
+no período: resolvidas, resolvidas com `resolved_at - current_started_at > 24h` (horas corridas) e
+abertas com idade (`now() - current_started_at`) > 24h/48h/72h. Setembro: 6.929 resolvidas, 2.950 após
+24h (42,6%); 1.824 abertas, 1.693 +48h, 1.521 +72h. Cards no PDF (`RelatorioResultadosSac.tsx`) e no
+slide do PPTX (`exportPptx.ts`), contas em `resumoApos24h` (`resultadosSac.ts`). "Backlog" aqui é do
+período filtrado, não o backlog geral (`backlog_por_idade`). **Pendente (decisão do usuário):** o CSAT
+deve contar no mês em que a pesquisa foi enviada (resolução), não no da resposta; hoje "Avaliações" usa
+a data da avaliação, e o vínculo avaliação → envio só existe por `crisp_id` (~40% do dado, desde 26/08).
+
+Ajuste no mesmo dia: cards em % com a quantidade na nota ("N de M"); os cards "Conversas reabertas" e
+"Chamados de reabertura" saíram (quantidade já está na nota dos dois de taxa) e a seção/slide virou
+"Reabertura e backlog", com os 2 cards de reabertura + os 4 de demora/backlog (saíram de "Por que temos
+poucas avaliações", que ficou só com funil e atendido-não-resolvido). Deltas dos cards de 24h em p.p.
+
+Outros ajustes de 2026-10-02: (a) "Fechados após 24h" virou coluna do funil do CSAT ("Resolvidas após 24h",
+N e % das resolvidas, por canal e no Total; `linhasFunil(atual, anterior, apos24)`), e o card saiu de
+"Reabertura e backlog" (ficou só o backlog +24/48/72h). (b) A seção/slide "Por que temos poucas avaliações"
+foi renomeada para "Funil do CSAT e atendimentos em aberto". (c) O slide "Top 5 — Maiores tempos de 1ª
+resposta" foi removido: os 3 piores TFR de cada grupo (Produtor/Cliente final) passaram a ficar lado a lado
+no slide Velocidade (PDF: dentro da seção Velocidade), com a tabela de Velocidade mais compacta.
+Ordem do relatório (PDF e PPTX) em 2026-10-02: Chamados → Velocidade → Relógios → Ranking → Reabertura e
+backlog → Bot (IA Greenn) → Avaliações (CSAT) → Funil de CSAT → CSAT por atendente → NPS → Migrações. O Bot
+vem logo depois dos dados do Crisp (antes ficava no meio do bloco de CSAT). "Funil do CSAT e atendimentos em
+aberto" virou "Funil de CSAT".
+Ajustes de layout (2026-10-02, a pedido): backlog +24/48/72h agora fica no Funil de CSAT (embaixo da tabela
+do funil / entre o funil e "atendido e não resolvido" no PDF); Reabertura e Bot dividem um slide/seção só
+("Reabertura e Bot") porque não cabem em "Crisp — Chamados" (já tem 6 cards + tipos de cliente); títulos
+menores (PPTX 30→22pt, PDF text-lg→text-base) e descrições/subtítulos dos headers removidos (`slideBase`
+ignora o subtítulo; `SecaoHead` não exibe `nota`). Slide Velocidade compactado para 5 tipos de cliente.
+Revisão após prints (2026-10-02): (a) "Backlog +24/48/72h" saiu — confundia (100% de 666 abertos). O Funil de CSAT
+mostra agora quantos chamados foram FECHADOS em cada janela de tempo (até 24h / 24–48h / 48–72h / +72h). A RPC
+`resolvidas_apos_24h` foi recriada com colunas `ate_24h`, `de_24_48h`, `de_48_72h`, `mais_72h` (sem as `abertas_*`).
+Setembro (6.925 resolvidos): 3.973 até 24h, 386 em 24–48h, 197 em 48–72h, 2.369 em +72h. (b) PPTX: o conteúdo de todos
+os slides sobe `DY_CONTEUDO` (0,4in) via patch em `slideBase`, e os slides que começavam em 2,1/2,2in passaram a
+1,5in, para o espaço entre título e dados ser o mesmo em todos. (c) Velocidade: durações sem segundos quando há
+unidade maior (evita quebra de linha) e linhas de altura fixa; funil com tabela mais larga (7,8in).
+Velocidade/ordem (2026-10-02, 2ª revisão): Top de TFR voltou a 5 casos por grupo (lado a lado, durações sem
+segundos), tabela principal subiu (y 1,4) e a nota de rodapé do slide foi removida a pedido. "Reabertura e Bot"
+passou a ser o 3º slide (logo depois de Crisp — Chamados, antes de Velocidade), no PPTX e no PDF.
+Top de TFR (Velocidade) ampliado de 5 para 7 casos por grupo (sobrava ~0,85in no slide; cada linha tem 0,32in). SDR deixou de aparecer nas tabelas por tipo de cliente do relatório (filtro `semSdr` em `ReuniaoResultados.tsx`); a exclusão dos 4 chamados SDR do banco ficou pendente de confirmação.
+
+### 2026-10-05 — "Pesquisas enviadas" passa a ser do período do chamado
+
+`csat_envios_por_atendente` filtrava por `csat_pending.created_at` (data do disparo). Em 28/09, das 15:04 às
+17:56, uma resolução em massa de conversas antigas (idade mediana 12–19 dias; 3.061 resolvidas em 3h)
+disparou 2.150 pesquisas (IA 1.398, Ana 568, Nathalia 128; só 31 respondidas) e inflou a tabela "CSAT por
+atendente" (IA 2.229 e Ana 711 envios contra 1.147/410 chamados; taxa de resposta 2–3%). Regra de produto
+confirmada pelo usuário: o CSAT pertence ao período do chamado (semana do chamado), não ao do disparo. A função
+agora junta `crisp_conversations` e filtra por `current_started_at` (mesma base do funil), e aplica
+`cliente_e_teste`. Setembro 23–30: IA 991, Vittor 199, Ana Franca 169, Amanda 139, Nathalia 61, Ana Paula 32,
+Eduardo 19. Conversas fora de `crisp_conversations` (anteriores a 18/08) não têm período e saem. SQL e rollback em
+`supabase/sql/2026-10-05_envios_por_periodo_do_chamado*.sql`. Pendente: "Avaliações" (nota) ainda conta pela data
+da avaliação.
+
+### 2026-10-05 — Funil de CSAT alinhado ao "Total de conversas"
+
+O funil mostrava 2.106 conversas contra 1.987 no card "Total de conversas" (e 2.383 "chamados"). Três bases:
+(a) 1.987 = conversas que NASCERAM no período (`started_at`, fixo); (b) 2.383 = 1.987 + 396 reaberturas reais
+(chamados); (c) 2.106 = conversas com o ciclo atual no período (`current_started_at`), que anda quando o cliente
+volta a escrever (entram ~210, saem ~65 a cada reabertura). `csat_funil_canal`, `csat_envios_por_atendente` e
+`resolvidas_apos_24h` passaram a usar `started_at` (período fechado em 30/09 00:00, 7 dias). Setembro 23–29: funil
+1.987 conversas, 1.362 resolvidas, 1.262 pesquisas enviadas, 113 respondidas (chat 1.006, e-mail 737, WhatsApp 243,
+sem canal 1). Tempo até resolver (janelas de 24/48/72h) continua medido do ciclo atual. SQL/rollback em
+`supabase/sql/2026-10-05_funil_conversas_por_nascimento*.sql`. Obs.: "23/09 a 30/09" no relatório = 23/09 00:00 até
+30/09 00:00 (30/09 não entra).
+
+### 2026-10-05 — Avaliações respondidas e não gravadas (68) e recuperação
+
+`csat_pending.respondido = true` sem linha em `csat_results`: 68 casos (418 pendings respondidos no total).
+Distribuição: 35 de 26–31/08 (conversas anteriores a 18/08 e fora do Hub), 24 de 01–04/09 (conversa no Hub, mensagens
+de 01–07/09 apagadas), 9 de 08–14/09 (mensagens no Hub). Só 2 são posteriores a 10/09 (versão atual do workflow
+"Widget CSAT | Edu DEF"). Dos 9 com mensagens: 3 eram testes (cliente "Eduardo Nicolau"), 3 tinham a resposta do
+cliente em texto (citando a pergunta) e foram regravadas em `csat_results` em 2026-10-05 (notas 5, 4 e 5; Nathalia 2,
+Amanda 1; `app.origem = recuperacao_csat_2026-10-05`) e 3 só têm o picker (clique `message:updated`, não guardado).
+Restam 62 sem recuperação possível pelo Hub: precisam da API do Crisp (credenciais só no n8n) ou da planilha "CSAT - SAC".
+Caminho de perda no fluxo atual: `Tratamento Dos Dados` descarta a avaliação se o e-mail do atendente não está em
+`operator_id_aliases`. Conferido na mesma data: todas as 651 avaliações têm `crisp_id` (o "~40%" antigo não vale mais).
+
+### 2026-10-05 — Notas (avaliações) também pelo período do chamado
+
+Decisão do usuário: "chamado de 04/09 avaliado em outubro é CSAT de setembro". 10 funções (lista em
+`supabase/sql/2026-10-05_csat_periodo_do_chamado.sql`) passaram a filtrar `csat_results` pela data de nascimento da
+conversa (`started_at` via `crisp_id`; fallback `data_hora` para as 7 avaliações sem conversa no Hub). Semana
+23–29/09: avaliações 175 → 122 (boas 96, ruins 26); IA 56 → 50, Vittor 48 → 29, Amanda 27 → 17, Ana Franca 18 → 7,
+Nathalia 12 → 9; CSAT médio geral 4,13. Backup das definições antigas em `_bkp_funcoes_csat_2026_10_05` e rollback no
+arquivo `_rollback.sql`. SDR segue só filtrado nas tabelas por tipo do relatório (decisão: deixar assim por enquanto).
+Relatório Semanal mantém o rótulo "quarta a quarta" ("23/09 a 30/09" = até terça 29/09).

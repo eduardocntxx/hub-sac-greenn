@@ -1,0 +1,11 @@
+-- CSAT pertence ao período do CHAMADO (conversa), não ao da avaliação: chamado de 04/09 avaliado em outubro
+-- é CSAT de setembro. Em 10 funções, `data_hora between data_inicio and data_fim` virou
+-- `coalesce((select cc.started_at from crisp_conversations cc where cc.crisp_id = <csat>.crisp_id), <csat>.data_hora) between ...`
+-- (avaliação sem conversa no Hub — 7 hoje — cai no fallback data_hora). A evolução diária também agrupa pela data do chamado.
+-- Funções: _analytics_evolucao_base, _analytics_summary_base, _atendente_performance_base,
+-- _dashboard_atendimento_summary_base, atendente_csat_distribuicao, conversas_nota_baixa, csat_distribuicao_notas,
+-- csat_distribuicao_por_tipo_cliente, csat_ruins_periodo, operador_ranking.
+-- Aplicado como DO block (regexp_replace sobre pg_get_functiondef); as definições anteriores estão em
+-- public._bkp_funcoes_csat_2026_10_05 (RLS ligada, sem acesso para anon/authenticated).
+-- Semana 23–29/09: avaliações 175 → 122 (62 eram de conversas anteriores à semana).
+-- Rollback: 2026-10-05_csat_periodo_do_chamado_rollback.sql
