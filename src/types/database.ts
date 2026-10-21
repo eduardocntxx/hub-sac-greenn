@@ -270,21 +270,3 @@ export interface DbUserPermission {
   created_at: string;
   modules?: DbModule;
 }
-
-export interface DbRRHistory {
-  id: string;
-  user_id: string;
-  periodo: string;
-  csat: number | null;
-  csat_variacao: number | null;
-  atendimentos: number | null;
-  atendimentos_variacao: number | null;
-  tempo_medio: string | null;
-  tempo_medio_variacao: number | null;
-  meta_batida: boolean | null;
-  aprendizados: string | null;
-  dificuldades: string | null;
-  plano_de_acao: string | null;
-  objetivos: string | null;
-  created_at: string;
-}

@@ -2,6 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { NavLink } from "react-router-dom";
 import { Users, FileText, Wrench, GraduationCap, Megaphone, Link2, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/ui/Card";
+import { Indicador, ChipIcone } from "@/components/ui/Indicador";
+import { SecaoHead } from "@/components/ui/SecaoHead";
+import { Entrada } from "@/components/ui/Entrada";
 import {
   fetchUsers,
   fetchTools,
@@ -34,44 +37,28 @@ export default function AdminOverview() {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {resumo.map(({ label, value, icon: Icon }) => (
-          <Card key={label} className="p-5">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-ink/60">{label}</span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-forest-50 text-forest-600 dark:bg-forest-500/15 dark:text-forest-300">
-                <Icon size={16} />
-              </div>
-            </div>
-            <p className="mt-3 font-display text-2xl font-semibold text-ink">
-              {value}
-            </p>
-          </Card>
+        {resumo.map(({ label, value, icon }, i) => (
+          <Indicador key={label} indice={i} icone={icon} label={label} valor={String(value)} />
         ))}
       </div>
 
       <div>
-        <h2 className="mb-3 font-display text-sm font-semibold text-ink">
-          Outras áreas de gestão
-        </h2>
+        <SecaoHead titulo="Outras áreas de gestão" />
         <div className="grid gap-4 sm:grid-cols-3">
-          {gerenciar.map(({ label, icon: Icon, to, desc }) => {
+          {gerenciar.map(({ label, icon, to, desc }, i) => {
             const conteudo = (
-              <Card className="h-full p-5 transition-colors hover:border-forest-300">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sand-bg text-ink/60">
-                  <Icon size={16} />
-                </div>
-                <p className="mt-3 text-sm font-medium text-ink">{label}</p>
+              <Card className="group h-full p-5 hover:ring-1 hover:ring-forest-500/40">
+                <ChipIcone icone={icon} className="transition-transform duration-200 group-hover:scale-110" />
+                <p className="mt-3 text-[13.5px] font-bold text-ink">{label}</p>
                 <p className="mt-1 text-xs text-ink/50">{desc}</p>
               </Card>
             );
-            return to ? (
-              <NavLink key={label} to={to}>
-                {conteudo}
-              </NavLink>
-            ) : (
-              <div key={label}>{conteudo}</div>
+            return (
+              <Entrada key={label} indice={i} elevar={Boolean(to)} className="h-full">
+                {to ? <NavLink to={to}>{conteudo}</NavLink> : conteudo}
+              </Entrada>
             );
           })}
         </div>

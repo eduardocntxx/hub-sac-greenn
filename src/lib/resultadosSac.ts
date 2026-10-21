@@ -17,6 +17,7 @@ import type {
   CsatFunilCanal,
   AtendidoNaoResolvido,
   ResolvidasApos24h,
+  SatisfacaoSemana,
 } from "@/services/api";
 
 export interface NpsResumo {
@@ -24,6 +25,26 @@ export interface NpsResumo {
   promotores: number;
   neutros: number;
   detratores: number;
+}
+
+// Agregado no cliente a partir de `nps_responses` (volume baixo, sem função SQL própria). Usado pela Reunião
+// de Resultados e pelo Overview.
+export function resumirNps(respostas: { classificacao: "Promotor" | "Neutro" | "Detrator" }[]): NpsResumo {
+  return {
+    total: respostas.length,
+    promotores: respostas.filter((r) => r.classificacao === "Promotor").length,
+    neutros: respostas.filter((r) => r.classificacao === "Neutro").length,
+    detratores: respostas.filter((r) => r.classificacao === "Detrator").length,
+  };
+}
+
+// Tempo corrido entre abertura e 1ª resposta, calculado a partir dos dois timestamps que
+// `atendimentos_com_metricas` já devolve (o útil vem pronto em `tempo_primeira_resposta_seg`; o corrido não é
+// campo da função, então não precisa de 2ª chamada). Usado no relatório, no PPTX e no Overview.
+export function tfrCorridoSeg(abertura: string, primeiraResposta: string | null): number | null {
+  if (!primeiraResposta) return null;
+  const seg = (new Date(primeiraResposta).getTime() - new Date(abertura).getTime()) / 1000;
+  return seg >= 0 ? seg : null;
 }
 
 export interface ResultadosSacPeriodoData {
@@ -106,6 +127,9 @@ export interface ResultadosSacData {
   // tabela de Ranking usa só o top 3 humano de `atual.rankingHumano`, mas a
   // tabela de CSAT mostra todo mundo com avaliação, o bot incluso.
   csatPorAtendente: AtendentePerformanceRow[];
+  // Mesma lista no período anterior (vazia sem comparação) — só para o delta
+  // dos cards do Bot (Chamados e CSAT médio).
+  csatPorAtendenteAnterior: AtendentePerformanceRow[];
   // Boas/neutras/ruins por atendente (nota, não só a média) — usado pro
   // CSAT% no Ranking e pra quebra Promotor/Neutro/Detrator do card do Bot.
   // Período atual só, mesmo motivo de `csatPorAtendente` não ter par
@@ -128,6 +152,9 @@ export interface ResultadosSacData {
   // Backlog não é escopado por período (é sempre "o que está aberto agora"),
   // por isso fica fora de atual/anterior — não existe "backlog anterior".
   backlog: BacklogFaixa[];
+  // CSAT (só produtores) × NPS nas últimas 8 semanas (quarta a terça) até o fim do período — slide "Satisfação
+  // semana a semana" (2026-10-14). Série própria, fora de atual/anterior: é a tendência, não um agregado do período.
+  satisfacaoSemanal: SatisfacaoSemana[];
   // Opcional: se não vier, o relatório mostra os blocos de "preencher
   // manualmente" como antes (nada foi estimado ou inventado).
   manual?: ManualData;

@@ -3,7 +3,7 @@ import { AlertTriangle, ExternalLink, Star, StarOff, X } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { formatDuration } from "@/lib/formatDuration";
+import { formatDuration, formatDurationHoras } from "@/lib/formatDuration";
 import { cn } from "@/lib/utils";
 import { fetchAtendimentoTimeline, type AtendimentoComMetricas, type AtendimentoTimelineEntry } from "@/services/api";
 
@@ -163,25 +163,25 @@ export function AtendimentoDetalheDialog({ atendimento: c, onClose }: Atendiment
         </div>
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Tempo até 1ª resposta</p>
-          <p className="text-ink">{c.invalido_sem_resposta_humana ? "—" : formatDuration(c.tempo_primeira_resposta_seg)}</p>
+          <p className="text-ink">{c.invalido_sem_resposta_humana ? "—" : formatDurationHoras(c.tempo_primeira_resposta_seg)}</p>
         </div>
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Tempo até resolução</p>
           {c.resolved_at ? (
-            <p className="text-ink">{formatDuration(c.tempo_resolucao_seg)}</p>
+            <p className="text-ink">{formatDurationHoras(c.tempo_resolucao_seg)}</p>
           ) : (
             <p
               className="text-amber-600"
               title="Chamado ainda aberto — este é o tempo decorrido até agora (mesma conta que 'Tempo até resolução' passaria a mostrar se resolvesse neste instante), não um valor final. Muda a cada vez que você abrir este popup."
             >
-              {formatDuration(c.tempo_aberto_seg)}{" "}
+              {formatDurationHoras(c.tempo_aberto_seg)}{" "}
               <span className="text-[11px] font-normal text-ink/40">(em aberto, ainda contando)</span>
             </p>
           )}
         </div>
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-ink/40">1ª resposta geral (com bot)</p>
-          <p className="text-ink">{formatDuration(c.tempo_primeira_resposta_geral_seg)}</p>
+          <p className="text-ink">{formatDurationHoras(c.tempo_primeira_resposta_geral_seg)}</p>
         </div>
         <div>
           <p

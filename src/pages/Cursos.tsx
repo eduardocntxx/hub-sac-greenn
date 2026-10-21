@@ -3,13 +3,16 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { GraduationCap, Plus } from "lucide-react";
+import { GraduationCap, Plus, ArrowUpRight } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
+import { Entrada } from "@/components/ui/Entrada";
+import { ChipIcone } from "@/components/ui/Indicador";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchCourses, fetchAllCourses, upsertCourse } from "@/services/api";
 
@@ -55,19 +58,17 @@ export default function Cursos() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-display text-display text-ink">Cursos</h1>
-          <p className="mt-1 text-sm text-ink/50">
-            Treinamentos publicados pelo time de gestão.
-          </p>
-        </div>
-        {isAdmin && (
-          <Button onClick={abrirNovo}>
-            <Plus size={16} /> Novo curso
-          </Button>
-        )}
-      </div>
+      <CabecalhoPagina
+        titulo="Cursos"
+        subtitulo="Treinamentos publicados pelo time de gestão."
+        acoes={
+          isAdmin ? (
+            <Button onClick={abrirNovo}>
+              <Plus size={16} /> Novo curso
+            </Button>
+          ) : undefined
+        }
+      />
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -84,27 +85,33 @@ export default function Cursos() {
         />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {courses.map((c) => (
-            <Card key={c.id} className="p-5 transition-colors hover:border-forest-300">
+          {courses.map((c, i) => (
+            <Entrada key={c.id} indice={i} elevar className="h-full">
+            <Card className="group flex h-full flex-col p-5 hover:ring-1 hover:ring-forest-500/40">
               <div className="flex items-center justify-between gap-2">
-                <Badge tone="neutral">{c.categoria ?? "Geral"}</Badge>
-                {isAdmin && !c.publicado && <Badge tone="warning">Rascunho</Badge>}
+                <ChipIcone icone={GraduationCap} className="transition-transform duration-200 group-hover:scale-110" />
+                <div className="flex items-center gap-1.5">
+                  <Badge tone="neutral">{c.categoria ?? "Geral"}</Badge>
+                  {isAdmin && !c.publicado && <Badge tone="warning">Rascunho</Badge>}
+                </div>
               </div>
-              <h3 className="mt-3 font-display text-[15px] font-semibold text-ink">
+              <h3 className="mt-3 font-display text-[15px] font-bold text-ink">
                 {c.titulo}
               </h3>
-              <p className="mt-1 text-sm text-ink/50">{c.descricao}</p>
+              <p className="mt-1 flex-1 text-sm text-ink/50">{c.descricao}</p>
               {c.link && (
                 <a
                   href={c.link}
                   target="_blank"
                   rel="noreferrer"
-                  className="mt-3 inline-block text-sm font-medium text-forest-600 hover:underline"
+                  className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-forest-600 dark:text-forest-300"
                 >
                   Acessar curso
+                  <ArrowUpRight size={14} className="transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
                 </a>
               )}
             </Card>
+            </Entrada>
           ))}
         </div>
       )}

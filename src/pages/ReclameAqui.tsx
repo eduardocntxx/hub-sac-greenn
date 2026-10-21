@@ -3,8 +3,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquareWarning, Plus, Pencil, Trash2, ExternalLink, TrendingUp } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/Card";
+import { motion } from "framer-motion";
+import { MessageSquareWarning, Plus, Pencil, Trash2, ExternalLink, TrendingUp, Inbox, Loader, MessageCircleReply, CheckCircle2, Timer, Clock, Target, LineChart } from "lucide-react";
+import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Kpi } from "@/components/ui/Kpi";
@@ -12,6 +13,10 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Dialog } from "@/components/ui/Dialog";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
+import { PainelCard } from "@/components/ui/PainelCard";
+import { CABECALHO_TABELA, LINHA_TABELA, entradaLinha } from "@/components/ui/Tabela";
+import { cn } from "@/lib/utils";
 import { BarChart, corPorFaixa } from "@/components/ui/BarChart";
 import {
   fetchUsers,
@@ -183,43 +188,38 @@ export default function ReclameAqui() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-display text-ink">Reclame Aqui</h1>
-          <p className="mt-1 text-sm text-ink/60">Reputação, reclamações e simulador de metas.</p>
-        </div>
-        <SegmentedControl
-          options={[["dashboard", "Dashboard"], ["reclamacoes", "Reclamações"], ["simulador", "Simulador"]] as const}
-          value={aba}
-          onChange={setAba}
-        />
-      </div>
+      <CabecalhoPagina
+        titulo="Reclame Aqui"
+        subtitulo="Reputação, reclamações e simulador de metas."
+        acoes={
+          <SegmentedControl
+            options={[["dashboard", "Dashboard"], ["reclamacoes", "Reclamações"], ["simulador", "Simulador"]] as const}
+            value={aba}
+            onChange={setAba}
+          />
+        }
+      />
 
       {erro && <p className="text-sm text-rust-500">{erro}</p>}
 
       {aba === "dashboard" && (
         <div className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Kpi label="Abertas" value={String(contagens.aberta)} />
-            <Kpi label="Em andamento" value={String(contagens.em_andamento)} />
-            <Kpi label="Respondidas" value={String(contagens.respondida)} />
-            <Kpi label="Resolvidas" value={String(contagens.resolvida)} />
-            <Kpi label="Tempo médio de resposta" value={tempoRespostaMedio !== null ? `${tempoRespostaMedio.toFixed(1)}d` : "—"} />
-            <Kpi label="Tempo médio de resolução" value={tempoResolucaoMedio !== null ? `${tempoResolucaoMedio.toFixed(1)}d` : "—"} />
-            <Kpi label="Nota atual" value={loadingMetrics ? "..." : notaAtual?.toFixed(1) ?? "—"} icon={TrendingUp} />
+            <Kpi indice={0} icon={Inbox} label="Abertas" value={String(contagens.aberta)} />
+            <Kpi indice={1} icon={Loader} label="Em andamento" value={String(contagens.em_andamento)} />
+            <Kpi indice={2} icon={MessageCircleReply} label="Respondidas" value={String(contagens.respondida)} />
+            <Kpi indice={3} icon={CheckCircle2} tom="bom" label="Resolvidas" value={String(contagens.resolvida)} />
+            <Kpi indice={4} icon={Timer} label="Tempo médio de resposta" value={tempoRespostaMedio !== null ? `${tempoRespostaMedio.toFixed(1)}d` : "—"} />
+            <Kpi indice={5} icon={Clock} label="Tempo médio de resolução" value={tempoResolucaoMedio !== null ? `${tempoResolucaoMedio.toFixed(1)}d` : "—"} />
+            <Kpi indice={6} label="Nota atual" value={loadingMetrics ? "..." : notaAtual?.toFixed(1) ?? "—"} icon={TrendingUp} />
           </div>
-          <Card>
-            <div className="p-5 pb-0">
-              <h2 className="font-display text-sm font-semibold text-ink">Evolução da reputação</h2>
-            </div>
-            <div className="p-5">
-              {serieReputacao.length === 0 ? (
-                <p className="text-sm text-ink/50">Sem dados ainda.</p>
-              ) : (
-                <BarChart data={serieReputacao} getColorClass={corReputacao} height={128} />
-              )}
-            </div>
-          </Card>
+          <PainelCard icone={LineChart} titulo="Evolução da reputação">
+            {serieReputacao.length === 0 ? (
+              <p className="text-sm text-ink/50">Sem dados ainda.</p>
+            ) : (
+              <BarChart data={serieReputacao} getColorClass={corReputacao} height={128} />
+            )}
+          </PainelCard>
         </div>
       )}
 
@@ -246,19 +246,19 @@ export default function ReclameAqui() {
           ) : (
             <Card className="overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="bg-sand-bg text-left text-xs uppercase tracking-wide text-ink/50">
+                <thead className={cn("text-left", CABECALHO_TABELA)}>
                   <tr>
-                    <th className="px-4 py-3 font-medium">Consumidor</th>
-                    <th className="px-4 py-3 font-medium">Assunto</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">Responsável</th>
-                    <th className="px-4 py-3 font-medium">Abertura</th>
-                    <th className="px-4 py-3 font-medium text-right">Ações</th>
+                    <th className="px-4 py-2.5 font-semibold">Consumidor</th>
+                    <th className="px-4 py-2.5 font-semibold">Assunto</th>
+                    <th className="px-4 py-2.5 font-semibold">Status</th>
+                    <th className="px-4 py-2.5 font-semibold">Responsável</th>
+                    <th className="px-4 py-2.5 font-semibold">Abertura</th>
+                    <th className="px-4 py-2.5 font-semibold text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {cases.map((c) => (
-                    <tr key={c.id} className="border-t border-sand-line">
+                  {cases.map((c, i) => (
+                    <motion.tr key={c.id} {...entradaLinha(i)} className={LINHA_TABELA}>
                       <td className="px-4 py-3 font-medium text-ink">{c.consumidor}</td>
                       <td className="px-4 py-3 text-ink/70">{c.assunto}</td>
                       <td className="px-4 py-3"><Badge tone={statusTone[c.status]}>{statusLabel[c.status]}</Badge></td>
@@ -279,7 +279,7 @@ export default function ReclameAqui() {
                           </button>
                         </div>
                       </td>
-                    </tr>
+                    </motion.tr>
                   ))}
                 </tbody>
               </table>
@@ -290,11 +290,8 @@ export default function ReclameAqui() {
 
       {aba === "simulador" && (
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <div className="p-5 pb-0">
-              <h2 className="font-display text-sm font-semibold text-ink">Definir meta</h2>
-            </div>
-            <CardContent>
+          <PainelCard indice={0} icone={Target} titulo="Definir meta">
+            <div>
               <label className="mb-1 block text-xs font-medium text-ink/70">Meta de nota (0–10)</label>
               <input
                 type="number"
@@ -305,13 +302,10 @@ export default function ReclameAqui() {
                 onChange={(e) => setMeta(Number(e.target.value))}
                 className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm outline-none focus:border-forest-500"
               />
-            </CardContent>
-          </Card>
-          <Card>
-            <div className="p-5 pb-0">
-              <h2 className="font-display text-sm font-semibold text-ink">Projeção</h2>
             </div>
-            <CardContent className="space-y-2 text-sm">
+          </PainelCard>
+          <PainelCard indice={1} icone={TrendingUp} titulo="Projeção">
+            <div className="space-y-2 text-sm">
               <p>Situação atual: <strong>{notaAtual?.toFixed(1) ?? "—"}</strong></p>
               <p>Evolução necessária: <strong>{evolucaoNecessaria !== null ? evolucaoNecessaria.toFixed(1) : "—"}</strong></p>
               <p>
@@ -327,8 +321,8 @@ export default function ReclameAqui() {
               <p className="pt-2 text-xs text-ink/40">
                 Baseado na tendência linear dos últimos registros de reputação — quanto mais dados históricos, mais precisa a projeção.
               </p>
-            </CardContent>
-          </Card>
+            </div>
+          </PainelCard>
         </div>
       )}
 

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { Leaf } from "lucide-react";
+import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -55,7 +56,13 @@ export default function DefinirSenha() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-sand-bg px-4">
-      <Card className="w-full max-w-sm p-6 shadow-float">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: "easeOut" }}
+        className="w-full max-w-sm"
+      >
+      <Card className="w-full p-6 shadow-float">
         <div className="mb-6 flex items-center gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-forest-500 text-white">
             <Leaf size={18} />
@@ -112,6 +119,7 @@ export default function DefinirSenha() {
           </form>
         )}
       </Card>
+      </motion.div>
     </div>
   );
 }

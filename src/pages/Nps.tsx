@@ -3,7 +3,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Gauge, Plus, Pencil, Trash2, Smile, Meh, Frown } from "lucide-react";
+import { motion } from "framer-motion";
+import { Gauge, Plus, Pencil, Trash2, Smile, Meh, Frown, TrendingUp, CalendarRange } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -11,8 +12,15 @@ import { Kpi } from "@/components/ui/Kpi";
 import { Dialog } from "@/components/ui/Dialog";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
+import { PainelCard } from "@/components/ui/PainelCard";
+import { CABECALHO_TABELA, LINHA_TABELA, entradaLinha } from "@/components/ui/Tabela";
+import { cn } from "@/lib/utils";
 import { BarChart } from "@/components/ui/BarChart";
-import { fetchNpsResponses, upsertNpsResponse, deleteNpsResponse } from "@/services/api";
+import { fetchNpsResponses, upsertNpsResponse, deleteNpsResponse, fetchSatisfacaoSemanal } from "@/services/api";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { AvisoNpsParado, GraficoSatisfacaoSemanal, TabelaSatisfacaoSemanal } from "@/components/SatisfacaoSemanal";
+import { janelaSemanal, resumirSemanas } from "@/lib/satisfacaoSemanal";
 import { useAuth } from "@/contexts/AuthContext";
 import type { DbNpsResponse } from "@/types/database";
 import { usePersistedState } from "@/hooks/usePersistedState";
@@ -57,6 +65,16 @@ export default function Nps() {
         fim,
       }),
   });
+
+  // CSAT × NPS por semana (últimas 8, quarta a terça), independente do filtro de período da página: a pergunta é
+  // "a satisfação melhorou ou caiu o volume de respostas?", sempre olhando as semanas mais recentes.
+  const [tipoSemanal, setTipoSemanal] = usePersistedState<"Produtor" | "todos">("nps:satisfacaoTipo", "Produtor");
+  const janela = useMemo(() => janelaSemanal(new Date()), []);
+  const { data: satisfacao, isLoading: loadingSatisfacao, error: erroSatisfacao } = useQuery({
+    queryKey: ["satisfacao-semanal", tipoSemanal, janela.inicio.toISOString()],
+    queryFn: () => fetchSatisfacaoSemanal(janela.inicio, janela.fim, tipoSemanal === "todos" ? undefined : tipoSemanal),
+  });
+  const semanas = useMemo(() => resumirSemanas(satisfacao ?? []), [satisfacao]);
 
   const { isAdmin } = useAuth();
   const [dialogAberto, setDialogAberto] = useState(false);
@@ -160,14 +178,11 @@ export default function Nps() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-display text-ink">NPS</h1>
-          <p className="mt-1 text-sm text-ink/60">
-            Net Promoter Score do time de Suporte. Estrutura pronta para integrações futuras (campo "fonte" e "external_id" já preparados).
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+      <CabecalhoPagina
+        titulo="NPS"
+        subtitulo='Net Promoter Score do time de Suporte. Estrutura pronta para integrações futuras (campo "fonte" e "external_id" já preparados).'
+        acoes={
+        <>
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
@@ -189,30 +204,61 @@ export default function Nps() {
           <Button onClick={abrirNova}>
             <Plus size={16} /> Nova resposta
           </Button>
-        </div>
-      </div>
+        </>
+        }
+      />
 
       {erro && <p className="text-sm text-rust-500">{erro}</p>}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi label="NPS Score" value={stats.score !== null ? String(stats.score) : "—"} icon={Gauge} />
-        <Kpi label="Promotores" value={`${stats.promotores} (${stats.total ? Math.round((stats.promotores / stats.total) * 100) : 0}%)`} valueClassName="text-forest-600" />
-        <Kpi label="Neutros" value={`${stats.neutros} (${stats.total ? Math.round((stats.neutros / stats.total) * 100) : 0}%)`} valueClassName="text-amber-600" />
-        <Kpi label="Detratores" value={`${stats.detratores} (${stats.total ? Math.round((stats.detratores / stats.total) * 100) : 0}%)`} valueClassName="text-rust-600" />
+        <Kpi indice={0} label="NPS Score" value={stats.score !== null ? String(stats.score) : "—"} icon={Gauge} />
+        <Kpi indice={1} icon={Smile} tom="bom" label="Promotores" value={`${stats.promotores} (${stats.total ? Math.round((stats.promotores / stats.total) * 100) : 0}%)`} valueClassName="text-forest-600" />
+        <Kpi indice={2} icon={Meh} tom="atencao" label="Neutros" value={`${stats.neutros} (${stats.total ? Math.round((stats.neutros / stats.total) * 100) : 0}%)`} valueClassName="text-amber-600" />
+        <Kpi indice={3} icon={Frown} tom="ruim" label="Detratores" value={`${stats.detratores} (${stats.total ? Math.round((stats.detratores / stats.total) * 100) : 0}%)`} valueClassName="text-rust-600" />
       </div>
 
-      <Card>
-        <div className="p-5 pb-0">
-          <h2 className="font-display text-sm font-semibold text-ink">Evolução do NPS por mês</h2>
-        </div>
-        <div className="p-5">
-          {serieMensal.length === 0 ? (
+      <PainelCard indice={0} icone={TrendingUp} titulo="Evolução do NPS por mês">
+        {serieMensal.length === 0 ? (
+          <p className="text-sm text-ink/50">Sem dados suficientes.</p>
+        ) : (
+          <BarChart data={serieMensal} getColorClass={corBarraNps} />
+        )}
+      </PainelCard>
+
+      <PainelCard
+        indice={1}
+        icone={CalendarRange}
+        titulo="CSAT × NPS por semana"
+        subtitulo="Últimas semanas, de quarta a terça. CSAT pela semana em que a conversa começou (positiva = nota 4–5, negativa = 1–3); NPS pela data da resposta."
+        acao={
+          <SegmentedControl
+            options={[["Produtor", "Produtores"], ["todos", "Todos os clientes"]] as const}
+            value={tipoSemanal}
+            onChange={setTipoSemanal}
+          />
+        }
+      >
+        <div className="space-y-4">
+          {loadingSatisfacao ? (
+            <CardSkeleton />
+          ) : erroSatisfacao ? (
+            <p className="text-sm text-rust-500">Não foi possível carregar a comparação semanal.</p>
+          ) : semanas.length === 0 ? (
             <p className="text-sm text-ink/50">Sem dados suficientes.</p>
           ) : (
-            <BarChart data={serieMensal} getColorClass={corBarraNps} />
+            <>
+              <AvisoNpsParado semanas={semanas} />
+              <GraficoSatisfacaoSemanal semanas={semanas} />
+              <TabelaSatisfacaoSemanal semanas={semanas} />
+              <p className="text-[11px] text-ink/40">
+                Enviadas = conversas resolvidas que receberam a pesquisa; respondidas = dessas, as que voltaram com nota;
+                positivas/negativas = notas da semana. Semana em andamento ainda recebe avaliações. O Hub só recebe as
+                respostas do NPS, não quantas pesquisas foram enviadas.
+              </p>
+            </>
           )}
         </div>
-      </Card>
+      </PainelCard>
 
       {isLoading ? (
         <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <CardSkeleton key={i} />)}</div>
@@ -221,26 +267,26 @@ export default function Nps() {
       ) : (
         <Card className="overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-sand-bg text-left text-xs uppercase tracking-wide text-ink/50">
+            <thead className={cn("text-left", CABECALHO_TABELA)}>
               <tr>
-                <th className="px-4 py-3 font-medium">Respondente</th>
-                <th className="px-4 py-3 font-medium">Nota</th>
-                <th className="px-4 py-3 font-medium">Classificação</th>
-                <th className="px-4 py-3 font-medium">Fonte</th>
-                <th className="px-4 py-3 font-medium">Data</th>
-                <th className="px-4 py-3 font-medium text-right">Ações</th>
+                <th className="px-4 py-2.5 font-semibold">Respondente</th>
+                <th className="px-4 py-2.5 font-semibold">Nota</th>
+                <th className="px-4 py-2.5 font-semibold">Classificação</th>
+                <th className="px-4 py-2.5 font-semibold">Fonte</th>
+                <th className="px-4 py-2.5 font-semibold">Data</th>
+                <th className="px-4 py-2.5 font-semibold text-right">Ações</th>
               </tr>
             </thead>
             <tbody>
-              {respostas.map((r) => {
+              {respostas.map((r, i) => {
                 const Icon = classIcon[r.classificacao];
                 return (
-                  <tr key={r.id} className="cursor-pointer border-t border-sand-line hover:bg-sand-bg/50" onClick={() => abrirDetalhe(r)}>
+                  <motion.tr key={r.id} {...entradaLinha(i)} className={cn("cursor-pointer", LINHA_TABELA)} onClick={() => abrirDetalhe(r)}>
                     <td className="px-4 py-3">
                       <p className="font-medium text-ink">{r.respondente ?? "Anônimo"}</p>
                       {r.comentario && <p className="text-xs text-ink/50">{r.comentario}</p>}
                     </td>
-                    <td className="px-4 py-3 text-ink">{r.nota}</td>
+                    <td className="px-4 py-3 font-display font-bold tabular-nums text-ink">{r.nota}</td>
                     <td className="px-4 py-3">
                       <Badge tone={classTone[r.classificacao]} className="gap-1">
                         <Icon size={11} /> {r.classificacao}
@@ -258,7 +304,7 @@ export default function Nps() {
                         </button>
                       </div>
                     </td>
-                  </tr>
+                  </motion.tr>
                 );
               })}
             </tbody>

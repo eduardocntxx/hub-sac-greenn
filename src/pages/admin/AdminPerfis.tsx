@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Dialog } from "@/components/ui/Dialog";
 import { CardSkeleton } from "@/components/ui/Skeleton";
+import { Entrada } from "@/components/ui/Entrada";
 import { fetchRoles, upsertRole, deleteRole } from "@/services/api";
 
 const PERFIS_BASE = ["Administrador", "Colaborador"];
@@ -78,8 +79,9 @@ export default function AdminPerfis() {
         <div className="grid gap-4 sm:grid-cols-2">{Array.from({ length: 2 }).map((_, i) => <CardSkeleton key={i} />)}</div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
-          {(roles ?? []).map((r) => (
-            <Card key={r.id}>
+          {(roles ?? []).map((r, i) => (
+            <Entrada key={r.id} indice={i} className="h-full">
+            <Card className="h-full">
               <CardContent>
                 <div className="flex items-center justify-between">
                   <h3 className="font-display text-sm font-semibold text-ink">{r.nome}</h3>
@@ -94,6 +96,7 @@ export default function AdminPerfis() {
                 <p className="mt-1 text-sm text-ink/60">{r.descricao}</p>
               </CardContent>
             </Card>
+            </Entrada>
           ))}
         </div>
       )}

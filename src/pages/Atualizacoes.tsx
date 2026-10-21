@@ -6,6 +6,9 @@ import { Badge } from "@/components/ui/Badge";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
+import { Entrada } from "@/components/ui/Entrada";
+import { cn } from "@/lib/utils";
 import { fetchAnnouncements } from "@/services/api";
 
 const prioridadeTone = {
@@ -38,17 +41,11 @@ export default function Atualizacoes() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-display text-ink">
-            Atualizações
-          </h1>
-          <p className="mt-1 text-sm text-ink/60">
-            Feed interno de avisos, novidades e novas missões.
-          </p>
-        </div>
-        <SegmentedControl options={abas} value={aba} onChange={setAba} />
-      </div>
+      <CabecalhoPagina
+        titulo="Atualizações"
+        subtitulo="Feed interno de avisos, novidades e novas missões."
+        acoes={<SegmentedControl options={abas} value={aba} onChange={setAba} />}
+      />
 
       {isLoading ? (
         <div className="space-y-3">
@@ -67,19 +64,19 @@ export default function Atualizacoes() {
           {filtradas.map((a, i) => {
             const isMissao = a.categoria === "missao";
             return (
-              <div key={a.id} className="relative flex gap-4 pb-6">
+              <Entrada key={a.id} indice={i} className="relative flex gap-4 pb-6">
                 {i < filtradas.length - 1 && (
                   <span className="absolute left-[19px] top-10 h-[calc(100%-24px)] w-px bg-sand-line" />
                 )}
                 <div
-                  className={
-                    "z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full " +
-                    (isMissao ? "bg-forest-50 text-forest-600 dark:bg-forest-500/15 dark:text-forest-300" : "bg-sand-subtle text-ink/50")
-                  }
+                  className={cn(
+                    "z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+                    isMissao ? "bg-forest-500/10 text-forest-600 dark:text-forest-300" : "bg-sand-subtle text-ink/50"
+                  )}
                 >
                   {isMissao ? <Target size={16} /> : <Megaphone size={16} />}
                 </div>
-                <Card className={"flex-1 p-5" + (isMissao ? " border-forest-200 bg-forest-50/30 dark:border-forest-500/30 dark:bg-forest-500/5" : "")}>
+                <Card className={cn("flex-1 p-5 transition-transform duration-200 hover:-translate-y-0.5", isMissao && "border-forest-200 bg-forest-50/30 dark:border-forest-500/30 dark:bg-forest-500/5")}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-ink">Hub SAC Greenn</span>
@@ -94,7 +91,7 @@ export default function Atualizacoes() {
                   <h3 className="mt-2 font-display text-card-title text-ink">{a.titulo}</h3>
                   <p className="mt-1 text-sm text-ink/60">{a.descricao}</p>
                 </Card>
-              </div>
+              </Entrada>
             );
           })}
         </div>

@@ -129,7 +129,8 @@ functions deploy <nome> --project-ref riiwphsvqlatqtaqaemd` até esse fluxo
 virar CI). `supabase/.temp/` (cache local da CLI, criado por `supabase
 link`) está no `.gitignore` — nunca commitar. `supabase/sql/` (desde
 2026-09-25) guarda o SQL de mudanças de segurança já aplicadas em produção,
-com o rollback ao lado — é registro, não migration executada por ferramenta.
+com o rollback ao lado — é registro, não migration executada por ferramenta. Backup de correção de dados
+vai para o schema `arquivo` (fora da API, sem acesso de `anon`/`authenticated`), nunca para o `public`.
 
 ## 5. Fluxo de autenticação
 
@@ -267,10 +268,12 @@ geração automática de tipos configurada). Tabelas principais, por domínio:
   apaga numa reabertura real **só se já foi respondida**; desde 2026-10-05 o gatilho `trg_csat_pending_substitui_antigo`
   (BEFORE INSERT) troca a linha de um ciclo anterior (criada antes de `current_started_at`) quando a nova pesquisa é criada,
   então conversa reaberta e resolvida de novo volta a receber pesquisa. **Não usar `respondido` pra medir resposta**
-  (ver `docs/HISTORICO.md`, 2026-09-24 e 2026-09-25).
-- `crisp_ratings`, `nps_followups`, view `analytics_sac` — **schema
-  paralelo, reservado, com 0 linhas** (ver decisão arquitetural na seção
-  14). Não usar como fonte de dado hoje.
+  (ver `docs/HISTORICO.md`, 2026-09-24 e 2026-09-25). Desde 2026-10-13 `dispensado = true` marca a conversa resolvida
+  **sem** pesquisa (botão "Resolver sem avaliação" do widget; a linha nasce com `respondido = true`):
+  `csat_envios_por_atendente` e `csat_funil_canal` ignoram essas linhas, então qualquer leitura nova de
+  `csat_pending` como "pesquisa enviada" precisa filtrar `not dispensado` (ver `docs/HISTORICO.md`, 2026-10-13).
+- `crisp_ratings` e `nps_followups` (schema paralelo reservado, sempre vazio) foram apagadas em 2026-10-15; a view
+  `analytics_sac` já não existia. Satisfação vem de `csat_results`, NPS de `nps_responses` (ver seção 21).
 
 **Missões / gamificação**
 - `missions` (`DbMission`) — categoria, dificuldade, meta/unidade,
@@ -292,18 +295,15 @@ geração automática de tipos configurada). Tabelas principais, por domínio:
 **Módulos de indicadores próprios**
 - `reclame_aqui_cases` (`DbReclameAquiCase`) / `reclame_aqui_metrics`
   (`DbReclameAquiMetric`) — dados de exemplo hoje, sem integração real.
-- `nps_responses` (`DbNpsResponse`) — idem; ver `nps_followups` acima
-  (decisão pendente sobre qual é a fonte definitiva).
+- `nps_responses` (`DbNpsResponse`) — respostas reais do Typeform desde 01/09/2026 (webhook → n8n, em tempo
+  real; só respostas, não envios). É a fonte de NPS.
 - `helpdesks` (`DbHelpdesk`) — fluxo `fila → pendente → em_progresso →
   criado`/`rejeitado`, imposto no banco; link validado por check
   constraint (`https://greenn.crisp.help/pt-br/...`).
-- `rr_history` (`DbRRHistory`) — Reunião de Resultados, campos qualitativos
-  preenchidos manualmente.
 - `user_status` (`DbUserStatus`) — Colaboradores Online (status +
   horário), um registro por usuário.
 
-**Calendário** (6 tabelas dedicadas): `calendar_holidays`,
-`calendar_week_responsibles`, `calendar_saturday_oncall`,
+**Calendário** (6 tabelas dedicadas): `calendar_holidays`, `calendar_saturday_oncall`,
 `calendar_leave_requests`, `calendar_oncall`, `calendar_vacations`,
 `calendar_day_entries`.
 
@@ -313,8 +313,10 @@ geração automática de tipos configurada). Tabelas principais, por domínio:
 - `escala_sabado_config` — tabela singleton (1 linha fixa, `id boolean`
   sempre `true`) com `data_referencia`: o sábado a partir do qual a
   `posicao` #1 começa a contar. A função SQL `atendente_escalado_sabado(p_data)`
-  calcula `((p_data - data_referencia) / 7) mod count(escala_sabado)` para
-  achar quem está escalado numa data. **Sem uma linha em
+  calcula `((p_data - data_referencia) / 7) mod (nº de ativos)` sobre a ordem de
+  `posicao` **só de usuários ativos** (desde 2026-10-14; inativo é pulado, buraco
+  na numeração não deixa sábado vazio). Mudar quem está ativo desloca o rodízio:
+  ajustar `data_referencia` junto. **Sem uma linha em
   `escala_sabado_config` essa função sempre retorna vazio** — ficou sem
   nenhuma linha desde a criação da tabela até 2026-08-14 (ver `docs/HISTORICO.md`),
   o que fazia o rodízio parecer "quebrado" mesmo com gente cadastrada em
@@ -363,7 +365,6 @@ via SQL direto no Supabase.
 - `reclame_aqui_cases.responsavel_id → users.id`.
 - `helpdesks.created_by → users.id`, `helpdesks.approved_by → users.id`.
 - `user_status.user_id → users.id` (1:1).
-- `rr_history.user_id → users.id`.
 
 Não há uma tabela de "chamados" separada — `csat_results` representa
 interações já avaliadas; `crisp_conversations` é a lista mais ampla de
@@ -429,6 +430,12 @@ conversas (avaliadas ou não).
   sobrescreve alias corrigido à mão).
 - Webhook `crisp-removidos` → `registrar_remocao_crisp()`: remoção de
   conversa/mensagem no Crisp, com log em `crisp_remocoes_log`.
+- Workflow **"Migrações → Hub SAC"** (JSON em `gestao-tickets/n8n/sync-migracoes-hub.json`),
+  de hora em hora: `migracoes_para_hub()` na Centralização → `sync_migracoes(payload)` aqui
+  (upsert + remove o que sumiu da origem) em `migracoes_sync`. `migracoes_resumo` conta
+  finalizadas/canceladas pela data da mudança de status e em progresso/aguardando pelo
+  status no fim do período (`historico_status`); `total` = novas no período. Ver
+  `supabase/sql/2026-10-15_migracoes_sync_v2.sql`.
 - n8n usa só `service_role`. Ao corrigir um workflow a partir do JSON
   exportado, conferir também o node HTTP que monta o corpo: um campo novo
   num node `Code` não chega ao banco se o HTTP Request não o referencia.
@@ -483,8 +490,14 @@ conversas (avaliadas ou não).
   segue só nas funções de tempo/ranking ainda não migradas.
   Eventos de reabertura/transferência são contados por conversa, nunca
   ponderados.
+- **CSAT × NPS por semana**: `satisfacao_semanal(inicio, fim, tipo)` (quarta a terça, uma linha por semana) reusa as
+  regras do funil e de `csat_distribuicao_notas`; NPS vem null sem admin/permissão `nps` (0 = nenhuma resposta).
+  Página de NPS (gráfico + tabela) e, na Reunião de Resultados, só o gráfico, dentro do slide/seção de NPS (produtores).
 - **Backlog** = conversas abertas agora (sem filtro de período; conversa
-  aberta = 1 chamado). `backlog_por_idade` tem `com_humano`.
+  aberta = 1 chamado). `backlog_por_idade` tem `com_humano` e
+  `aguardando_cliente` (última mensagem, sem nota/evento, foi de atendente
+  humano; bot não conta). `backlog_casos` devolve o mesmo por conversa (null =
+  sem mensagem gravada). Em 14/10, 59% das abertas esperavam o cliente.
 - **FCR/Recontato**: por conversa (mesmo `people_id` + `topico` idêntico em
   7 dias, `crisp_id` diferente). Bot resolvendo conta.
 - **TFR**: `_primeiras_respostas_humanas()` é a fonte de todo TFR (wrapper de `_bruto` que descarta chamado iniciado no buraco de mensagens de 01–07/09 com resposta registrada depois — TFR desconhecido). Prioriza
@@ -518,7 +531,7 @@ conversas (avaliadas ou não).
   `_atendente_performance_base`, `_dashboard_atendimento_summary_base`, `csat_ruins_periodo`, `conversas_nota_baixa`,
   `operador_ranking`, `_analytics_*`) usam `coalesce(started_at da conversa, data_hora)`. Nova função de CSAT: seguir
   a mesma regra. Resolução em massa de conversas antigas (ex.: 28/09/2026) dispara pesquisa para elas, mas conta na
-  semana em que nasceram. Backup das definições antigas: `_bkp_funcoes_csat_2026_10_05`.
+  semana em que nasceram. Backup das definições antigas: `arquivo._bkp_funcoes_csat_2026_10_05`.
 - **Relatório semanal**: "23/09 a 30/09" = quarta a terça (23/09 00:00 a 29/09 23:59:59; a quarta final fica fora e abre a
   semana seguinte). O modo Personalizado inclui o último dia inteiro (8 dias).
 - **CSAT**: classificar sempre pela `nota` (4–5 boa/Promotor, 1–3
@@ -553,6 +566,14 @@ conversas (avaliadas ou não).
   `RETURNS TABLE`, qualificar colunas (ambiguidade com variáveis).
 - Não chamar `minutos_entre()` por linha em agregação grande: usar o join
   direto com `cobertura_semanal` (ver `atendente_performance`).
+- `cliente_e_teste`/`operador_fora_sac` no filtro fazem o planner estimar
+  ~20 linhas (eram 6 mil): CTE caro usado num `left join` vira lado de
+  dentro de Nested Loop e roda uma vez por linha. Usar `as materialized`
+  (FCR passava de 100 s, 2026-10-20). Função cara por mensagem (ex.
+  `nome_canonico_por_operator_id`): agrupar antes, chamar por grupo.
+- Otimização de função de métrica só entra com saída idêntica à anterior
+  (comparar com `except` nos dois sentidos, em período já fechado).
+- Front: consulta com `57014` (timeout) não é repetida (`App.tsx`).
 - RPC que pode passar de 1000 linhas: `p_limit`/`p_offset` +
   `count(*) over() as total_count` + desempate único no `order by`; o
   `api.ts` pagina em blocos de 500.
@@ -588,12 +609,35 @@ conversas (avaliadas ou não).
   esperando, e no e-mail só 32% chegam a um humano (2026-09-30).
 - "Atendido e não resolvido" usa como dono quem mandou a última mensagem,
   não o último roteamento (não alterado).
-- `escala_sabado` não filtra usuário inativo; FCR com 0 recontato na semana
-  17–23/09 é suspeito.
+- FCR com 0 recontato na semana 17–23/09 é suspeito.
 - Auth: signup direto não valida domínio, `aprovado` não está no RLS, sem
   SMTP próprio (limite de 2 e-mails/h). Desde 2026-09-30, `site_url` =
   `https://hub-sac-greenn.vercel.app` e a senha mínima do servidor é 8.
-- Upgrade de compute (Micro) adiado por decisão do usuário.
+- E-mail sem `tipo_cliente` (2026-10-08): a Crisp tem o segmento (`final` nos e-mails recentes), mas o fluxo
+  principal grava o tipo só no `message:send` e pode sobrescrever por `null`; o fluxo "Sincronizar tipo_cliente e
+  status" (06:30, 3 dias) corrige depois e já reconhece `final`. E-mail de 09/09–05/10 só tem o segmento `email`
+  na Crisp (sem recuperação). Edições do fluxo principal preparadas, não aplicadas.
+- CSAT (2026-10-08): o n8n apaga `csat_pending` respondida e a resposta por e-mail chega em várias mensagens juntas, o que
+  gera nota "Não identificado" (11 desde 17/09), pesquisa duplicada (17 desde 01/10) e comentário perdido. Fluxo
+  corrigido em 08/10 (DELETEs removidos, espera de 15 s para o comentário, comentário na mesma mensagem da nota); falta
+  confirmar a ausência do nó Google Sheets. Desde 15/10 a nota de e-mail é lida também no meio do texto ("Nota 5,
+  obrigado"); antes só no início, o que perdeu 15 notas desde 15/09 (recuperadas). `csat_envios_por_atendente`
+  já conta "enviada" pela mensagem da pesquisa no Crisp (não só `csat_pending`). Backup e patch em `~/Downloads/n8n-backup/`.
+  Desde 16/10 (correção preparada, não aplicada): o node "HTTP Request6" marca `aguardando_comentario` em todas as
+  avaliações da conversa com comentário nulo, então mensagem nova do cliente vira comentário de avaliação antiga e
+  o fluxo resolve a conversa (11 casos em 9 conversas desde 01/10; 611 avaliações presas em "aguardando"); e a nota
+  no texto de 15/10 vale em todo canal ("1 - O pedido..." no WhatsApp virou nota 1). Patch, Code novo e SQL de
+  limpeza em `~/Downloads/n8n-backup/*2026-10-16*`.
+- TFR conta nota interna (`message_type = note`) como 1ª resposta humana, na função e no n8n (12 de 802 em
+  30/09–06/10); correção proposta, aguardando decisão de produto.
+- NPS: nenhuma resposta chega ao Hub desde 04/10/2026 11:14 (antes ~3/dia). Fluxo Typeform → n8n → `nps_responses`
+  não aparece no MCP do n8n; causa não investigada (2026-10-14).
+- Upgrade de compute (Micro) adiado por decisão do usuário. Medido em 2026-10-14: o gargalo é memória (1 GB), não
+  CPU — o cache do Postgres vai para o swap e a 1ª leitura depois de uns minutos parado é 30–130× mais lenta
+  (`crisp_messages` inteira: 3,5 s frio x 27 ms quente). É o que deixa o Overview lento e instável.
+- `reopened_count_real_periodo` (regra antiga, ~2 s/chamada) é recalculada por 10 funções (saiu de
+  `_atendente_performance_base` em 2026-10-14, onde era descartada); o Overview chama várias delas juntas. Trocar por leitura de `reaberturas_reais` dá ~10× menos custo, mas muda ~0,8% dos totais (eventos antes de
+  08/09, eventos de estado com mesmo horário, mensagem que chega atrasada) — decisão de produto pendente.
 - Código morto tolerado: `horario_por_nome`, `duracao_dentro_expediente`,
   `csat_tempo_resposta_correlacao`, `fetchConversasFiltered`,
   `p_somente_risco`.
@@ -613,6 +657,15 @@ Todos em `src/components/ui/`:
 - **`Kpi`** — card de indicador com label, valor, delta vs. período
   anterior (seta + cor automática) e ícone opcional;
   `invertDeltaColor` para métricas onde "menor é melhor" (ex: tempo médio).
+  Desde 2026-10-20 desenha o `Indicador` (mesma API).
+- **Visual do Overview** (desde 2026-10-20, em toda a plataforma):
+  `CabecalhoPagina` (título + subtítulo + ações de toda tela), `Indicador`
+  (+ `ChipIcone`, `SeloDelta`, `MetricaTile`), `PainelCard` (card com ícone,
+  título e ação), `SecaoHead` (+ `Ajuda`, o "?"), `Tabela.tsx`
+  (`CABECALHO_TABELA`, `LINHA_TABELA`, `entradaLinha(i)` para `motion.tr`,
+  `SelectPainel`), `BarraAnimada`/`ColunaAnimada`/`BarrasRanking`,
+  `NumeroAnimado` e `Entrada` (fade em sequência por `indice`, `elevar` no
+  hover). `overview/PecasSubAbas.tsx` e `OverviewBlocos.tsx` só reexportam.
 - **`EmptyState`** — estado vazio padrão (ícone + título + descrição +
   ação opcional), usado em toda listagem sem resultado.
 - **`Skeleton` / `CardSkeleton`** — loading state padrão (`animate-pulse`).
@@ -676,7 +729,11 @@ CSAT etc.) em `docs/HISTORICO.md`.
 - **Duração/tempo**: usar `src/lib/formatDuration.ts`
   (`formatDuration`/`formatDurationFromMinutes`) para qualquer exibição de
   segundos/minutos como texto — não recriar `formatSegundos` local (isso já
-  foi um problema resolvido, ver README).
+  foi um problema resolvido, ver README). Tempo em **horas úteis** (TFR/TTR
+  úteis, tempo aberto útil, transferência, ranking) usa `formatDurationHoras`
+  ("62h", nunca "2d 14h" — dia útil tem 13h, pedido do usuário em 2026-10-16);
+  tempo corrido (posse, espera do cliente, bot, "corrido: …") segue em
+  `formatDuration`. Horas de expediente: `fmtHorasExpediente`.
 - **Classe CSS condicional**: sempre via `cn(...)` (`src/lib/utils.ts`,
   `clsx` + `tailwind-merge`), nunca concatenação manual de string.
 - **Erros de mutação**: padrão local é `try/catch` com `setErro(mensagem)`
@@ -761,7 +818,10 @@ CSAT etc.) em `docs/HISTORICO.md`.
   sentido pra animação puramente decorativa e sempre-ativa, sem estado.
   Toda animação nova (própria ou herdada de `prefers-reduced-motion`)
   precisa continuar funcionando com `prefers-reduced-motion: reduce` — ver
-  o bloco já existente em `index.css`.
+  o bloco já existente em `index.css`. `MotionConfig reducedMotion="user"`
+  fica no `App.tsx` (vale para todas as telas, inclusive Login); ele só
+  cobre transform, então largura/altura/número animado checam
+  `useReducedMotion` (ver `BarraAnimada`/`NumeroAnimado`).
 - **Layout de página**: container global `max-w-[1600px]` centralizado
   (`AppLayout.tsx`), sidebar fixa recolhível (72px colapsada, 240px
   expandida, expande no hover ou fixada por clique).
@@ -776,12 +836,16 @@ CSAT etc.) em `docs/HISTORICO.md`.
 - **Empty state, loading e erro**: sempre `EmptyState`, `Skeleton`/
   `CardSkeleton`, e mensagem de erro inline em `text-rust-500` — não usar
   `alert()`/spinners genéricos.
-- **Cards de indicador**: sempre via `Kpi`, nunca recriar a marcação de
+- **Tela nova**: `CabecalhoPagina` no topo, `PainelCard`/`SecaoHead` (com a
+  explicação no "?") nas seções e as peças do visual do Overview (seção 11)
+  em vez de recriar card/barra/select cru. Grade de cards entra com
+  `Entrada indice={i}`.
+- **Cards de indicador**: sempre via `Kpi` ou `Indicador`, nunca recriar a marcação de
   card com número grande + seta de variação manualmente.
 - **Tabelas administrativas**: `<table>` HTML simples dentro de `<Card>`,
-  cabeçalho `bg-sand-bg` + `text-xs uppercase`, linhas com `border-t
-  border-sand-line`, ações (editar/excluir) alinhadas à direita como
-  ícone-botão `h-8 w-8 rounded-lg`.
+  `<thead className={cn("text-left", CABECALHO_TABELA)}>`, linhas
+  `<motion.tr {...entradaLinha(i)} className={LINHA_TABELA}>`, ações
+  (editar/excluir) alinhadas à direita como ícone-botão `h-8 w-8 rounded-lg`.
 - **Densidade**: preferir componentes compactos (`SegmentedControl` foi
   criado exatamente para substituir "botões-pill grandes e espaçados" —
   ver comentário no próprio arquivo).
@@ -897,7 +961,7 @@ CSAT etc.) em `docs/HISTORICO.md`.
 | CSAT | `/csat` | Permissão granular `csat` ou admin |
 | Reclame Aqui | `/reclame-aqui` | Permissão granular `reclame_aqui` ou admin |
 | NPS | `/nps` | Permissão granular `nps` ou admin |
-| Overview (ex-Performance) | `/performance` | Todo colaborador ativo e aprovado vê a aba Dashboard (indicadores de saúde, "Precisa de atenção", sub-abas Pessoas/Velocidade/Qualidade/Fluxo); abas Atendimentos e IA genérica, pop-ups e listas de conversas são admin-only. `/analytics` redireciona pra cá (página Analytics excluída em 2026-09-24); `/em-risco` foi removida em 2026-08-31 |
+| Overview (ex-Performance) | `/performance` | Todo colaborador ativo e aprovado vê a aba Dashboard (indicadores de saúde, "Precisa de atenção", sub-abas Pessoas/Velocidade/Qualidade/Volume); abas Atendimentos e IA genérica, pop-ups e listas de conversas são admin-only. Desde 2026-10-16 tem também o que só existia na Reunião (`overview/SecoesReuniao.tsx`): NPS e CSAT × NPS em Qualidade (admin ou permissão `nps`), maiores TFR em Velocidade (admin) e Migrações em Volume (todos). Reclame Aqui não entra: na RR é digitado à mão e fica só no navegador de quem digitou. `/analytics` redireciona pra cá (página Analytics excluída em 2026-09-24); `/em-risco` foi removida em 2026-08-31 |
 | Administração (Usuários, Perfis, Permissões, Escalas, Metas, Cursos, Documentação, Atualizações, Outros Links) | `/admin/*` | Admin-only estrito |
 
 
@@ -985,10 +1049,6 @@ sabidamente incompleto por decisão de escopo (não é bug):
   copiar relatório).
 - Sistema de Tags em Documentação.
 - Cache de analytics (`analytics_cache`) e comparativos adicionais.
-- Decisão sobre migrar `csat_results`/`crisp_conversations` para o schema
-  `crisp_ratings` + `analytics_sac` (hoje vazio e reservado).
-- Decisão sobre qual fonte é definitiva para NPS: `nps_responses` (em uso)
-  vs. `nps_followups` (schema real, vazia).
 
 ## 21. Decisões arquiteturais importantes
 
@@ -1008,11 +1068,10 @@ sabidamente incompleto por decisão de escopo (não é bug):
 - **RLS é a camada de segurança real**, o frontend é conveniência de UX.
   Qualquer nova tela deve assumir que um usuário mal-intencionado pode
   chamar a API do Supabase diretamente, ignorando a UI.
-- **`crisp_conversations`, `crisp_ratings`, `nps_followups`,
-  `analytics_sac`**: tabelas/view "paralelas" identificadas pelo advisor de
-  segurança do Supabase, deliberadamente deixadas intocadas — reservadas
-  para quando existir integração direta com a API do Crisp. Não apagar,
-  não migrar sem decisão explícita.
+- **Schema paralelo do Crisp abandonado (2026-10-15)**: `crisp_ratings` e `nps_followups`, reservadas para uma
+  integração direta com a API do Crisp que não veio, foram apagadas por decisão do usuário (sempre vazias).
+  `csat_results` e `crisp_conversations`, alimentadas pelo n8n, são as fontes. Se a integração voltar, recriar
+  com `supabase/sql/2026-10-15_limpeza_tabelas_rollback.sql`.
 - **Sem servidor próprio**: toda a lógica de backend vive no Postgres
   (funções `security definer`) ou no frontend puro — não introduzir uma
   API Node/Express paralela sem alinhar antes, é uma mudança de
@@ -1080,10 +1139,6 @@ sabidamente incompleto por decisão de escopo (não é bug):
   telefone, e-mail). Nunca escrever dado de teste/demonstração ali (ver
   incidente documentado no README). Qualquer alteração de schema precisa
   considerar o pipeline externo que já escreve nessas tabelas.
-- **`crisp_conversations`, `crisp_ratings`, `nps_followups`,
-  `analytics_sac`** — schema paralelo reservado, deliberadamente intocado.
-  Não apagar, não popular com dado fictício, não migrar sem decisão
-  explícita do time.
 - **Vínculo `users.auth_id`** — já causou dois incidentes de "usuário não
   consegue entrar" quando ficou dessincronizado do Supabase Auth. Ao criar
   um usuário novo, sempre confirmar que o `auth_id` foi vinculado.

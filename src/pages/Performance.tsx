@@ -1,15 +1,15 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MotionConfig, motion } from "framer-motion";
-import { AlertTriangle, Bot, PhoneCall, Search, ExternalLink, Info, X, SlidersHorizontal, Download, Star, StarOff } from "lucide-react";
+import { AlertTriangle, ArrowRightLeft, Bot, CircleCheck, Clock, ExternalLink, Download, Handshake, Hourglass, Inbox, LayoutGrid, Layers, ListChecks, Percent, PhoneCall, Repeat, RotateCcw, Search, Send, SlidersHorizontal, Star, StarOff, Tag, ThumbsDown, ThumbsUp, Timer, Trophy, Users, X, Zap } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { Avatar } from "@/components/ui/Avatar";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Dialog } from "@/components/ui/Dialog";
 import { AtendimentoDetalheDialog } from "@/components/AtendimentoDetalheDialog";
-import { HorizontalBarChart } from "@/components/ui/BarChart";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { SortableHeader } from "@/components/ui/SortableHeader";
 import { useAuth } from "@/contexts/AuthContext";
@@ -34,6 +34,7 @@ import {
   fetchCsatDistribuicao,
   fetchTempoRespostaBot,
   fetchContagemPeriodo,
+  fetchResolucaoPeriodo,
   fetchReaberturaPorTipoCliente,
   fetchReaberturaCasos,
   fetchTransferenciasResumo,
@@ -46,17 +47,42 @@ import {
   fetchCsatFunilCanal,
   fetchAtendidoNaoResolvido,
   fetchCsatRuins,
+  fetchNpsResponses,
+  fetchSatisfacaoSemanal,
+  fetchMigracoesResumo,
+  fetchMigracoesPorPlataforma,
   type ModoTempo,
   type AtendimentoComMetricas,
   type VelocidadePorTipoCliente,
   type ReaberturaPorTipoCliente,
 } from "@/services/api";
 import { resolvePeriodo, periodoAnterior, type PeriodoPreset } from "@/lib/dateRanges";
-import { deltaPercentual, deltaPontos, fmtNum, fmtPct1, linhasFunil, resumoAtendido } from "@/lib/resultadosSac";
+import { deltaPercentual, deltaPontos, fmtHorasExpediente, fmtNum, fmtPct1, linhasFunil, resumirNps, resumoAtendido } from "@/lib/resultadosSac";
+import { janelaSemanal, resumirSemanas } from "@/lib/satisfacaoSemanal";
 import { CsatDetalheDialog } from "@/components/CsatDetalheDialog";
 import type { DbCsatResult } from "@/types/database";
-import { SaudeKpi, PrecisaAtencao, SecaoHead, CsatRuinsDialog } from "@/pages/overview/OverviewBlocos";
-import { formatDuration } from "@/lib/formatDuration";
+import { SaudeKpi, PrecisaAtencao, SecaoHead, CsatRuinsDialog, BarraAnimada } from "@/pages/overview/OverviewBlocos";
+import {
+  BarrasRanking,
+  BotaoExpandir,
+  BotaoSaibaMais,
+  CABECALHO_TABELA,
+  CarregandoPainel,
+  ChipIcone,
+  Entrada,
+  KpiPainel,
+  LINHA_TABELA,
+  LinkVer,
+  MetricaTile,
+  PainelCard,
+  SelectPainel,
+  VazioPainel,
+  entradaLinha,
+  type Tom,
+} from "@/pages/overview/PecasSubAbas";
+import { MapaCalorVolume } from "@/pages/overview/MapaCalor";
+import { MigracoesPainel, NpsPainel, TopTfrPainel } from "@/pages/overview/SecoesReuniao";
+import { formatDuration, formatDurationHoras } from "@/lib/formatDuration";
 import { cn, nomesCurtosDisambiguados } from "@/lib/utils";
 import { DateRangePopover } from "@/components/ui/DateRangePopover";
 import { exportAtendimentosToCsv } from "@/lib/exportCsv";
@@ -73,10 +99,6 @@ const statusLabel: Record<string, string> = { resolved: "Resolvido", pending: "P
 
 const PAGE_SIZE = 15;
 
-// dow do Postgres: 0=domingo .. 6=sábado (mesma convenção de cobertura_semanal).
-const DIAS_SEMANA = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
-const HORAS_DIA = Array.from({ length: 24 }, (_, h) => h);
-
 type OrdenarCampo = "tempo_aberto" | "tfr" | "tempo_resolucao";
 const DIRECAO_PADRAO: Record<OrdenarCampo, "asc" | "desc"> = {
   tempo_aberto: "desc",
@@ -84,6 +106,14 @@ const DIRECAO_PADRAO: Record<OrdenarCampo, "asc" | "desc"> = {
   tempo_resolucao: "desc",
 };
 
+
+// Mesma faixa do `corTextoSla`, no formato de tom das peças das sub-abas.
+function tomPorSla(pct: number | null | undefined): Tom {
+  if (pct === null || pct === undefined) return "marca";
+  if (pct >= 80) return "bom";
+  if (pct >= 50) return "atencao";
+  return "ruim";
+}
 
 function corTextoSla(pct: number | null | undefined) {
   if (pct === null || pct === undefined) return "text-ink/70";
@@ -99,15 +129,15 @@ type RankingCampo = "total_atendimentos" | "total_interacoes" | "total_mensagens
 type MotivoCampo = "chamados" | "tfr_media_seg" | "ttr_media_seg";
 
 // Tempo em minutos, arredondado pra leitura rápida no ranking: "25min",
-// "4h 52min", "2d 3h".
+// "4h 52min", "62h". Os tempos do ranking são úteis, então acima de 24h
+// continua em horas (ver formatDurationHoras).
 function tempoCurto(min: number | null | undefined): string {
   if (min == null) return "—";
   const m = Math.round(min);
   if (m < 60) return `${m}min`;
   const h = Math.floor(m / 60);
   if (h < 24) return m % 60 ? `${h}h ${m % 60}min` : `${h}h`;
-  const d = Math.floor(h / 24);
-  return h % 24 ? `${d}d ${h % 24}h` : `${d}d`;
+  return `${h}h`;
 }
 
 export default function Performance() {
@@ -115,6 +145,7 @@ export default function Performance() {
   const { isAdmin } = useAuth();
   const { hasPermission } = usePermissions();
   const podeVerCsat = hasPermission("csat");
+  const podeVerNps = hasPermission("nps");
   const navigate = useNavigate();
   // Overview aberto a todo colaborador (2026-09-24): quem não é admin vê só
   // a aba Dashboard; listas de conversas e clientes (aba Atendimentos, IA
@@ -124,7 +155,7 @@ export default function Performance() {
   const aba = isAdmin ? abaSalva : "ranking";
   // Toggle de horas úteis/corridas removido do Overview (pedido do usuário) —
   // Velocidade agora mostra os dois modos direto no card, sem precisar
-  // escolher. O resto da página (Ranking, Motivo de contato, Transferências)
+  // escolher. O resto da página (Ranking, Motivo de contato)
   // continua em horas úteis, só sem opção de trocar pela UI.
   const modoTempo: ModoTempo = "uteis";
   const [preset, setPreset] = usePersistedState<PeriodoPreset>("overview:preset", "30dias");
@@ -164,13 +195,14 @@ export default function Performance() {
   const [mostrarTodasReaberturas, setMostrarTodasReaberturas] = useState(false);
   const [reaberturaFiltroAtendente, setReaberturaFiltroAtendente] = useState("");
   const [reaberturaFiltroReaberto, setReaberturaFiltroReaberto] = useState("");
-  const [mostrarTodasTransferencias, setMostrarTodasTransferencias] = useState(false);
   const [mostrarTodosRecontatos, setMostrarTodosRecontatos] = useState(false);
   const [genericoPage, setGenericoPage] = useState(0);
   const [genericoSoSemResposta, setGenericoSoSemResposta] = useState(false);
   // Sub-abas do Dashboard (redesenho de 2026-09-24) — cada uma só busca os
   // próprios dados quando está aberta.
-  const [subAba, setSubAba] = usePersistedState<"pessoas" | "velocidade" | "qualidade" | "fluxo">("overview:subAba", "pessoas");
+  // "fluxo" é o nome antigo da aba "volume": quem já tinha ele salvo no localStorage cai em "volume".
+  const [subAbaSalva, setSubAba] = usePersistedState<"pessoas" | "velocidade" | "qualidade" | "volume" | "fluxo">("overview:subAba", "pessoas");
+  const subAba = subAbaSalva === "fluxo" ? "volume" : subAbaSalva;
   const [posseDetalheSoAbertos, setPosseDetalheSoAbertos] = useState(false);
   const [ruinsAberto, setRuinsAberto] = useState(false);
   const [csatDetalhe, setCsatDetalhe] = useState<DbCsatResult | null>(null);
@@ -211,6 +243,12 @@ export default function Performance() {
   const { data: contagem } = useQuery({
     queryKey: ["contagem-periodo", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchContagemPeriodo(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
+  });
+
+  const { data: resolucao } = useQuery({
+    queryKey: ["resolucao-periodo", inicio, fim, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchResolucaoPeriodo(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
+    enabled: naDashboard,
   });
 
   const { data: csatDist } = useQuery({
@@ -258,7 +296,7 @@ export default function Performance() {
   const { data: volumeDiaHora, isLoading: loadingVolumeDiaHora } = useQuery({
     queryKey: ["volume-dia-hora", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchVolumeDiaHora(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: waveDoisHabilitada && subAba === "fluxo",
+    enabled: waveDoisHabilitada && subAba === "volume",
   });
 
   const { data: esperaCliente, isLoading: loadingEspera } = useQuery({
@@ -276,7 +314,7 @@ export default function Performance() {
   const { data: motivos, isLoading: loadingMotivos } = useQuery({
     queryKey: ["motivo-contato-resumo", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchMotivoContatoResumo(inicio, fim, undefined, modoTempo, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: waveDoisHabilitada && (subAba === "fluxo" || aba === "atendimentos"),
+    enabled: waveDoisHabilitada && (subAba === "volume" || aba === "atendimentos"),
   });
 
   // Mesma ideia de velocidade-por-tipo: 1 query com "Geral" + 1 linha por
@@ -295,6 +333,11 @@ export default function Performance() {
   const { data: contagemAnterior } = useQuery({
     queryKey: ["contagem-periodo", inicioAnterior, fimAnterior, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchContagemPeriodo(inicioAnterior, fimAnterior, undefined, atendenteNomesFiltro, tipoClienteRpc),
+    enabled: waveDoisHabilitada && naDashboard,
+  });
+  const { data: resolucaoAnterior } = useQuery({
+    queryKey: ["resolucao-periodo", inicioAnterior, fimAnterior, atendenteNomes, tipoClienteFiltro],
+    queryFn: () => fetchResolucaoPeriodo(inicioAnterior, fimAnterior, undefined, atendenteNomesFiltro, tipoClienteRpc),
     enabled: waveDoisHabilitada && naDashboard,
   });
   const { data: csatDistAnterior } = useQuery({
@@ -319,8 +362,15 @@ export default function Performance() {
   const velocidadeKpiAnterior = useMemo(() => velocidadeAnterior?.find((v) => v.tipo_cliente === tipoKpi), [velocidadeAnterior, tipoKpi]);
   const reaberturaKpi = useMemo(() => reaberturaPorTipo?.find((r) => r.tipo_cliente === tipoKpi), [reaberturaPorTipo, tipoKpi]);
   const reaberturaKpiAnterior = useMemo(() => reaberturaAnteriorPorTipo?.find((r) => r.tipo_cliente === tipoKpi), [reaberturaAnteriorPorTipo, tipoKpi]);
+  // Variação em pontos da taxa, não da quantidade: o período anterior teve mais tempo para resolver as dele.
+  const resolvidasPct = resolucao && resolucao.conversas > 0 ? (resolucao.resolvidas / resolucao.conversas) * 100 : null;
+  const resolvidasPctAnterior = resolucaoAnterior && resolucaoAnterior.conversas > 0 ? (resolucaoAnterior.resolvidas / resolucaoAnterior.conversas) * 100 : null;
   const csatBoasPct = csatDist && csatDist.total > 0 ? (csatDist.boas / csatDist.total) * 100 : null;
   const csatBoasPctAnterior = csatDistAnterior && csatDistAnterior.total > 0 ? (csatDistAnterior.boas / csatDistAnterior.total) * 100 : null;
+  const csatRuinsPct = csatDist && csatDist.total > 0 ? (csatDist.ruins / csatDist.total) * 100 : null;
+  const csatRuinsPctAnterior = csatDistAnterior && csatDistAnterior.total > 0 ? (csatDistAnterior.ruins / csatDistAnterior.total) * 100 : null;
+  // A seção Reabertura mostra o time inteiro ("Geral"), então o período anterior também.
+  const reaberturaResumoAnterior = useMemo(() => reaberturaAnteriorPorTipo?.find((r: ReaberturaPorTipoCliente) => r.tipo_cliente === "Geral"), [reaberturaAnteriorPorTipo]);
 
   // "Precisa de atenção": funil do CSAT e atendido e não resolvido (mesmas
   // funções e contas do relatório da RR, via resultadosSac).
@@ -366,7 +416,7 @@ export default function Performance() {
   const { data: transferenciasResumo, isLoading: loadingTransferencias } = useQuery({
     queryKey: ["transferencias-resumo", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchTransferenciasResumo(inicio, fim, undefined, atendenteNomesFiltro, modoTempo, tipoClienteRpc),
-    enabled: waveDoisHabilitada && (subAba === "fluxo" || subAba === "pessoas"),
+    enabled: waveDoisHabilitada && (subAba === "volume" || subAba === "pessoas"),
   });
 
   const { data: transferenciasCasos } = useQuery({
@@ -401,6 +451,73 @@ export default function Performance() {
     queryKey: ["resposta-generica-casos", inicio, fim, atendenteNomes, tipoClienteFiltro, genericoSoSemResposta, genericoPage],
     queryFn: () => fetchRespostaGenericaCasos(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc, genericoSoSemResposta, genericoPage, PAGE_SIZE),
     enabled: aba === "generico",
+  });
+
+  // Itens da Reunião de Resultados trazidos pro Overview (2026-10-16), com as mesmas funções da RR: NPS e
+  // CSAT × NPS na Qualidade (admin ou permissão "nps"; o RLS de nps_responses também barra), maiores tempos
+  // de 1ª resposta na Velocidade (só admin: é lista de conversa) e Migrações no Volume (todo aprovado).
+  const { data: npsRespostas, isLoading: loadingNps } = useQuery({
+    queryKey: ["nps-responses", inicio, fim],
+    queryFn: () => fetchNpsResponses({ inicio, fim }),
+    enabled: waveDoisHabilitada && podeVerNps && subAba === "qualidade",
+  });
+  const { data: npsRespostasAnterior } = useQuery({
+    queryKey: ["nps-responses", inicioAnterior, fimAnterior],
+    queryFn: () => fetchNpsResponses({ inicio: inicioAnterior, fim: fimAnterior }),
+    enabled: waveDoisHabilitada && podeVerNps && subAba === "qualidade",
+  });
+  const npsResumo = useMemo(() => (npsRespostas ? resumirNps(npsRespostas) : null), [npsRespostas]);
+  const npsResumoAnterior = useMemo(() => (npsRespostasAnterior ? resumirNps(npsRespostasAnterior) : null), [npsRespostasAnterior]);
+  // Últimas 8 semanas até o fim do período; CSAT só de produtores (quem recebe o NPS), igual à RR.
+  const janelaSatisfacao = useMemo(() => janelaSemanal(fim), [fim]);
+  const { data: satisfacaoSemanal, isLoading: loadingSatisfacao } = useQuery({
+    queryKey: ["satisfacao-semanal", "Produtor", janelaSatisfacao.inicio.toISOString(), janelaSatisfacao.fim.toISOString()],
+    queryFn: () => fetchSatisfacaoSemanal(janelaSatisfacao.inicio, janelaSatisfacao.fim, "Produtor"),
+    enabled: waveDoisHabilitada && podeVerNps && subAba === "qualidade",
+  });
+  const semanasSatisfacao = useMemo(() => resumirSemanas(satisfacaoSemanal ?? []), [satisfacaoSemanal]);
+
+  // Com filtro de tipo de cliente, uma lista só daquele tipo; sem filtro, Produtor e Final (como na RR).
+  const tiposTopTfr = tipoClienteFiltro ? [tipoClienteFiltro] : ["Produtor", "Final"];
+  const { data: topTfrA, isLoading: loadingTopTfrA } = useQuery({
+    queryKey: ["top-tfr-casos", tiposTopTfr[0], inicio, fim, atendenteNomes],
+    queryFn: () => fetchAtendimentosComMetricas({
+      inicio, fim, tipoCliente: tiposTopTfr[0], atendenteNomes: atendenteNomesFiltro, ordenarPor: "tfr", direcao: "desc", page: 0, pageSize: 7,
+    }),
+    enabled: isAdmin && waveDoisHabilitada && subAba === "velocidade",
+  });
+  const { data: topTfrB, isLoading: loadingTopTfrB } = useQuery({
+    queryKey: ["top-tfr-casos", tiposTopTfr[1] ?? "", inicio, fim, atendenteNomes],
+    queryFn: () => fetchAtendimentosComMetricas({
+      inicio, fim, tipoCliente: tiposTopTfr[1], atendenteNomes: atendenteNomesFiltro, ordenarPor: "tfr", direcao: "desc", page: 0, pageSize: 7,
+    }),
+    enabled: isAdmin && waveDoisHabilitada && subAba === "velocidade" && tiposTopTfr.length > 1,
+  });
+  const gruposTopTfr = useMemo(
+    () =>
+      [topTfrA, topTfrB].slice(0, tiposTopTfr.length).map((r, i) => ({
+        titulo: tiposTopTfr[i] === "Final" ? "Cliente Final" : tiposTopTfr[i],
+        // Sem resposta humana o TFR é nulo e a ordenação joga pro fim — não entra no "mais lento".
+        casos: (r?.rows ?? []).filter((c) => c.tempo_primeira_resposta_seg != null),
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [topTfrA, topTfrB, tipoClienteFiltro]
+  );
+
+  const { data: migracoes, isLoading: loadingMigracoes } = useQuery({
+    queryKey: ["migracoes-resumo", inicio, fim],
+    queryFn: () => fetchMigracoesResumo(inicio, fim),
+    enabled: waveDoisHabilitada && subAba === "volume",
+  });
+  const { data: migracoesAnterior } = useQuery({
+    queryKey: ["migracoes-resumo", inicioAnterior, fimAnterior],
+    queryFn: () => fetchMigracoesResumo(inicioAnterior, fimAnterior),
+    enabled: waveDoisHabilitada && subAba === "volume",
+  });
+  const { data: migracoesPorPlataforma } = useQuery({
+    queryKey: ["migracoes-por-plataforma", inicio, fim],
+    queryFn: () => fetchMigracoesPorPlataforma(inicio, fim),
+    enabled: waveDoisHabilitada && subAba === "volume",
   });
 
   const { data: posseDetalheAtendimentos, isLoading: loadingPosseDetalhe } = useQuery({
@@ -470,6 +587,8 @@ export default function Performance() {
     });
     return copia;
   }, [rankingHumano, rankingOrdenarPor, rankingDirecao]);
+  // Maior volume do ranking: a barrinha de "Chamados" de cada linha é proporcional a ele.
+  const maxChamadosRanking = Math.max(1, ...(rankingOrdenado ?? []).map((r) => r.total_atendimentos));
 
   const posseMap = useMemo(() => {
     const mapa = new Map<string, { minutos_posse: number; chamados: number }>();
@@ -701,7 +820,7 @@ export default function Performance() {
                     </div>
                   </div>
                   {aba === "ranking" && (
-                    <p className="text-[11px] text-ink/40">Filtra o Dashboard inteiro (Ranking, Backlog, Posse, Reabertura, Transferências, FCR/Recontato). Velocidade já mostra todo mundo, segmentado por tipo — esse filtro não muda ela.</p>
+                    <p className="text-[11px] text-ink/40">Filtra o Dashboard inteiro (Ranking, Backlog, Posse, Reabertura, FCR/Recontato). Velocidade já mostra todo mundo, segmentado por tipo — esse filtro não muda ela.</p>
                   )}
                 </div>
                 {aba === "ranking" ? (
@@ -716,7 +835,7 @@ export default function Performance() {
                       {(tiposCliente ?? []).map((t) => <option key={t.tag} value={t.tag}>{t.label}</option>)}
                     </select>
                     <p className="mt-1.5 text-[11px] text-ink/40">
-                      Filtra o Dashboard inteiro (Ranking, Backlog, Posse, Reabertura, Transferências, FCR/Recontato)
+                      Filtra o Dashboard inteiro (Ranking, Backlog, Posse, Reabertura, FCR/Recontato)
                       — exceto CSAT, Relógio de trabalho ativo e Velocidade (que já mostra todo mundo segmentado).
                     </p>
                   </div>
@@ -772,9 +891,9 @@ export default function Performance() {
             <SaudeKpi
               label="Conversas resolvidas"
               indice={1}
-              valor={fmtNum(reaberturaKpi?.total_resolvidos)}
-              delta={deltaPercentual(reaberturaKpi?.total_resolvidos, reaberturaKpiAnterior?.total_resolvidos, false)}
-              contexto={reaberturaKpi && contagem && contagem.total_conversas > 0 ? `de ${fmtNum(contagem.total_conversas)} conversas no período (${fmtPct1((reaberturaKpi.total_resolvidos / contagem.total_conversas) * 100)})` : undefined}
+              valor={fmtNum(resolucao?.resolvidas)}
+              delta={deltaPontos(resolvidasPct, resolvidasPctAnterior, false)}
+              contexto={resolucao && resolvidasPct != null ? `de ${fmtNum(resolucao.conversas)} que chegaram no período (${fmtPct1(resolvidasPct)})` : undefined}
             />
             <SaudeKpi
               label="CSAT · avaliações boas"
@@ -788,16 +907,16 @@ export default function Performance() {
             <SaudeKpi
               label="1ª resposta · mediana"
               indice={3}
-              valor={formatDuration(velocidadeKpi?.tfr_p50_uteis_seg ?? null)}
-              delta={deltaPercentual(velocidadeKpi?.tfr_p50_uteis_seg, velocidadeKpiAnterior?.tfr_p50_uteis_seg, true, (v) => formatDuration(v))}
-              contexto={`média ${formatDuration(velocidadeKpi?.tfr_media_uteis_seg ?? null)} · horas úteis, 1ª resposta humana`}
+              valor={formatDurationHoras(velocidadeKpi?.tfr_p50_uteis_seg ?? null)}
+              delta={deltaPercentual(velocidadeKpi?.tfr_p50_uteis_seg, velocidadeKpiAnterior?.tfr_p50_uteis_seg, true, (v) => formatDurationHoras(v))}
+              contexto={`média ${formatDurationHoras(velocidadeKpi?.tfr_media_uteis_seg ?? null)} · horas úteis, 1ª resposta humana`}
             />
             <SaudeKpi
               label="Reabertura"
               indice={4}
               valor={fmtPct1(reaberturaKpi?.taxa_pct)}
               delta={deltaPontos(reaberturaKpi?.taxa_pct, reaberturaKpiAnterior?.taxa_pct, true)}
-              contexto={reaberturaKpi ? `${fmtNum(reaberturaKpi.total_reabertos)} de ${fmtNum(reaberturaKpi.total_resolvidos)} conversas resolvidas` : undefined}
+              contexto={reaberturaKpi ? `${fmtNum(reaberturaKpi.total_reabertos)} de ${fmtNum(reaberturaKpi.total_resolvidos)} conversas resolvidas ou reabertas no período` : undefined}
             />
           </div>
           {tipoClienteFiltro && (
@@ -816,7 +935,7 @@ export default function Performance() {
           />
 
           <div className="flex flex-wrap gap-1 border-b border-sand-line" role="tablist" aria-label="Detalhe do Dashboard">
-            {([["pessoas", "Pessoas"], ["velocidade", "Velocidade"], ["qualidade", "Qualidade"], ["fluxo", "Fluxo"]] as const).map(([valor, rotulo]) => (
+            {([["pessoas", "Pessoas"], ["velocidade", "Velocidade"], ["qualidade", "Qualidade"], ["volume", "Volume"]] as const).map(([valor, rotulo]) => (
               <button
                 key={valor}
                 type="button"
@@ -851,9 +970,11 @@ export default function Performance() {
             {/* Layout do design Verdee (Claude Design, 2026-09-24): ranking
                 enxuto à esquerda; bot e volume por pessoa à direita. */}
             <div className="grid gap-4 lg:grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)]">
-              <Card className="overflow-hidden">
-                <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-4">
-                  <div>
+              <Entrada className="h-full">
+              <Card className="h-full overflow-hidden">
+                <div className="flex items-center gap-2.5 px-5 pb-3 pt-4">
+                  <ChipIcone icone={Trophy} />
+                  <div className="min-w-0 flex-1">
                     <h2 className="font-display text-[15px] font-bold text-ink">Ranking de atendentes</h2>
                     <p className="mt-0.5 text-[12.5px] text-ink/50">Humanos por chamados no período · tempos em horas úteis</p>
                   </div>
@@ -873,7 +994,7 @@ export default function Performance() {
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
-                      <thead className="bg-sand-subtle text-[11px] uppercase tracking-wide text-ink/50">
+                      <thead className={CABECALHO_TABELA}>
                         <tr>
                           <th className="px-5 py-3 text-left font-semibold">Atendente</th>
                           <SortableHeader align="center" field="total_atendimentos" label="Chamados" ordenarPor={rankingOrdenarPor} direcao={rankingDirecao} onSort={ordenarRankingPorColuna} />
@@ -887,14 +1008,13 @@ export default function Performance() {
                         {rankingOrdenado.map((r, i) => {
                           const iniciais = r.operator_nome.split(" ").filter(Boolean).slice(0, 2).map((n) => n[0]).join("").toUpperCase();
                           const clicavel = isAdmin && posseMap.has(r.operator_nome);
+                          const csatBom = r.csat_medio != null && r.csat_medio >= 4.5;
                           return (
                             <motion.tr
                               key={r.operator_email ?? r.operator_nome}
-                              initial={{ opacity: 0, y: 6 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ duration: 0.25, ease: "easeOut", delay: Math.min(i, 10) * 0.03 }}
+                              {...entradaLinha(i)}
                               onClick={clicavel ? () => { setPosseDetalheSoAbertos(false); setPosseDetalhe(r.operator_nome); setPosseDetalhePage(0); } : undefined}
-                              className={cn("border-t border-sand-line text-center", clicavel && "cursor-pointer transition-colors hover:bg-sand-subtle")}
+                              className={cn(LINHA_TABELA, "text-center", clicavel && "cursor-pointer")}
                             >
                               <td className="px-5 py-3 text-left">
                                 <span className="flex items-center gap-2.5 font-semibold text-ink">
@@ -904,11 +1024,20 @@ export default function Performance() {
                                   {r.operator_nome}
                                 </span>
                               </td>
-                              <td className="px-4 py-3 font-semibold tabular-nums text-ink">{r.total_atendimentos.toLocaleString("pt-BR")}</td>
+                              <td className="px-4 py-3">
+                                <div className="mx-auto flex w-28 flex-col items-center gap-1">
+                                  <span className="font-semibold tabular-nums text-ink">{r.total_atendimentos.toLocaleString("pt-BR")}</span>
+                                  <span className="h-1 w-full overflow-hidden rounded-full bg-sand-subtle">
+                                    <BarraAnimada className="rounded-full bg-forest-500" largura={(r.total_atendimentos / maxChamadosRanking) * 100} atraso={Math.min(i, 10) * 0.03} />
+                                  </span>
+                                </div>
+                              </td>
                               <td className="px-4 py-3 tabular-nums text-ink/70">{tempoCurto(r.tfr_medio)}</td>
                               <td className="px-4 py-3 tabular-nums text-ink/70">{tempoCurto(r.tempo_resolucao_medio)}</td>
-                              <td className={cn("px-4 py-3 font-semibold tabular-nums", r.csat_medio != null && r.csat_medio >= 4.5 ? "text-forest-600 dark:text-forest-300" : "text-ink")}>
-                                {r.csat_medio != null ? r.csat_medio.toFixed(2).replace(".", ",") : "—"}
+                              <td className="px-4 py-3">
+                                <span className={cn("inline-block rounded-full px-2.5 py-0.5 font-semibold tabular-nums", csatBom ? "bg-forest-500/10 text-forest-600 dark:text-forest-300" : "text-ink")}>
+                                  {r.csat_medio != null ? r.csat_medio.toFixed(2).replace(".", ",") : "—"}
+                                </span>
                               </td>
                               <td className="px-4 py-3 tabular-nums text-ink/70">{r.total_avaliacoes}</td>
                             </motion.tr>
@@ -919,6 +1048,7 @@ export default function Performance() {
                   </div>
                 )}
               </Card>
+              </Entrada>
 
               <div className="flex flex-col gap-4">
                 {iaEntry && (
@@ -958,18 +1088,16 @@ export default function Performance() {
                 )}
 
                 {rankingHumano && rankingHumano.length > 0 && (
-                  <Card className="p-5">
-                    <p className="mb-3 font-display text-sm font-bold text-ink">Volume por pessoa</p>
-                    <HorizontalBarChart
+                  <PainelCard indice={2} icone={Users} titulo="Volume por pessoa" subtitulo="Chamados no período · top 6">
+                    <BarrasRanking
                       data={(() => {
                         const ordenado = [...rankingHumano].sort((a, b) => b.total_atendimentos - a.total_atendimentos).slice(0, 6);
                         const rotulos = nomesCurtosDisambiguados(ordenado.map((r) => r.operator_nome));
                         return ordenado.map((r, i) => ({ label: rotulos[i], value: r.total_atendimentos }));
                       })()}
-                      getColorClass={() => "bg-forest-500"}
                       labelWidth={80}
                     />
-                  </Card>
+                  </PainelCard>
                 )}
               </div>
             </div>
@@ -986,165 +1114,158 @@ export default function Performance() {
               className="space-y-8"
             >
             <div>
-              <div className="mb-3 flex items-center gap-2">
-                <h2 className="font-display text-[15px] font-bold text-ink">Velocidade</h2>
-                <button
-                  type="button"
-                  onClick={() => setExplicacaoVelocidadeAberta(true)}
-                  className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-ink/50 hover:bg-sand-bg hover:text-ink"
-                >
-                  <Info size={13} /> ver mais
-                </button>
-              </div>
+              <SecaoHead
+                titulo="Velocidade"
+                subtitulo="Mediana de 1ª resposta e de resolução, por tipo de cliente."
+                acao={<BotaoSaibaMais onClick={() => setExplicacaoVelocidadeAberta(true)} />}
+                ajuda={
+                  <>
+                    <p>Mediana (P50) como número principal — metade dos chamados fica em até esse tempo, é o "caso típico" e sofre bem menos com outliers do que a média (passe o mouse no número pra ver a média).</p>
+                    <p className="mt-2">"Geral" é o time inteiro, sem filtrar por tipo. Tempo sempre desconta feriado; "Sem tipo" é quem não tem tag de segmento capturada pela Crisp ainda.</p>
+                  </>
+                }
+              />
               {loadingVelocidade ? (
-                <p className="text-sm text-ink/50">Carregando...</p>
+                <CarregandoPainel />
               ) : !velocidadeGeral ? (
-                <Card className="p-4"><p className="text-sm text-ink/50">Sem chamados no período.</p></Card>
+                <VazioPainel icone={Zap}>Sem chamados no período.</VazioPainel>
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {[velocidadeGeral, ...velocidadePorTipoReal].map((v: VelocidadePorTipoCliente) => {
+                  {[velocidadeGeral, ...velocidadePorTipoReal].map((v: VelocidadePorTipoCliente, i) => {
                     const rb = reaberturaPorTipo?.find((r: ReaberturaPorTipoCliente) => r.tipo_cliente === v.tipo_cliente);
+                    const geral = v.tipo_cliente === "Geral";
                     return (
-                      <Card key={v.tipo_cliente} className="p-4">
-                        <div className="flex items-baseline justify-between">
-                          <p className="font-display text-sm font-semibold text-ink">{v.tipo_cliente}</p>
-                          <p className="text-xs text-ink/50">{v.chamados.toLocaleString("pt-BR")} chamados</p>
-                        </div>
-                        <div className="mt-3 border-t border-sand-line pt-3">
-                          <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40">1ª resposta (mediana)</p>
-                          <p
-                            className="mt-0.5 font-display text-lg font-semibold text-ink"
-                            title={`Média: ${formatDuration(v.tfr_media_uteis_seg)} útil / ${formatDuration(v.tfr_media_corridas_seg)} corrido`}
-                          >
-                            {formatDuration(v.tfr_p50_uteis_seg)}
-                          </p>
-                          <p className="text-xs text-ink/50">corrido: {formatDuration(v.tfr_p50_corridas_seg)}</p>
-                        </div>
-                        <div className="mt-3 border-t border-sand-line pt-3">
-                          <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40">Resolução (mediana)</p>
-                          <p
-                            className="mt-0.5 font-display text-lg font-semibold text-ink"
-                            title={`Média: ${formatDuration(v.ttr_media_uteis_seg)} útil / ${formatDuration(v.ttr_media_corridas_seg)} corrido`}
-                          >
-                            {formatDuration(v.ttr_p50_uteis_seg)}
-                          </p>
-                          <p className="text-xs text-ink/50">corrido: {formatDuration(v.ttr_p50_corridas_seg)}</p>
-                        </div>
-                        <div className="mt-3 border-t border-sand-line pt-3">
-                          <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40">Reabertura</p>
-                          {rb ? (
-                            <p className="mt-0.5 text-sm text-ink/70">
-                              <span className="font-semibold text-ink">{rb.taxa_pct?.toFixed(1) ?? "—"}%</span>
-                              {" "}({rb.total_reabertos.toLocaleString("pt-BR")} de {rb.total_resolvidos.toLocaleString("pt-BR")} conversas resolvidas)
-                            </p>
-                          ) : (
-                            <p className="mt-0.5 text-sm text-ink/40">—</p>
-                          )}
-                        </div>
-                      </Card>
+                      <Entrada key={v.tipo_cliente} indice={i} elevar className="h-full">
+                        <Card className={cn("flex h-full flex-col gap-3 p-4", geral && "border-forest-500/30 bg-forest-500/[0.04]")}>
+                          <div className="flex items-center gap-2.5">
+                            <ChipIcone icone={geral ? Users : Tag} />
+                            <p className="min-w-0 flex-1 truncate text-[13.5px] font-bold text-ink">{v.tipo_cliente}</p>
+                            <Badge tone="neutral">{v.chamados.toLocaleString("pt-BR")} chamados</Badge>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <MetricaTile
+                              icone={Zap}
+                              label="1ª resposta"
+                              valor={formatDurationHoras(v.tfr_p50_uteis_seg)}
+                              apoio={`corrido: ${formatDuration(v.tfr_p50_corridas_seg)}`}
+                              title={`Média: ${formatDurationHoras(v.tfr_media_uteis_seg)} útil / ${formatDuration(v.tfr_media_corridas_seg)} corrido`}
+                            />
+                            <MetricaTile
+                              icone={CircleCheck}
+                              label="Resolução"
+                              valor={formatDurationHoras(v.ttr_p50_uteis_seg)}
+                              apoio={`corrido: ${formatDuration(v.ttr_p50_corridas_seg)}`}
+                              title={`Média: ${formatDurationHoras(v.ttr_media_uteis_seg)} útil / ${formatDuration(v.ttr_media_corridas_seg)} corrido`}
+                            />
+                          </div>
+                          <MetricaTile
+                            icone={RotateCcw}
+                            label="Reabertura"
+                            valor={rb ? `${rb.taxa_pct?.toFixed(1) ?? "—"}%` : "—"}
+                            apoio={rb ? `${rb.total_reabertos.toLocaleString("pt-BR")} de ${rb.total_resolvidos.toLocaleString("pt-BR")} conversas resolvidas ou reabertas` : undefined}
+                          />
+                        </Card>
+                      </Entrada>
                     );
                   })}
                 </div>
               )}
-              <p className="mt-3 text-xs text-ink/40">
-                Mediana (P50) como número principal — metade dos chamados fica em até esse tempo, é o "caso típico" e sofre
-                bem menos com outliers do que a média (passe o mouse pra ver a média). "Geral" é o time inteiro, sem filtrar
-                por tipo. Tempo sempre desconta feriado; "Sem tipo" é quem não tem tag de segmento capturada pela Crisp ainda.
-              </p>
             </div>
 
-            <div>
-              <div className="mb-3 flex items-center gap-2">
-                <h2 className="font-display text-[15px] font-bold text-ink">Relógios do atendimento</h2>
-                <button
-                  type="button"
-                  onClick={() => setExplicacaoRelogiosAberta(true)}
-                  className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-ink/50 hover:bg-sand-bg hover:text-ink"
-                >
-                  <Info size={13} /> ver mais
-                </button>
-              </div>
-              <Card className="p-4">
-                <div className="grid gap-4 border-b border-sand-line pb-4 sm:grid-cols-3">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Relógio do cliente</p>
-                    {loadingVelocidade ? (
-                      <p className="mt-1 text-sm text-ink/50">Carregando...</p>
-                    ) : !velocidadeGeral ? (
-                      <p className="mt-1 text-sm text-ink/50">Sem amostras.</p>
-                    ) : (
-                      <>
-                        <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{formatDuration(velocidadeGeral.ttr_p50_uteis_seg)}</p>
-                        <p className="mt-1 text-[11px] text-ink/40">Mediana de Resolução — mesmo valor de Velocidade (card "Geral"), do ponto de vista de quem esperou</p>
-                      </>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Relógio de espera do cliente</p>
-                    {loadingEspera ? (
-                      <p className="mt-1 text-sm text-ink/50">Carregando...</p>
-                    ) : !esperaCliente || esperaCliente.amostras === 0 ? (
-                      <p className="mt-1 text-sm text-ink/50">Sem amostras.</p>
-                    ) : (
-                      <>
-                        <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{formatDuration((esperaCliente.minutos_espera_medio ?? 0) * 60)}</p>
-                        <p className="mt-1 text-[11px] text-ink/40">{esperaCliente.amostras} janelas de espera até resposta humana (bot não conta)</p>
-                      </>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Relógio de trabalho ativo</p>
-                    {loadingExpediente ? (
-                      <p className="mt-1 text-sm text-ink/50">Carregando...</p>
-                    ) : !horasExpediente ? (
-                      <p className="mt-1 text-sm text-ink/50">Sem expediente cadastrado no período.</p>
-                    ) : (
-                      <>
-                        <p className="mt-1 font-display text-kpi-lg font-semibold text-ink">{formatDuration(horasExpediente * 60)}</p>
-                        <p
-                          className="mt-1 text-[11px] text-ink/40"
-                          title={atendenteNomes.length > 0 ? "Plantão fixo de sábado (08h-12h) não entra aqui filtrado — não dá pra saber quem especificamente está de plantão nessa data." : undefined}
-                        >
-                          {atendenteNomes.length > 0
-                            ? "expediente cadastrado das pessoas selecionadas (união, não soma)"
-                            : "expediente cadastrado do time (cobertura, não soma individual)"}
-                        </p>
-                        {tipoClienteFiltro && (
-                          <p className="mt-0.5 text-[11px] text-ink/40" title="Cobertura de horário é sobre a agenda do time, não sobre chamados — não existe 'expediente do tipo Produtor'.">
-                            Não respeita o filtro de tipo de cliente (motivo no hover)
-                          </p>
-                        )}
-                      </>
-                    )}
-                    <p className="mt-1 text-[11px] text-ink/30" title="O Crisp não expõe estado de ativo/ausente do operador pela API">
-                      capacidade nominal (horário cadastrado), não presença real
-                    </p>
-                  </div>
-                </div>
+            {isAdmin && (
+              <TopTfrPainel grupos={gruposTopTfr} carregando={loadingTopTfrA || (tiposTopTfr.length > 1 && loadingTopTfrB)} onAbrir={setDetalhe} />
+            )}
 
-                <p className="mb-2 mt-4 text-xs font-medium uppercase tracking-wide text-ink/40">Posse por atendente humano (chamados resolvidos no período)</p>
+            <div>
+              <SecaoHead
+                titulo="Relógios do atendimento"
+                subtitulo="Quanto o cliente espera, quanto o time trabalha e quem fica com a bola."
+                acao={<BotaoSaibaMais onClick={() => setExplicacaoRelogiosAberta(true)} />}
+                ajuda={
+                  <>
+                    <p>Posse = tempo entre a 1ª mensagem de um atendente num chamado e a entrada do próximo atendente (ou a resolução, se ninguém mais entrar) — cada trecho conta só pra quem estava "com a bola" naquele momento, não o TTR inteiro pra todo mundo que passou pelo chamado.</p>
+                    <p className="mt-2">Bot (IA Greenn) fica de fora da posse — vem separado no card acima do Ranking. Detalhamento por atendente está na tabela de Ranking, na aba Pessoas.</p>
+                  </>
+                }
+              />
+              <div className="grid gap-4 sm:grid-cols-3">
+                <KpiPainel
+                  indice={0}
+                  icone={Hourglass}
+                  label="Relógio do cliente"
+                  valor={velocidadeGeral ? formatDurationHoras(velocidadeGeral.ttr_p50_uteis_seg) : "—"}
+                  contexto={
+                    loadingVelocidade
+                      ? "Carregando..."
+                      : !velocidadeGeral
+                        ? "Sem amostras."
+                        : 'Mediana de Resolução — mesmo valor de Velocidade (card "Geral"), do ponto de vista de quem esperou'
+                  }
+                />
+                <KpiPainel
+                  indice={1}
+                  icone={Timer}
+                  label="Relógio de espera do cliente"
+                  valor={esperaCliente && esperaCliente.amostras > 0 ? formatDuration((esperaCliente.minutos_espera_medio ?? 0) * 60) : "—"}
+                  contexto={
+                    loadingEspera
+                      ? "Carregando..."
+                      : !esperaCliente || esperaCliente.amostras === 0
+                        ? "Sem amostras."
+                        : `${esperaCliente.amostras} janelas de espera até resposta humana (bot não conta)`
+                  }
+                />
+                <KpiPainel
+                  indice={2}
+                  icone={Clock}
+                  label="Relógio de trabalho ativo"
+                  valor={horasExpediente ? fmtHorasExpediente(horasExpediente) : "—"}
+                  contexto={
+                    <>
+                      {loadingExpediente ? (
+                        "Carregando..."
+                      ) : !horasExpediente ? (
+                        "Sem expediente cadastrado no período."
+                      ) : (
+                        <>
+                          <span
+                            title={atendenteNomes.length > 0 ? "Plantão fixo de sábado (08h-12h) não entra aqui filtrado — não dá pra saber quem especificamente está de plantão nessa data." : undefined}
+                          >
+                            {atendenteNomes.length > 0
+                              ? "expediente cadastrado das pessoas selecionadas (união, não soma)"
+                              : "expediente cadastrado do time (cobertura, não soma individual)"}
+                          </span>
+                          {tipoClienteFiltro && (
+                            <span className="mt-0.5 block" title="Cobertura de horário é sobre a agenda do time, não sobre chamados — não existe 'expediente do tipo Produtor'.">
+                              Não respeita o filtro de tipo de cliente (motivo no hover)
+                            </span>
+                          )}
+                        </>
+                      )}
+                      <span className="mt-1 block text-ink/40" title="O Crisp não expõe estado de ativo/ausente do operador pela API">
+                        capacidade nominal (horário cadastrado), não presença real
+                      </span>
+                    </>
+                  }
+                />
+              </div>
+
+              <PainelCard className="mt-4" indice={3} icone={Handshake} titulo="Posse por atendente humano" subtitulo="Chamados resolvidos no período · tempo com a bola">
                 {loadingPosse ? (
                   <p className="text-sm text-ink/50">Carregando...</p>
                 ) : posseFiltrada.filter((p) => p.atendente !== "IA Greenn").length === 0 ? (
                   <p className="text-sm text-ink/50">Sem chamados resolvidos no período pra medir posse.</p>
                 ) : (
-                  <HorizontalBarChart
+                  <BarrasRanking
                     data={posseFiltrada
                       .filter((p) => p.atendente !== "IA Greenn")
                       .sort((a, b) => b.minutos_posse - a.minutos_posse)
                       .map((p) => ({ label: p.atendente, value: p.minutos_posse / 60, displayValue: `${(p.minutos_posse / 60).toFixed(1)}h` }))}
-                    getColorClass={() => "bg-sky-500"}
+                    cor="bg-sky-500"
                     labelWidth={180}
                   />
                 )}
-                <p className="mt-3 text-xs text-ink/40">
-                  Posse = tempo entre a 1ª mensagem de um atendente num chamado e a entrada do próximo atendente (ou a
-                  resolução, se ninguém mais entrar) — cada trecho conta só pra quem estava "com a bola" naquele momento,
-                  não o TTR inteiro pra todo mundo que passou pelo chamado. Bot (IA Greenn) fica de fora daqui — vem
-                  separado no card acima do Ranking. Detalhamento por atendente está na tabela de Ranking, no topo da
-                  página.
-                </p>
-              </Card>
+              </PainelCard>
             </div>
 
             </motion.div>
@@ -1165,133 +1286,170 @@ export default function Performance() {
                 ajuda={<p>Boa = nota 4 ou 5. Ruim = nota 1 a 3 (não existe mais faixa neutra). Conta pela data da avaliação.</p>}
               />
               {!csatDist || csatDist.total === 0 ? (
-                <Card className="p-4"><p className="text-sm text-ink/50">Nenhuma avaliação no período.</p></Card>
+                <VazioPainel icone={ThumbsUp}>Nenhuma avaliação no período.</VazioPainel>
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Card className="p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/50">Boas (4–5)</p>
-                    <p className="mt-1 font-display text-kpi-lg font-bold tabular-nums text-forest-600 dark:text-forest-300">{fmtNum(csatDist.boas)}</p>
-                    <p className="text-xs text-ink/50">{fmtPct1(csatBoasPct)} das avaliações</p>
-                  </Card>
-                  <Card
-                    role={isAdmin ? "button" : undefined}
-                    tabIndex={isAdmin ? 0 : undefined}
+                  <KpiPainel
+                    indice={0}
+                    icone={ThumbsUp}
+                    tom="bom"
+                    label="Boas (4–5)"
+                    valor={fmtNum(csatDist.boas)}
+                    barra={csatBoasPct}
+                    delta={deltaPontos(csatBoasPct, csatBoasPctAnterior, false)}
+                    contexto={`${fmtPct1(csatBoasPct)} das avaliações`}
+                  />
+                  <KpiPainel
+                    indice={1}
+                    icone={ThumbsDown}
+                    tom="ruim"
+                    label="Ruins (1–3)"
+                    valor={fmtNum(csatDist.ruins)}
+                    barra={csatRuinsPct}
+                    delta={deltaPontos(csatRuinsPct, csatRuinsPctAnterior, true)}
+                    contexto={
+                      <>
+                        {fmtPct1(csatRuinsPct)} das avaliações
+                        {isAdmin && <span className="mt-0.5 block font-semibold text-forest-700 dark:text-forest-300">Ver comentários e chamados →</span>}
+                      </>
+                    }
                     onClick={isAdmin ? () => setRuinsAberto(true) : undefined}
-                    onKeyDown={isAdmin ? (e) => { if (e.key === "Enter") setRuinsAberto(true); } : undefined}
-                    className={cn("p-4", isAdmin && "cursor-pointer transition hover:-translate-y-0.5 hover:shadow-card-hover")}
-                  >
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/50">Ruins (1–3)</p>
-                    <p className="mt-1 font-display text-kpi-lg font-bold tabular-nums text-rust-500">{fmtNum(csatDist.ruins)}</p>
-                    {isAdmin && <p className="text-xs font-semibold text-forest-700 dark:text-forest-300">Ver comentários e chamados →</p>}
-                  </Card>
+                  />
                 </div>
               )}
             </div>
 
+            {podeVerNps && (
+              <NpsPainel resumo={npsResumo} anterior={npsResumoAnterior} semanas={semanasSatisfacao} carregando={loadingNps || loadingSatisfacao} />
+            )}
+
             <div>
-              <h2 className="mb-3 font-display text-[15px] font-bold text-ink">Reabertura</h2>
+              <SecaoHead
+                titulo="Reabertura"
+                subtitulo="Conversas que o cliente reabriu depois de resolvidas."
+                ajuda={
+                  <>
+                    <p><b>Conversas reabertas:</b> conversas que o cliente reabriu pelo menos uma vez (resposta à pesquisa de CSAT não conta). A taxa divide isso pelas conversas resolvidas ao menos uma vez — mesma unidade nos dois lados.</p>
+                    <p className="mt-2"><b>Eventos:</b> uma conversa pode reabrir mais de uma vez.</p>
+                  </>
+                }
+              />
               {loadingReabertura ? (
-                <p className="text-sm text-ink/50">Carregando...</p>
+                <CarregandoPainel />
               ) : !reaberturaResumo || reaberturaResumo.total_resolvidos === 0 ? (
-                <Card className="p-4"><p className="text-sm text-ink/50">Nenhum chamado resolvido no período pra medir reabertura.</p></Card>
+                <VazioPainel icone={RotateCcw}>Nenhum chamado resolvido no período pra medir reabertura.</VazioPainel>
               ) : (
                 <>
                   <div className="grid gap-4 sm:grid-cols-3">
-                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Taxa de reabertura</p>
-                      <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(100 - (reaberturaResumo.taxa_pct ?? 0)))}>
-                        {reaberturaResumo.taxa_pct?.toFixed(1) ?? "0.0"}%
-                      </p>
-                      <p className="mt-1 text-[11px] text-ink/40">de {reaberturaResumo.total_resolvidos.toLocaleString("pt-BR")} conversas resolvidas no período</p>
-                    </Card>
-                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40" title="Conversas que o cliente reabriu pelo menos uma vez (resposta à pesquisa de CSAT não conta). A taxa divide isso pelas conversas resolvidas ao menos uma vez — mesma unidade nos dois lados.">Conversas reabertas</p>
-                      <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{reaberturaResumo.total_reabertos}</p>
-                    </Card>
-                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Total de eventos de reabertura</p>
-                      <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{reaberturaResumo.total_eventos}</p>
-                      <p className="mt-1 text-[11px] text-ink/40">uma conversa pode reabrir mais de uma vez</p>
-                    </Card>
+                    <KpiPainel
+                      indice={0}
+                      icone={Percent}
+                      tom={tomPorSla(100 - (reaberturaResumo.taxa_pct ?? 0))}
+                      label="Taxa de reabertura"
+                      valor={`${reaberturaResumo.taxa_pct?.toFixed(1) ?? "0.0"}%`}
+                      barra={reaberturaResumo.taxa_pct ?? 0}
+                      delta={deltaPontos(reaberturaResumo.taxa_pct, reaberturaResumoAnterior?.taxa_pct, true)}
+                      contexto={`de ${reaberturaResumo.total_resolvidos.toLocaleString("pt-BR")} conversas resolvidas ou reabertas no período`}
+                    />
+                    <KpiPainel indice={1} icone={RotateCcw} label="Conversas reabertas" valor={fmtNum(reaberturaResumo.total_reabertos)} />
+                    <KpiPainel
+                      indice={2}
+                      icone={Layers}
+                      label="Eventos de reabertura"
+                      valor={fmtNum(reaberturaResumo.total_eventos)}
+                      contexto="uma conversa pode reabrir mais de uma vez"
+                    />
                   </div>
 
                   {reaberturaResumo.total_reabertos > 0 && (
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                      <Card className="p-4">
-                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Principais motivos</p>
-                        <HorizontalBarChart data={reaberturaPorMotivo} getColorClass={() => "bg-forest-500"} labelWidth={160} />
-                      </Card>
-                      <Card className="p-4">
-                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Por atendente</p>
-                        <HorizontalBarChart data={reaberturaPorAtendente} getColorClass={() => "bg-forest-500"} labelWidth={140} />
-                      </Card>
+                      <PainelCard indice={3} icone={Tag} titulo="Principais motivos" subtitulo="Assunto das conversas reabertas">
+                        <BarrasRanking data={reaberturaPorMotivo} labelWidth={160} />
+                      </PainelCard>
+                      <PainelCard indice={4} icone={Users} titulo="Por atendente" subtitulo="Quem teve mais conversas reabertas">
+                        <BarrasRanking data={reaberturaPorAtendente} labelWidth={140} />
+                      </PainelCard>
                     </div>
                   )}
 
                   {reaberturaCasos && reaberturaCasos.length > 0 && (
                     <>
                       <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <select
+                        <SelectPainel
+                          rotulo="Filtrar por atendente"
                           value={reaberturaFiltroAtendente}
-                          onChange={(e) => { setReaberturaFiltroAtendente(e.target.value); setMostrarTodasReaberturas(false); }}
-                          className="h-8 rounded-lg border border-sand-line bg-sand-surface px-2 text-xs"
+                          onChange={(v) => { setReaberturaFiltroAtendente(v); setMostrarTodasReaberturas(false); }}
                         >
                           <option value="">Todos os atendentes</option>
                           {reaberturaAtendentesDisponiveis.map((a) => <option key={a} value={a}>{a}</option>)}
-                        </select>
-                        <select
+                        </SelectPainel>
+                        <SelectPainel
+                          rotulo="Filtrar por número de reaberturas"
                           value={reaberturaFiltroReaberto}
-                          onChange={(e) => { setReaberturaFiltroReaberto(e.target.value); setMostrarTodasReaberturas(false); }}
-                          className="h-8 rounded-lg border border-sand-line bg-sand-surface px-2 text-xs"
+                          onChange={(v) => { setReaberturaFiltroReaberto(v); setMostrarTodasReaberturas(false); }}
                         >
                           <option value="">Qualquer nº de reaberturas</option>
                           {reaberturaReabertosDisponiveis.map((n) => <option key={n} value={n}>{n}x reaberto</option>)}
-                        </select>
+                        </SelectPainel>
+                        {(reaberturaFiltroAtendente || reaberturaFiltroReaberto) && (
+                          <button
+                            type="button"
+                            onClick={() => { setReaberturaFiltroAtendente(""); setReaberturaFiltroReaberto(""); setMostrarTodasReaberturas(false); }}
+                            className="inline-flex h-9 items-center gap-1 rounded-xl px-2.5 text-xs font-medium text-ink/50 transition hover:bg-sand-subtle hover:text-ink"
+                          >
+                            <X size={13} /> Limpar
+                          </button>
+                        )}
+                        <span className="ml-auto text-xs tabular-nums text-ink/50">
+                          {fmtNum(reaberturaCasosFiltrados.length)} {reaberturaCasosFiltrados.length === 1 ? "caso" : "casos"}
+                        </span>
                       </div>
                       {reaberturaCasosFiltrados.length === 0 ? (
-                        <p className="mt-2 text-sm text-ink/50">Nenhum caso com esse filtro.</p>
+                        <p className="mt-3 text-sm text-ink/50">Nenhum caso com esse filtro.</p>
                       ) : (
-                        <Card className="mt-2 overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
-                              <tr>
-                                <th className="px-4 py-3 text-left font-medium">Cliente</th>
-                                <th className="px-4 py-3 font-medium">Motivo</th>
-                                <th className="px-4 py-3 font-medium">Atendente</th>
-                                <th className="px-4 py-3 font-medium">Reaberto</th>
-                                <th className="px-4 py-3 font-medium">Início</th>
-                                <th className="px-4 py-3 font-medium">Ação</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(mostrarTodasReaberturas ? reaberturaCasosFiltrados : reaberturaCasosFiltrados.slice(0, 4)).map((c) => (
-                                <tr key={c.crisp_id} className="border-t border-sand-line text-center align-top">
-                                  <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
-                                  <td className="px-4 py-3 text-ink/70">{c.topico}</td>
-                                  <td className="px-4 py-3 text-ink/70">{c.atendente ?? "—"}</td>
-                                  <td className="px-4 py-3 font-medium text-ink">{c.reopened_count}x</td>
-                                  <td className="px-4 py-3 text-xs text-ink/60">{new Date(c.current_started_at).toLocaleString("pt-BR")}</td>
-                                  <td className="px-4 py-3">
-                                    {c.link_chamado ? (
-                                      <a href={c.link_chamado} target="_blank" rel="noreferrer">
-                                        <Button variant="secondary" size="sm"><ExternalLink size={13} /> Ver</Button>
-                                      </a>
-                                    ) : (
-                                      <span className="text-xs text-ink/30">sem link</span>
-                                    )}
-                                  </td>
+                        <Card className="mt-3 overflow-hidden">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead className={cn(CABECALHO_TABELA, "text-center")}>
+                                <tr>
+                                  <th className="px-4 py-3 text-left font-semibold">Cliente</th>
+                                  <th className="px-4 py-3 font-semibold">Motivo</th>
+                                  <th className="px-4 py-3 font-semibold">Atendente</th>
+                                  <th className="px-4 py-3 font-semibold">Reaberto</th>
+                                  <th className="px-4 py-3 font-semibold">Início</th>
+                                  <th className="px-4 py-3 font-semibold">Ação</th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                              </thead>
+                              <tbody>
+                                {(mostrarTodasReaberturas ? reaberturaCasosFiltrados : reaberturaCasosFiltrados.slice(0, 4)).map((c, i) => (
+                                  <motion.tr key={c.crisp_id} {...entradaLinha(i)} className={cn(LINHA_TABELA, "text-center")}>
+                                    <td className="px-4 py-3 text-left font-medium text-ink">{c.cliente_nome ?? "—"}</td>
+                                    <td className="px-4 py-3 text-ink/70">{c.topico}</td>
+                                    <td className="px-4 py-3 text-ink/70">
+                                      {c.atendente ? (
+                                        <span className="inline-flex items-center gap-2">
+                                          <Avatar nome={c.atendente} size="sm" />
+                                          {c.atendente}
+                                        </span>
+                                      ) : "—"}
+                                    </td>
+                                    <td className="px-4 py-3"><Badge tone="warning">{c.reopened_count}x</Badge></td>
+                                    <td className="px-4 py-3 text-xs tabular-nums text-ink/60">{new Date(c.current_started_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</td>
+                                    <td className="px-4 py-3"><LinkVer href={c.link_chamado} /></td>
+                                  </motion.tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
                         </Card>
                       )}
                       {reaberturaCasosFiltrados.length > 4 && (
-                        <div className="mt-2 flex justify-center">
-                          <Button variant="secondary" size="sm" onClick={() => setMostrarTodasReaberturas((v) => !v)}>
-                            {mostrarTodasReaberturas ? "Ver menos" : `Ver mais reaberturas (${reaberturaCasosFiltrados.length - 4})`}
-                          </Button>
-                        </div>
+                        <BotaoExpandir
+                          aberto={mostrarTodasReaberturas}
+                          restantes={reaberturaCasosFiltrados.length - 4}
+                          rotulo="Ver mais reaberturas"
+                          onClick={() => setMostrarTodasReaberturas((v) => !v)}
+                        />
                       )}
                     </>
                   )}
@@ -1300,91 +1458,97 @@ export default function Performance() {
             </div>
 
             <div>
-              <h2 className="mb-3 font-display text-[15px] font-bold text-ink">FCR e Recontato</h2>
+              <SecaoHead
+                titulo="FCR e Recontato"
+                subtitulo="Quem resolveu de primeira e quem voltou pelo mesmo motivo em até 7 dias."
+                ajuda={
+                  <>
+                    <p>"Mesmo motivo" = mesmo texto de tópico (classificado pela Crisp), dentro de 7 dias após a resolução.</p>
+                    <p className="mt-2">Conversa sem cliente identificado (people_id) ou sem tópico não entra na conta — não dá pra saber se ele voltou.</p>
+                    <p className="mt-2">Separado de Reabertura: aqui é o cliente abrindo uma conversa <em>nova</em>, não reabrindo a mesma.</p>
+                  </>
+                }
+              />
               {loadingFcr ? (
-                <p className="text-sm text-ink/50">Carregando...</p>
+                <CarregandoPainel />
               ) : !fcrRecontato || fcrRecontato.total_elegiveis === 0 ? (
-                <Card className="p-4"><p className="text-sm text-ink/50">Nenhuma conversa elegível no período (precisa estar resolvida, com cliente e motivo identificados).</p></Card>
+                <VazioPainel icone={CircleCheck}>Nenhuma conversa elegível no período (precisa estar resolvida, com cliente e motivo identificados).</VazioPainel>
               ) : (
                 <>
                   <div className="grid gap-4 sm:grid-cols-3">
-                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">FCR</p>
-                      <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(fcrRecontato.fcr_pct ?? 0))}>
-                        {fcrRecontato.fcr_pct?.toFixed(1) ?? "0.0"}%
-                      </p>
-                      <p className="mt-1 text-[11px] text-ink/40">resolvido sem o cliente voltar pelo mesmo motivo em 7 dias</p>
-                    </Card>
-                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Recontato</p>
-                      <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(100 - (fcrRecontato.recontato_pct ?? 0)))}>
-                        {fcrRecontato.recontato_pct?.toFixed(1) ?? "0.0"}%
-                      </p>
-                      <p className="mt-1 text-[11px] text-ink/40">{fcrRecontato.total_recontato} de {fcrRecontato.total_elegiveis} voltaram pelo mesmo motivo</p>
-                    </Card>
-                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Conversas elegíveis</p>
-                      <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{fcrRecontato.total_elegiveis}</p>
-                      <p className="mt-1 text-[11px] text-ink/40">resolvidos, com cliente e motivo identificados</p>
-                    </Card>
+                    <KpiPainel
+                      indice={0}
+                      icone={CircleCheck}
+                      tom={tomPorSla(fcrRecontato.fcr_pct ?? 0)}
+                      label="FCR"
+                      valor={`${fcrRecontato.fcr_pct?.toFixed(1) ?? "0.0"}%`}
+                      barra={fcrRecontato.fcr_pct ?? 0}
+                      contexto="resolvido sem o cliente voltar pelo mesmo motivo em 7 dias"
+                    />
+                    <KpiPainel
+                      indice={1}
+                      icone={Repeat}
+                      tom={tomPorSla(100 - (fcrRecontato.recontato_pct ?? 0))}
+                      label="Recontato"
+                      valor={`${fcrRecontato.recontato_pct?.toFixed(1) ?? "0.0"}%`}
+                      barra={fcrRecontato.recontato_pct ?? 0}
+                      contexto={`${fcrRecontato.total_recontato} de ${fcrRecontato.total_elegiveis} voltaram pelo mesmo motivo`}
+                    />
+                    <KpiPainel
+                      indice={2}
+                      icone={ListChecks}
+                      label="Conversas elegíveis"
+                      valor={fmtNum(fcrRecontato.total_elegiveis)}
+                      contexto="resolvidos, com cliente e motivo identificados"
+                    />
                   </div>
 
                   {recontatoPorMotivo.length > 0 && (
-                    <Card className="mt-4 p-4">
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Motivos com mais recontato</p>
-                      <HorizontalBarChart data={recontatoPorMotivo} getColorClass={() => "bg-forest-500"} labelWidth={180} />
-                    </Card>
+                    <PainelCard className="mt-4" indice={3} icone={Tag} titulo="Motivos com mais recontato" subtitulo="Assuntos pelos quais o cliente mais voltou">
+                      <BarrasRanking data={recontatoPorMotivo} labelWidth={180} />
+                    </PainelCard>
                   )}
 
                   {recontatoCasos && recontatoCasos.length > 0 && (
-                    <Card className="mt-4 overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
-                          <tr>
-                            <th className="px-4 py-3 text-left font-medium">Cliente</th>
-                            <th className="px-4 py-3 font-medium">Motivo</th>
-                            <th className="px-4 py-3 font-medium">Atendente</th>
-                            <th className="px-4 py-3 font-medium">Resolvido em</th>
-                            <th className="px-4 py-3 font-medium">Voltou em</th>
-                            <th className="px-4 py-3 font-medium">Ação</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(mostrarTodosRecontatos ? recontatoCasos : recontatoCasos.slice(0, 4)).map((c) => (
-                            <tr key={c.crisp_id} className="border-t border-sand-line text-center align-top">
-                              <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
-                              <td className="px-4 py-3 text-ink/70">{c.topico ?? "—"}</td>
-                              <td className="px-4 py-3 text-ink/70">{c.atendente ?? "—"}</td>
-                              <td className="px-4 py-3 text-xs text-ink/60">{new Date(c.resolved_at).toLocaleString("pt-BR")}</td>
-                              <td className="px-4 py-3 text-xs text-ink/60">{c.proximo_contato_at ? new Date(c.proximo_contato_at).toLocaleString("pt-BR") : "—"}</td>
-                              <td className="px-4 py-3">
-                                {c.link_chamado ? (
-                                  <a href={c.link_chamado} target="_blank" rel="noreferrer">
-                                    <Button variant="secondary" size="sm"><ExternalLink size={13} /> Ver</Button>
-                                  </a>
-                                ) : (
-                                  <span className="text-xs text-ink/30">sem link</span>
-                                )}
-                              </td>
+                    <Card className="mt-4 overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className={cn(CABECALHO_TABELA, "text-center")}>
+                            <tr>
+                              <th className="px-4 py-3 text-left font-semibold">Cliente</th>
+                              <th className="px-4 py-3 font-semibold">Motivo</th>
+                              <th className="px-4 py-3 font-semibold">Atendente</th>
+                              <th className="px-4 py-3 font-semibold">Resolvido em</th>
+                              <th className="px-4 py-3 font-semibold">Voltou em</th>
+                              <th className="px-4 py-3 font-semibold">Ação</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {(mostrarTodosRecontatos ? recontatoCasos : recontatoCasos.slice(0, 4)).map((c, i) => (
+                              <motion.tr key={c.crisp_id} {...entradaLinha(i)} className={cn(LINHA_TABELA, "text-center")}>
+                                <td className="px-4 py-3 text-left font-medium text-ink">{c.cliente_nome ?? "—"}</td>
+                                <td className="px-4 py-3 text-ink/70">{c.topico ?? "—"}</td>
+                                <td className="px-4 py-3 text-ink/70">
+                                  {c.atendente ? (
+                                    <span className="inline-flex items-center gap-2">
+                                      <Avatar nome={c.atendente} size="sm" />
+                                      {c.atendente}
+                                    </span>
+                                  ) : "—"}
+                                </td>
+                                <td className="px-4 py-3 text-xs tabular-nums text-ink/60">{new Date(c.resolved_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</td>
+                                <td className="px-4 py-3 text-xs tabular-nums text-ink/60">{c.proximo_contato_at ? new Date(c.proximo_contato_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
+                                <td className="px-4 py-3"><LinkVer href={c.link_chamado} /></td>
+                              </motion.tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </Card>
                   )}
                   {recontatoCasos && recontatoCasos.length > 4 && (
-                    <div className="mt-2 flex justify-center">
-                      <Button variant="secondary" size="sm" onClick={() => setMostrarTodosRecontatos((v) => !v)}>
-                        {mostrarTodosRecontatos ? "Ver menos" : `Ver mais (${recontatoCasos.length - 4})`}
-                      </Button>
-                    </div>
+                    <BotaoExpandir aberto={mostrarTodosRecontatos} restantes={recontatoCasos.length - 4} onClick={() => setMostrarTodosRecontatos((v) => !v)} />
                   )}
-                  <p className="mt-2 text-xs text-ink/40">
-                    "Mesmo motivo" = mesmo texto de tópico (classificado pela Crisp), dentro de 7 dias após a resolução.
-                    Conversa sem cliente identificado (people_id) ou sem tópico não entra na conta — não dá pra saber se
-                    ele voltou. Separado de Reabertura: aqui é o cliente abrindo uma conversa <em>nova</em>, não reabrindo
-                    a mesma.
-                  </p>
                 </>
               )}
             </div>
@@ -1392,227 +1556,172 @@ export default function Performance() {
             </motion.div>
           )}
 
-          {subAba === "fluxo" && (
+          {subAba === "volume" && (
             <motion.div
-              key="fluxo"
+              key="volume"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.25, ease: "easeOut" }}
               className="space-y-8"
             >
             <div>
-              <h2 className="mb-3 font-display text-[15px] font-bold text-ink">Transferências</h2>
+              <SecaoHead
+                titulo="Volume por dia e horário"
+                subtitulo="Dia da semana × hora de início, horário de Brasília."
+                ajuda={
+                  <>
+                    <p>Onde a demanda se concentra — e onde falta gente de plantão.</p>
+                    <p className="mt-2">Chamados somados no período inteiro selecionado — ajuda a ver o padrão de pico independente de quantas semanas o filtro cobrir. Mesma definição de "chamados" do resto da página (1 + reaberturas).</p>
+                  </>
+                }
+              />
+              {loadingVolumeDiaHora ? (
+                <CarregandoPainel colunas={1} />
+              ) : !volumeDiaHora || volumeDiaHora.length === 0 ? (
+                <VazioPainel icone={LayoutGrid}>Sem chamados no período.</VazioPainel>
+              ) : (
+                <MapaCalorVolume grid={volumeDiaHoraGrid} max={volumeDiaHoraMax} />
+              )}
+            </div>
+
+            <div>
+              <SecaoHead
+                titulo="Transferências"
+                subtitulo="Chamados que trocaram de atendente."
+                ajuda={
+                  <>
+                    <p>Só passagem de um humano para outro; a primeira atribuição e as contas de bot ficam de fora.</p>
+                    <p className="mt-2"><b>Conversas transferidas</b> conta conversas que trocaram de atendente pelo menos uma vez — não é ponderado por reabertura, porque transferência já é em si uma transição.</p>
+                  </>
+                }
+              />
               {loadingTransferencias ? (
-                <p className="text-sm text-ink/50">Carregando...</p>
+                <CarregandoPainel />
               ) : !transferenciasResumo || transferenciasResumo.total_atendidos === 0 ? (
-                <Card className="p-4"><p className="text-sm text-ink/50">Nenhum chamado atendido no período pra medir transferência.</p></Card>
+                <VazioPainel icone={ArrowRightLeft}>Nenhum chamado atendido no período pra medir transferência.</VazioPainel>
               ) : (
                 <>
                   <div className="grid gap-4 sm:grid-cols-3">
-                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Taxa de transferência</p>
-                      <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(100 - (transferenciasResumo.taxa_pct ?? 0)))}>
-                        {transferenciasResumo.taxa_pct?.toFixed(1) ?? "0.0"}%
-                      </p>
-                      <p className="mt-1 text-[11px] text-ink/40">{transferenciasResumo.total_atendidos} chamados atendidos no período</p>
-                    </Card>
-                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40" title="Conta CONVERSAS que trocaram de atendente pelo menos uma vez — não ponderado por reopened_count igual 'chamados atendidos' ao lado, porque transferência já é em si uma transição, não uma contagem de coisas que existem.">Conversas transferidas</p>
-                      <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{transferenciasResumo.total_transferidos}</p>
-                      <p className="mt-1 text-[11px] text-ink/40">{transferenciasResumo.total_eventos} eventos (uma conversa pode trocar de mão mais de uma vez)</p>
-                    </Card>
-                    <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Tempo médio até transferir</p>
-                      <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{formatDuration(transferenciasResumo.tempo_medio_antes_seg)}</p>
-                    </Card>
+                    <KpiPainel
+                      indice={0}
+                      icone={ArrowRightLeft}
+                      tom={tomPorSla(100 - (transferenciasResumo.taxa_pct ?? 0))}
+                      label="Taxa de transferência"
+                      valor={`${transferenciasResumo.taxa_pct?.toFixed(1) ?? "0.0"}%`}
+                      barra={transferenciasResumo.taxa_pct ?? 0}
+                      contexto={`${transferenciasResumo.total_atendidos} chamados atendidos no período`}
+                    />
+                    <KpiPainel
+                      indice={1}
+                      icone={Repeat}
+                      label="Conversas transferidas"
+                      valor={fmtNum(transferenciasResumo.total_transferidos)}
+                      contexto={`${transferenciasResumo.total_eventos} eventos (uma conversa pode trocar de mão mais de uma vez)`}
+                    />
+                    <KpiPainel
+                      indice={2}
+                      icone={Timer}
+                      label="Tempo médio até transferir"
+                      valor={formatDurationHoras(transferenciasResumo.tempo_medio_antes_seg)}
+                    />
                   </div>
 
                   {transferenciasResumo.total_transferidos > 0 && (
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                      <Card className="p-4">
-                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Origem (quem passou a bola)</p>
-                        <HorizontalBarChart data={transferenciasPorOrigem} getColorClass={() => "bg-forest-500"} labelWidth={140} />
-                      </Card>
-                      <Card className="p-4">
-                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink/40">Destino (quem recebeu)</p>
-                        <HorizontalBarChart data={transferenciasPorDestino} getColorClass={() => "bg-forest-500"} labelWidth={140} />
-                      </Card>
+                      <PainelCard indice={3} icone={Send} titulo="Origem" subtitulo="Quem passou a bola">
+                        <BarrasRanking data={transferenciasPorOrigem} labelWidth={140} />
+                      </PainelCard>
+                      <PainelCard indice={4} icone={Inbox} titulo="Destino" subtitulo="Quem recebeu">
+                        <BarrasRanking data={transferenciasPorDestino} labelWidth={140} />
+                      </PainelCard>
                     </div>
                   )}
-
-                  {transferenciasCasos && transferenciasCasos.length > 0 && (
-                    <Card className="mt-4 overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
-                          <tr>
-                            <th className="px-4 py-3 text-left font-medium">Cliente</th>
-                            <th className="px-4 py-3 font-medium">Origem</th>
-                            <th className="px-4 py-3 font-medium">Destino</th>
-                            <th className="px-4 py-3 font-medium">Quando</th>
-                            <th className="px-4 py-3 font-medium">Ação</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(mostrarTodasTransferencias ? transferenciasCasos : transferenciasCasos.slice(0, 4)).map((c, i) => (
-                            <tr key={`${c.crisp_id}-${i}`} className="border-t border-sand-line text-center align-top">
-                              <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
-                              <td className="px-4 py-3 text-ink/70">{c.origem ?? "—"}</td>
-                              <td className="px-4 py-3 text-ink/70">{c.destino ?? "—"}</td>
-                              <td className="px-4 py-3 text-xs text-ink/60">{new Date(c.event_at).toLocaleString("pt-BR")}</td>
-                              <td className="px-4 py-3">
-                                {c.link_chamado ? (
-                                  <a href={c.link_chamado} target="_blank" rel="noreferrer">
-                                    <Button variant="secondary" size="sm"><ExternalLink size={13} /> Ver</Button>
-                                  </a>
-                                ) : (
-                                  <span className="text-xs text-ink/30">sem link</span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </Card>
-                  )}
-                  {transferenciasCasos && transferenciasCasos.length > 4 && (
-                    <div className="mt-2 flex justify-center">
-                      <Button variant="secondary" size="sm" onClick={() => setMostrarTodasTransferencias((v) => !v)}>
-                        {mostrarTodasTransferencias ? "Ver menos" : `Ver mais (${transferenciasCasos.length - 4})`}
-                      </Button>
-                    </div>
-                  )}
-                  <p className="mt-2 text-xs text-ink/40">
-                    Só conta troca entre dois atendentes humanos de verdade — passar do bot pro humano é fluxo normal,
-                    não entra aqui. O motivo da transferência não está disponível (a Crisp não envia essa informação).
-                  </p>
                 </>
               )}
             </div>
 
             <div>
-              <h2 className="mb-3 font-display text-[15px] font-bold text-ink">Motivo de contato</h2>
+              <SecaoHead
+                titulo="Motivo de contato"
+                subtitulo="Assunto de cada conversa, classificado pela Crisp. Clique numa barra pra filtrar a tabela."
+                ajuda={<p>Tópico é classificado pela Crisp por conversa, só depois que um atendente responde — chamado ainda sem resposta não aparece aqui, e a lista pode ficar fragmentada.</p>}
+              />
               {loadingMotivos ? (
-                <p className="text-sm text-ink/50">Carregando...</p>
+                <CarregandoPainel colunas={2} />
               ) : !motivos || motivos.length === 0 ? (
-                <Card className="p-4"><p className="text-sm text-ink/50">Sem tópico classificado no período ainda — a Crisp classifica de forma assíncrona, só depois que um atendente responde.</p></Card>
+                <VazioPainel icone={Tag}>Sem tópico classificado no período ainda — a Crisp classifica de forma assíncrona, só depois que um atendente responde.</VazioPainel>
               ) : (
                 <>
-                  <Card className="mb-4 p-4">
-                    <div className="mb-2 flex items-center justify-between">
-                      <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Top 3 tópicos por volume</p>
-                      {motivoDestaque && (
-                        <button
-                          type="button"
-                          onClick={() => { setMotivoDestaque(""); setMostrarTodosMotivos(false); }}
-                          className="text-[11px] text-forest-600 hover:underline"
-                        >
-                          Limpar
-                        </button>
-                      )}
-                    </div>
-                    <HorizontalBarChart
-                      data={[...motivos]
-                        .sort((a, b) => b.chamados - a.chamados)
-                        .slice(0, 3)
-                        .map((m) => ({ label: m.topico, value: m.chamados }))}
-                      getColorClass={() => "bg-forest-500"}
-                      labelWidth={200}
-                      onBarClick={(label) => {
-                        setMotivoDestaque((atual) => (atual === label ? "" : label));
-                        setMostrarTodosMotivos(false);
-                      }}
-                      isSelected={(label) => motivoDestaque === label}
-                    />
-                  </Card>
-                  {motivosFiltrados.length === 0 ? (
-                    <p className="text-sm text-ink/50">Nenhum tópico com esse filtro.</p>
-                  ) : (
-                    <Card className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
-                          <tr>
-                            <th className="px-4 py-3 text-left font-medium">Tópico</th>
-                            <SortableHeader field="chamados" label="Chamados" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
-                            <SortableHeader field="tfr_media_seg" label="TFR médio" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
-                            <SortableHeader field="ttr_media_seg" label="TTR médio" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(mostrarTodosMotivos ? motivosOrdenados : motivosOrdenados.slice(0, 4)).map((m) => (
-                            <tr key={m.topico} className="border-t border-sand-line text-center">
-                              <td className="px-4 py-3 text-left font-medium text-ink">{m.topico}</td>
-                              <td className="px-4 py-3 text-ink/70">{m.chamados}</td>
-                              <td className="px-4 py-3 text-ink/70">{formatDuration(m.tfr_media_seg)}</td>
-                              <td className="px-4 py-3 text-ink/70">{formatDuration(m.ttr_media_seg)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </Card>
-                  )}
+                  <div className={cn("grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]", mostrarTodosMotivos ? "items-start" : "items-stretch")}>
+                    <PainelCard
+                      icone={Tag}
+                      titulo="Top 4 tópicos por volume"
+                      subtitulo="Chamados por assunto"
+                      acao={
+                        motivoDestaque && (
+                          <button
+                            type="button"
+                            onClick={() => { setMotivoDestaque(""); setMostrarTodosMotivos(false); }}
+                            className="inline-flex items-center gap-1 rounded-full border border-forest-500/30 px-2 py-0.5 text-[11px] font-medium text-forest-700 transition hover:bg-forest-500/10 dark:text-forest-300"
+                          >
+                            <X size={11} /> Limpar
+                          </button>
+                        )
+                      }
+                    >
+                      <BarrasRanking
+                        data={[...motivos]
+                          .sort((a, b) => b.chamados - a.chamados)
+                          .slice(0, 4)
+                          .map((m) => ({ label: m.topico, value: m.chamados }))}
+                        className="flex-1 justify-around"
+                        labelWidth={160}
+                        onBarClick={(label) => {
+                          setMotivoDestaque((atual) => (atual === label ? "" : label));
+                          setMostrarTodosMotivos(false);
+                        }}
+                        isSelected={(label) => motivoDestaque === label}
+                      />
+                    </PainelCard>
+                    {motivosFiltrados.length === 0 ? (
+                      <VazioPainel icone={Tag}>Nenhum tópico com esse filtro.</VazioPainel>
+                    ) : (
+                      <Entrada indice={1} className="h-full">
+                        <Card className="h-full overflow-hidden">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead className={cn(CABECALHO_TABELA, "text-center")}>
+                                <tr>
+                                  <th className="px-4 py-3 text-left font-semibold">Tópico</th>
+                                  <SortableHeader field="chamados" label="Chamados" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
+                                  <SortableHeader field="tfr_media_seg" label="TFR médio" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
+                                  <SortableHeader field="ttr_media_seg" label="TTR médio" ordenarPor={motivoOrdenarPor} direcao={motivoDirecao} onSort={ordenarMotivoPorColuna} align="center" />
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(mostrarTodosMotivos ? motivosOrdenados : motivosOrdenados.slice(0, 4)).map((m, i) => (
+                                  <motion.tr key={m.topico} {...entradaLinha(i)} className={cn(LINHA_TABELA, "text-center")}>
+                                    <td className="px-4 py-2 text-left font-medium text-ink">{m.topico}</td>
+                                    <td className="px-4 py-2 font-semibold tabular-nums text-ink">{m.chamados}</td>
+                                    <td className="px-4 py-2 tabular-nums text-ink/70">{formatDurationHoras(m.tfr_media_seg)}</td>
+                                    <td className="px-4 py-2 tabular-nums text-ink/70">{formatDurationHoras(m.ttr_media_seg)}</td>
+                                  </motion.tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </Card>
+                      </Entrada>
+                    )}
+                  </div>
                   {motivosOrdenados.length > 4 && (
-                    <div className="mt-2 flex justify-center">
-                      <Button variant="secondary" size="sm" onClick={() => setMostrarTodosMotivos((v) => !v)}>
-                        {mostrarTodosMotivos ? "Ver menos" : `Ver mais (${motivosOrdenados.length - 4})`}
-                      </Button>
-                    </div>
+                    <BotaoExpandir aberto={mostrarTodosMotivos} restantes={motivosOrdenados.length - 4} onClick={() => setMostrarTodosMotivos((v) => !v)} />
                   )}
                 </>
               )}
-              <p className="mt-2 text-xs text-ink/40">
-                Tópico é classificado automaticamente pela Crisp por conversa — não é uma categoria fixa reutilizável, então
-                essa lista pode ficar fragmentada até termos volume real suficiente pra avaliar se faz sentido agrupar por
-                palavra-chave. Chamados ainda sem resposta de atendente não aparecem aqui (tópico só é atribuído depois).
-              </p>
             </div>
 
-            <div>
-              <h2 className="mb-3 font-display text-[15px] font-bold text-ink">Volume por dia e horário</h2>
-              {loadingVolumeDiaHora ? (
-                <p className="text-sm text-ink/50">Carregando...</p>
-              ) : !volumeDiaHora || volumeDiaHora.length === 0 ? (
-                <Card className="p-4"><p className="text-sm text-ink/50">Sem chamados no período.</p></Card>
-              ) : (
-                <Card className="overflow-x-auto p-4">
-                  <table className="border-separate border-spacing-1 text-center text-[11px]">
-                    <thead>
-                      <tr>
-                        <th className="px-1 text-left font-medium text-ink/40">Dia \ Hora</th>
-                        {HORAS_DIA.map((h) => (
-                          <th key={h} className="px-0.5 font-medium text-ink/40">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {DIAS_SEMANA.map((nomeDia, dow) => (
-                        <tr key={dow}>
-                          <td className="px-1 text-left font-medium text-ink/60">{nomeDia}</td>
-                          {HORAS_DIA.map((h) => {
-                            const v = volumeDiaHoraGrid.get(`${dow}-${h}`) ?? 0;
-                            const intensidade = volumeDiaHoraMax > 0 ? v / volumeDiaHoraMax : 0;
-                            return (
-                              <td
-                                key={h}
-                                title={`${nomeDia}, ${h}h: ${v} chamados`}
-                                className="h-6 w-6 rounded text-ink/70"
-                                style={{ backgroundColor: `rgba(2, 132, 199, ${(0.06 + intensidade * 0.85).toFixed(2)})` }}
-                              >
-                                {v > 0 ? v : ""}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <p className="mt-3 text-xs text-ink/40">
-                    Chamados por dia da semana × hora de início (horário de Brasília), somados no período inteiro selecionado —
-                    ajuda a ver o padrão de pico independente de quantas semanas o filtro cobrir. Mesma definição de "chamados"
-                    do resto da página (1 + reaberturas).
-                  </p>
-                </Card>
-              )}
-            </div>
+            <MigracoesPainel resumo={migracoes ?? null} anterior={migracoesAnterior ?? null} porPlataforma={migracoesPorPlataforma ?? []} carregando={loadingMigracoes} />
 
             </motion.div>
           )}
@@ -1659,7 +1768,7 @@ export default function Performance() {
                           <th className="px-3 py-2 font-medium">Motivo</th>
                           <SortableHeader align="center" field="inicio" label="Início" ordenarPor="inicio" direcao={backlogDirecao} onSort={ordenarBacklogPorInicio} />
                           <th className="px-3 py-2 font-medium">Idade</th>
-                          <th className="px-3 py-2 font-medium">Status</th>
+                          <th className="px-3 py-2 font-medium" title="Quem precisa agir: se a última mensagem foi de um atendente, a conversa espera o cliente">Esperando</th>
                           <th className="px-3 py-2 font-medium">Ação</th>
                         </tr>
                       </thead>
@@ -1672,9 +1781,17 @@ export default function Performance() {
                             <td className="px-3 py-2 text-xs text-ink/60">{new Date(c.current_started_at).toLocaleString("pt-BR")}</td>
                             <td className="px-3 py-2 text-ink/70">{c.idade_dias}d</td>
                             <td className="px-3 py-2">
-                              <Badge tone={c.status ? statusTone[c.status] ?? "neutral" : "neutral"}>
-                                {c.status ? statusLabel[c.status] ?? c.status : "—"}
-                              </Badge>
+                              {c.aguardando_cliente === undefined ? (
+                                <Badge tone={c.status ? statusTone[c.status] ?? "neutral" : "neutral"}>
+                                  {c.status ? statusLabel[c.status] ?? c.status : "—"}
+                                </Badge>
+                              ) : c.aguardando_cliente === null ? (
+                                <span className="text-xs text-ink/30" title="Sem mensagens gravadas desta conversa">—</span>
+                              ) : c.aguardando_cliente ? (
+                                <Badge tone="neutral">Cliente</Badge>
+                              ) : (
+                                <Badge tone="warning">Atendimento</Badge>
+                              )}
                             </td>
                             <td className="px-3 py-2">
                               {c.link_chamado ? (
@@ -1799,10 +1916,10 @@ export default function Performance() {
                             <td className="px-3 py-2 text-xs text-ink/60">{new Date(c.current_started_at).toLocaleString("pt-BR")}</td>
                             <td className="px-3 py-2 text-ink/70">
                               {c.tempo_primeira_resposta_seg !== null ? (
-                                formatDuration(c.tempo_primeira_resposta_seg)
+                                formatDurationHoras(c.tempo_primeira_resposta_seg)
                               ) : c.tempo_primeira_resposta_geral_seg !== null ? (
                                 <span title="Só o bot respondeu até agora, nenhum humano ainda">
-                                  {formatDuration(c.tempo_primeira_resposta_geral_seg)} <span className="text-[11px] text-ink/40">(bot)</span>
+                                  {formatDurationHoras(c.tempo_primeira_resposta_geral_seg)} <span className="text-[11px] text-ink/40">(bot)</span>
                                 </span>
                               ) : (
                                 "—"
@@ -1810,10 +1927,10 @@ export default function Performance() {
                             </td>
                             <td className="px-3 py-2">
                               {c.resolved_at ? (
-                                <span className="text-ink/70">{formatDuration(c.tempo_resolucao_seg)}</span>
+                                <span className="text-ink/70">{formatDurationHoras(c.tempo_resolucao_seg)}</span>
                               ) : (
                                 <span className="text-amber-600" title="Ainda aberto — tempo decorrido até agora, não é final.">
-                                  {formatDuration(c.tempo_aberto_seg)}*
+                                  {formatDurationHoras(c.tempo_aberto_seg)}*
                                 </span>
                               )}
                             </td>
@@ -1961,15 +2078,15 @@ export default function Performance() {
                                 <AlertTriangle size={12} /> inválido
                               </span>
                             ) : (
-                              formatDuration(c.tempo_primeira_resposta_seg)
+                              formatDurationHoras(c.tempo_primeira_resposta_seg)
                             )}
                           </td>
                           <td className="hidden px-4 py-3 lg:table-cell">
                             {c.resolved_at ? (
-                              <span className="text-ink/70">{formatDuration(c.tempo_resolucao_seg)}</span>
+                              <span className="text-ink/70">{formatDurationHoras(c.tempo_resolucao_seg)}</span>
                             ) : (
                               <span className="text-amber-600" title="Ainda aberto — tempo decorrido até agora, não é final.">
-                                {formatDuration(c.tempo_aberto_seg)}*
+                                {formatDurationHoras(c.tempo_aberto_seg)}*
                               </span>
                             )}
                           </td>

@@ -3,11 +3,15 @@ import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { LogOut, Clock, Pencil } from "lucide-react";
+import { LogOut, Clock, Pencil, Settings2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { Avatar } from "@/components/ui/Avatar";
+import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
+import { PainelCard } from "@/components/ui/PainelCard";
+import { Entrada } from "@/components/ui/Entrada";
 import { fetchMyHorario, updateMyHorario, updateOwnProfile } from "@/services/api";
 
 const perfilSchema = z.object({
@@ -99,13 +103,9 @@ export default function Perfil() {
 
   return (
     <div className="max-w-2xl space-y-6">
-      <div>
-        <h1 className="font-display text-display text-ink">Perfil</h1>
-        <p className="mt-1 text-sm text-ink/60">
-          Suas informações e preferências pessoais.
-        </p>
-      </div>
+      <CabecalhoPagina titulo="Perfil" subtitulo="Suas informações e preferências pessoais." />
 
+      <Entrada>
       <Card>
         <CardContent>
           {editandoPerfil ? (
@@ -146,15 +146,9 @@ export default function Perfil() {
             </form>
           ) : (
             <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-forest-50 text-xl font-display font-semibold text-forest-700 dark:bg-forest-500/15 dark:text-forest-300">
-                {user.nome
-                  .split(" ")
-                  .slice(0, 2)
-                  .map((n) => n[0])
-                  .join("")}
-              </div>
+              <Avatar nome={user.nome} size="lg" />
               <div>
-                <p className="font-display text-base font-semibold text-ink">
+                <p className="font-display text-base font-bold text-ink">
                   {user.nome}
                 </p>
                 <p className="text-sm text-ink/60">{user.email}</p>
@@ -174,17 +168,15 @@ export default function Perfil() {
           )}
         </CardContent>
       </Card>
+      </Entrada>
 
-      <Card>
-        <div className="p-5 pb-0">
-          <h2 className="flex items-center gap-2 font-display text-sm font-semibold text-ink">
-            <Clock size={16} /> Meu horário de trabalho (segunda a sexta)
-          </h2>
-          <p className="mt-1 text-xs text-ink/50">
-            Usado para calcular corretamente seus indicadores de tempo de atendimento (fora do expediente não conta).
-          </p>
-        </div>
-        <CardContent className="space-y-3">
+      <PainelCard
+        indice={1}
+        icone={Clock}
+        titulo="Meu horário de trabalho (segunda a sexta)"
+        subtitulo="Usado para calcular corretamente seus indicadores de tempo de atendimento (fora do expediente não conta)."
+      >
+        <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-ink/70">Entrada</label>
@@ -233,16 +225,11 @@ export default function Perfil() {
             </Button>
             {salvo && <span className="text-sm text-forest-600">Salvo com sucesso.</span>}
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <div className="p-5 pb-0">
-          <h2 className="font-display text-sm font-semibold text-ink">
-            Preferências
-          </h2>
         </div>
-        <CardContent className="space-y-4">
+      </PainelCard>
+
+      <PainelCard indice={2} icone={Settings2} titulo="Preferências">
+        <div className="space-y-4">
           <label className="flex items-center justify-between text-sm">
             <span>Receber notificações internas</span>
             <input
@@ -252,8 +239,8 @@ export default function Perfil() {
               className="h-5 w-5 accent-forest-500"
             />
           </label>
-        </CardContent>
-      </Card>
+        </div>
+      </PainelCard>
 
       <Button variant="secondary" onClick={() => logout()}>
         <LogOut size={16} /> Sair da conta

@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 import { Plus, Pencil, Trash2, Search, Link2 as Link2Icon } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +11,8 @@ import { Badge } from "@/components/ui/Badge";
 import { Dialog } from "@/components/ui/Dialog";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { CABECALHO_TABELA, LINHA_TABELA, entradaLinha } from "@/components/ui/Tabela";
+import { cn } from "@/lib/utils";
 import { fetchAllTools, upsertTool, deleteTool, uploadToolImage } from "@/services/api";
 import { DynamicIcon, ICONES_SUGERIDOS } from "@/lib/dynamicIcon";
 import type { DbTool } from "@/types/database";
@@ -195,7 +198,7 @@ export default function AdminOutrosLinks() {
       ) : (
         <Card className="overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-sand-bg text-left text-xs uppercase tracking-wide text-ink/50">
+            <thead className={cn("text-left", CABECALHO_TABELA)}>
               <tr>
                 <th className="px-4 py-3 font-medium">Link</th>
                 <th className="px-4 py-3 font-medium">Categoria</th>
@@ -205,8 +208,8 @@ export default function AdminOutrosLinks() {
               </tr>
             </thead>
             <tbody>
-              {filtrados.map((t) => (
-                <tr key={t.id} className="border-t border-sand-line">
+              {filtrados.map((t, i) => (
+                <motion.tr key={t.id} {...entradaLinha(i)} className={LINHA_TABELA}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-forest-50 text-forest-600 dark:bg-forest-500/15 dark:text-forest-300">
@@ -245,7 +248,7 @@ export default function AdminOutrosLinks() {
                       </button>
                     </div>
                   </td>
-                </tr>
+                </motion.tr>
               ))}
             </tbody>
           </table>

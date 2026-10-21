@@ -3,15 +3,21 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   ChevronLeft, ChevronRight, CalendarDays, Users, Clock, Palmtree,
-  X, Check, Trash2, Plus, AlertCircle, Pencil,
+  X, Check, Trash2, Plus, AlertCircle, Pencil, PartyPopper, CalendarClock,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { CardSkeleton } from "@/components/ui/Skeleton";
+import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
+import { Indicador, ChipIcone } from "@/components/ui/Indicador";
+import { Entrada } from "@/components/ui/Entrada";
+import { CABECALHO_TABELA } from "@/components/ui/Tabela";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRealtimeCalendario } from "@/hooks/useRealtimeCalendario";
 import {
@@ -375,52 +381,65 @@ export default function Calendario() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <button onClick={() => setMesRef(new Date(mesRef.getFullYear(), mesRef.getMonth() - 1, 1))} className="flex h-9 w-9 items-center justify-center rounded-lg border border-sand-line hover:bg-sand-bg">
-            <ChevronLeft size={16} />
-          </button>
-          <h1 className="min-w-[180px] text-center font-display text-display text-ink">
-            {MESES[mesRef.getMonth()]} de {mesRef.getFullYear()}
-          </h1>
-          <button onClick={() => setMesRef(new Date(mesRef.getFullYear(), mesRef.getMonth() + 1, 1))} className="flex h-9 w-9 items-center justify-center rounded-lg border border-sand-line hover:bg-sand-bg">
-            <ChevronRight size={16} />
-          </button>
-        </div>
-        <Button variant="secondary" size="sm" onClick={() => setMesRef(new Date(hoje.getFullYear(), hoje.getMonth(), 1))}>
-          Hoje
-        </Button>
-      </div>
+      <CabecalhoPagina
+        titulo="Calendário"
+        subtitulo="Plantões, folgas, férias e sobreaviso do time. Clique num dia para ver o detalhe."
+        acoes={
+          <>
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => setMesRef(new Date(mesRef.getFullYear(), mesRef.getMonth() - 1, 1))} aria-label="Mês anterior" className="flex h-9 w-9 items-center justify-center rounded-xl border border-sand-line bg-sand-surface shadow-card transition hover:border-sand-line-strong hover:bg-sand-subtle">
+                <ChevronLeft size={16} />
+              </button>
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.span
+                  key={`${mesRef.getFullYear()}-${mesRef.getMonth()}`}
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 4 }}
+                  transition={{ duration: 0.15 }}
+                  className="min-w-[170px] text-center font-display text-[15px] font-bold text-ink"
+                >
+                  {MESES[mesRef.getMonth()]} de {mesRef.getFullYear()}
+                </motion.span>
+              </AnimatePresence>
+              <button onClick={() => setMesRef(new Date(mesRef.getFullYear(), mesRef.getMonth() + 1, 1))} aria-label="Próximo mês" className="flex h-9 w-9 items-center justify-center rounded-xl border border-sand-line bg-sand-surface shadow-card transition hover:border-sand-line-strong hover:bg-sand-subtle">
+                <ChevronRight size={16} />
+              </button>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => setMesRef(new Date(hoje.getFullYear(), hoje.getMonth(), 1))}>
+              Hoje
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="p-4">
-          <p className="text-xs text-ink/50">Próximo feriado</p>
-          <p className="mt-1 flex items-center gap-1.5 font-display text-sm font-semibold text-ink">
-            {proximoFeriado && <span>{emojiFeriado(proximoFeriado.nome)}</span>}
-            {proximoFeriado ? proximoFeriado.nome : "—"}
-          </p>
-          {proximoFeriado && (
-            <p className="text-xs text-ink/40">{new Date(proximoFeriado.data + "T00:00:00").toLocaleDateString("pt-BR")}</p>
-          )}
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-ink/50">Folgas pendentes</p>
-          <p className="mt-1 font-display text-sm font-semibold text-ink">{pendentesCount}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-ink/50">Férias no mês</p>
-          <p className="mt-1 font-display text-sm font-semibold text-ink">{feriasNoMes}</p>
-        </Card>
+        <Indicador
+          indice={0}
+          icone={PartyPopper}
+          label="Próximo feriado"
+          valor={proximoFeriado ? new Date(proximoFeriado.data + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "—"}
+          contexto={proximoFeriado ? `${emojiFeriado(proximoFeriado.nome)} ${proximoFeriado.nome}` : undefined}
+        />
+        <Indicador indice={1} icone={CalendarClock} label="Folgas pendentes" valor={String(pendentesCount)} tom={pendentesCount > 0 ? "atencao" : "marca"} />
+        <Indicador indice={2} icone={Palmtree} label="Férias no mês" valor={String(feriasNoMes)} />
       </div>
 
       {isAdmin && pendentes && pendentes.length > 0 && (
+        <Entrada>
         <Card className="border-amber-400/40 bg-amber-500/5 p-4">
-          <h2 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold text-ink">
-            <AlertCircle size={16} className="text-amber-500" /> Solicitações pendentes de aprovação
+          <h2 className="mb-3 flex items-center gap-2.5 text-[13.5px] font-bold text-ink">
+            <ChipIcone icone={AlertCircle} tom="atencao" /> Solicitações pendentes de aprovação
           </h2>
           <div className="space-y-2">
-            {pendentes.map((p) => (
-              <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sand-surface p-3 text-sm">
+            {pendentes.map((p, i) => (
+              <motion.div
+                key={p.id}
+                initial={{ opacity: 0, x: -6 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.25, ease: "easeOut", delay: Math.min(i, 10) * 0.04 }}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-sand-surface p-3 text-sm shadow-card"
+              >
                 <div>
                   <span className="font-medium text-ink">{p.usuario?.nome}</span>
                   <span className="text-ink/50"> · {new Date(p.data + "T00:00:00").toLocaleDateString("pt-BR")} · {p.tipo} · {p.motivo}</span>
@@ -429,10 +448,11 @@ export default function Calendario() {
                   <Button size="sm" onClick={() => decidir(p.id, "aprovada")}><Check size={13} /> Aprovar</Button>
                   <Button size="sm" variant="secondary" onClick={() => decidir(p.id, "reprovada")}><X size={13} /> Reprovar</Button>
                 </div>
-              </div>
+              </motion.div>
             ))}
           </div>
         </Card>
+        </Entrada>
       )}
 
       {erro && <p className="text-sm text-rust-500">{erro}</p>}
@@ -448,9 +468,15 @@ export default function Calendario() {
       {loadingHolidays ? (
         <CardSkeleton />
       ) : (
+        <motion.div
+          key={`${mesRef.getFullYear()}-${mesRef.getMonth()}`}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, ease: "easeOut" }}
+        >
         <Card className="overflow-hidden">
-          <div className="grid grid-cols-7 bg-sand-bg text-center text-xs font-medium uppercase tracking-wide text-ink/50">
-            {DIAS_SEMANA_CURTO.map((d) => <div key={d} className="py-2">{d}</div>)}
+          <div className={cn("grid grid-cols-7 text-center font-semibold", CABECALHO_TABELA)}>
+            {DIAS_SEMANA_CURTO.map((d) => <div key={d} className="py-2.5">{d}</div>)}
           </div>
           {grid.map((semana, wi) => (
             <div key={wi} className="grid grid-cols-7 border-t border-sand-line">
@@ -469,12 +495,12 @@ export default function Calendario() {
                   <button
                     key={info.iso}
                     onClick={() => setDiaSelecionado(dia)}
-                    className={
-                      "flex min-h-[90px] flex-col items-start gap-1 border-r border-sand-line p-2 text-left last:border-r-0 " +
-                      (foraDoMes ? "bg-sand-bg/30 text-ink/30 hover:bg-sand-bg/50" : "text-ink " + corEspecial)
-                    }
+                    className={cn(
+                      "group flex min-h-[90px] flex-col items-start gap-1 border-r border-sand-line p-2 text-left transition-colors duration-150 last:border-r-0",
+                      foraDoMes ? "bg-sand-bg/30 text-ink/30 hover:bg-sand-bg/50" : cn("text-ink", corEspecial)
+                    )}
                   >
-                    <span className={"flex h-6 w-6 items-center justify-center rounded-full text-xs " + (isHoje ? "bg-forest-500 text-white" : "")}>
+                    <span className={cn("flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold transition-transform duration-150 group-hover:scale-110", isHoje && "bg-forest-500 text-white shadow-card")}>
                       {dia.getDate()}
                     </span>
                     <div className="flex flex-wrap gap-1">
@@ -490,11 +516,28 @@ export default function Calendario() {
             </div>
           ))}
         </Card>
+        </motion.div>
       )}
 
+      <AnimatePresence>
       {diaSelecionado && infoSelecionado && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/50" onClick={() => setDiaSelecionado(null)}>
-          <div className="h-full w-full max-w-md overflow-y-auto bg-sand-surface p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <motion.div
+          key="painel-dia"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="fixed inset-0 z-50 flex justify-end bg-black/50"
+          onClick={() => setDiaSelecionado(null)}
+        >
+          <motion.div
+            initial={{ x: 40, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 40, opacity: 0 }}
+            transition={{ duration: 0.25, ease: "easeOut" }}
+            className="h-full w-full max-w-md overflow-y-auto bg-sand-surface p-6 shadow-float"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-start justify-between">
               <div>
                 <h2 className="font-display text-lg font-semibold text-ink">{formatDiaCompleto(diaSelecionado)}</h2>
@@ -733,9 +776,10 @@ export default function Calendario() {
                 )}
               </Card>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
       {dialogFolga && (
         <Dialog onClose={() => { setDialogFolga(false); setFolgaEditando(null); }}>

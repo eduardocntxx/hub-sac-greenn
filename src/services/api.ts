@@ -1153,6 +1153,43 @@ export async function fetchCsatFunilCanal(inicio: Date, fim: Date): Promise<Csat
   }));
 }
 
+// CSAT × NPS semana a semana (quarta a terça), `satisfacao_semanal` (2026-10-14). CSAT com as mesmas regras do
+// funil e da distribuição de notas (semana da conversa; positiva 4–5, negativa 1–3); NPS pela data da resposta.
+// Uma linha por semana, inclusive sem dado. Colunas de NPS vêm null para quem não é admin nem tem a permissão
+// `nps` — null é "sem acesso", 0 é "nenhuma resposta chegou".
+export interface SatisfacaoSemana {
+  semana: string; // "2026-10-07" (quarta que abre a semana)
+  csat_enviadas: number;
+  csat_respondidas: number;
+  csat_positivas: number;
+  csat_negativas: number;
+  nps_respostas: number | null;
+  nps_promotores: number | null;
+  nps_neutros: number | null;
+  nps_detratores: number | null;
+}
+
+export async function fetchSatisfacaoSemanal(inicio: Date, fim: Date, tipoCliente?: string): Promise<SatisfacaoSemana[]> {
+  const { data, error } = await client().rpc("satisfacao_semanal", {
+    p_inicio: inicio.toISOString(),
+    p_fim: fim.toISOString(),
+    p_tipo_cliente: tipoCliente ?? null,
+  });
+  if (error) throw error;
+  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  return ((data ?? []) as SatisfacaoSemana[]).map((r) => ({
+    semana: r.semana,
+    csat_enviadas: Number(r.csat_enviadas),
+    csat_respondidas: Number(r.csat_respondidas),
+    csat_positivas: Number(r.csat_positivas),
+    csat_negativas: Number(r.csat_negativas),
+    nps_respostas: n(r.nps_respostas),
+    nps_promotores: n(r.nps_promotores),
+    nps_neutros: n(r.nps_neutros),
+    nps_detratores: n(r.nps_detratores),
+  }));
+}
+
 export interface CsatDistribuicaoPorTipoCliente {
   tipo_cliente: string; // tag real (ex: "Produtor"/"Final") ou "Sem tipo"
   total: number;
@@ -1195,16 +1232,21 @@ export async function fetchTempoRespostaBot(inicio: Date, fim: Date, canal?: str
 // "SAC — Migrações" deixou de ser manual em 2026-09-23 — sincronizado via
 // n8n a partir do projeto "Centralização" (gestao-tickets, Supabase
 // unuulffumnmkpsogkznx) pra `public.migracoes_sync` no Hub SAC. Ver
-// CLAUDE.md seção 10.
+// CLAUDE.md seção 10. Desde 2026-10-15 conta o que aconteceu no período
+// (supabase/sql/2026-10-15_migracoes_sync_v2.sql), não o status de hoje do
+// que foi aberto no período.
 export interface MigracoesResumo {
+  // Finalizadas/canceladas dentro do período (data da mudança de status).
   finalizados: number;
+  // Status no fim do período (ou agora, se o período não acabou), pelo
+  // histórico de status da Centralização.
   em_progresso: number;
   aguardando: number;
   cancelados: number;
+  // Novas: abertas no período.
   total: number;
-  // SLA vem de `v_ticket_sla` (Centralização) — "na" (sem SLA ativo,
-  // geralmente ticket já finalizado/cancelado) não entra aqui de propósito,
-  // só os 3 estados que importam pra quem ainda está em aberto.
+  // SLA vem de `v_ticket_sla` (Centralização), da fila aberta no último sync
+  // — não depende do período. "na" (finalizado/cancelado) não entra.
   sla_ok: number;
   sla_risco: number;
   sla_atrasado: number;
@@ -1251,11 +1293,35 @@ export async function fetchContagemPeriodo(inicio: Date, fim: Date, canal?: stri
   return (data?.[0] ?? null) as ContagemPeriodo | null;
 }
 
+// Cartão "Conversas resolvidas" do Overview. resolvidas sai da mesma base de ContagemPeriodo.total_conversas
+// (conversas que começaram no período); fechadas é a produção do período, inclusive de conversas que começaram antes.
+export interface ResolucaoPeriodo {
+  conversas: number;
+  resolvidas: number;
+  fechadas: number;
+  fechadas_de_antes: number;
+}
+
+export async function fetchResolucaoPeriodo(inicio: Date, fim: Date, canal?: string, atendenteNomes?: string[], tipoCliente?: string): Promise<ResolucaoPeriodo | null> {
+  const { data, error } = await client().rpc("resolucao_periodo", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+    p_canal: canal ?? null,
+    p_atendente_nomes: atendenteNomes && atendenteNomes.length > 0 ? atendenteNomes : null,
+    p_tipo_cliente: tipoCliente ?? null,
+  });
+  if (error) throw error;
+  return (data?.[0] ?? null) as ResolucaoPeriodo | null;
+}
+
 export interface BacklogFaixa {
   faixa: string;
   total: number;
   // Quantas das abertas tiveram resposta humana; o resto (total − com_humano) só teve o bot.
   com_humano: number;
+  // Quantas têm como última mensagem (sem nota interna) a de um atendente humano: a conversa está
+  // esperando o cliente, não o time. Opcional só por compatibilidade com a função antiga.
+  aguardando_cliente?: number;
 }
 
 export interface VolumeDiaHora {
@@ -1297,6 +1363,8 @@ export interface BacklogCaso {
   idade_dias: number;
   link_chamado: string | null;
   total_count: number;
+  // Última mensagem (sem nota interna) foi de um atendente humano; null = conversa sem mensagem gravada.
+  aguardando_cliente?: boolean | null;
 }
 
 export async function fetchBacklogCasos(
@@ -1880,7 +1948,7 @@ export interface EscalaSabadoItem {
   id: string;
   posicao: number;
   user_id: string;
-  users?: { nome: string } | null;
+  users?: { nome: string; ativo: boolean } | null;
 }
 
 export async function fetchMyHorario(userId: string) {
@@ -1909,7 +1977,7 @@ export async function updateMyHorario(
 export async function fetchEscalaSabado(): Promise<EscalaSabadoItem[]> {
   const { data, error } = await client()
     .from("escala_sabado")
-    .select("*, users(nome)")
+    .select("*, users(nome, ativo)")
     .order("posicao");
   if (error) throw error;
   return (data ?? []) as EscalaSabadoItem[];

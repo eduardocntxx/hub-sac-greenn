@@ -1,7 +1,9 @@
 import { Download, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
-import { formatDuration } from "@/lib/formatDuration";
+import { formatDuration, formatDurationHoras } from "@/lib/formatDuration";
+import { AvisoNpsParado, GraficoSatisfacaoSemanal } from "@/components/SatisfacaoSemanal";
+import { resumirSemanas } from "@/lib/satisfacaoSemanal";
 import {
   type ResultadosSacData,
   type DeltaInfo,
@@ -17,6 +19,7 @@ import {
   avisoSemTipo,
   taxaReaberturaChamados,
   fmtHorasExpediente,
+  tfrCorridoSeg,
 } from "@/lib/resultadosSac";
 
 const NOME_BOT = "IA Greenn";
@@ -119,18 +122,6 @@ function fmtDataHora(iso: string | null): string {
   return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-// Tempo corrido entre abertura e 1ª resposta — calculado no cliente a
-// partir dos dois timestamps já retornados por `atendimentos_com_metricas`
-// (o "útil" já vem pronto em `tempo_primeira_resposta_seg`, mas o corrido
-// não é um campo da função — não precisa de 2ª chamada pra isso). Mesmo
-// helper de exportPptx.ts, duplicado de propósito (arquivos sem import
-// cruzado entre si).
-function tfrCorridoSeg(abertura: string, primeiraResposta: string | null): number | null {
-  if (!primeiraResposta) return null;
-  const seg = (new Date(primeiraResposta).getTime() - new Date(abertura).getTime()) / 1000;
-  return seg >= 0 ? seg : null;
-}
-
 // Paletas da pré-visualização (o PDF é impresso dela), as mesmas do PPTX.
 // Os tokens do app (`--color-*`) são redeclarados aqui pra o relatório não
 // herdar o tema do Hub; `--rel-*` são o acento, o texto sobre o acento e a
@@ -168,6 +159,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
   const A = data.atual;
   const P = data.anterior;
   const M = data.manual;
+  const semanasSatisfacao = resumirSemanas(data.satisfacaoSemanal);
 
   const boasPct = A.csat && A.csat.total > 0 ? (A.csat.boas / A.csat.total) * 100 : null;
   const boasPctPrev = P.csat && P.csat.total > 0 ? (P.csat.boas / P.csat.total) * 100 : null;
@@ -178,6 +170,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
 
   const bot = data.csatPorAtendente.find((c) => c.operator_nome === NOME_BOT);
   const botDist = data.csatPorAtendenteDist.find((d) => d.atendente === NOME_BOT);
+  const botAnt = data.csatPorAtendenteAnterior.find((c) => c.operator_nome === NOME_BOT);
 
   const porTipoChamados = A.tipoCliente.filter((t) => t.tipo_cliente !== "Geral" && t.chamados > 0);
   const TP = textosPeriodo(data.granularidade);
@@ -255,14 +248,14 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             />
             <MetricaCard
               label="Tempo até 1ª resposta"
-              valor={formatDuration(A.percentis?.tfr_media ?? null)}
-              delta={deltaPercentual(A.percentis?.tfr_media, P.percentis?.tfr_media, true, formatDuration)}
+              valor={formatDurationHoras(A.percentis?.tfr_media ?? null)}
+              delta={deltaPercentual(A.percentis?.tfr_media, P.percentis?.tfr_media, true, formatDurationHoras)}
               nota={A.percentis ? `${A.percentis.tfr_amostras} amostras` : undefined}
             />
             <MetricaCard
               label="Tempo até resolução"
-              valor={formatDuration(A.percentis?.ttr_media ?? null)}
-              delta={deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true, formatDuration)}
+              valor={formatDurationHoras(A.percentis?.ttr_media ?? null)}
+              delta={deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true, formatDurationHoras)}
               nota={A.percentis ? `${A.percentis.ttr_amostras} amostras` : undefined}
             />
           </MetricaGrid>
@@ -298,10 +291,11 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
           </MetricaGrid>
           <p className="mb-3 mt-6 text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Bot (IA Greenn)</p>
           <MetricaGrid>
-            <MetricaCard label="Chamados" valor={fmtNum(bot?.total_atendimentos)} />
+            <MetricaCard label="Chamados" valor={fmtNum(bot?.total_atendimentos)} delta={deltaPercentual(bot?.total_atendimentos, botAnt?.total_atendimentos, false)} />
             <MetricaCard
               label="CSAT médio"
               valor={bot?.csat_medio != null ? bot.csat_medio.toFixed(2).replace(".", ",") : "—"}
+              delta={deltaPercentual(bot?.csat_medio, botAnt?.csat_medio, false)}
               nota={bot ? `${bot.total_avaliacoes} avaliações` : undefined}
             />
             <MetricaCard
@@ -342,14 +336,14 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                     <div className="mt-3.5 flex gap-6 border-t border-sand-line pt-3.5">
                       <div>
                         <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>TFR médio</p>
-                        <p className="mt-0.5 text-sm font-semibold tabular-nums text-ink">{formatDuration(tc.tfr_media_uteis_seg)}</p>
-                        <p className="text-[10px] tabular-nums text-ink/40">Mediana: {formatDuration(tc.tfr_p50_uteis_seg)}</p>
+                        <p className="mt-0.5 text-sm font-semibold tabular-nums text-ink">{formatDurationHoras(tc.tfr_media_uteis_seg)}</p>
+                        <p className="text-[10px] tabular-nums text-ink/40">Mediana: {formatDurationHoras(tc.tfr_p50_uteis_seg)}</p>
                         <p className="text-[10px] tabular-nums text-ink/40">Corrido: {formatDuration(tc.tfr_media_corridas_seg)} (mediana {formatDuration(tc.tfr_p50_corridas_seg)})</p>
                       </div>
                       <div>
                         <p className="text-[10px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>TTR médio</p>
-                        <p className="mt-0.5 text-sm font-semibold tabular-nums text-ink">{formatDuration(tc.ttr_media_uteis_seg)}</p>
-                        <p className="text-[10px] tabular-nums text-ink/40">Mediana: {formatDuration(tc.ttr_p50_uteis_seg)}</p>
+                        <p className="mt-0.5 text-sm font-semibold tabular-nums text-ink">{formatDurationHoras(tc.ttr_media_uteis_seg)}</p>
+                        <p className="text-[10px] tabular-nums text-ink/40">Mediana: {formatDurationHoras(tc.ttr_p50_uteis_seg)}</p>
                         <p className="text-[10px] tabular-nums text-ink/40">Corrido: {formatDuration(tc.ttr_media_corridas_seg)} (mediana {formatDuration(tc.ttr_p50_corridas_seg)})</p>
                       </div>
                     </div>
@@ -361,7 +355,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             {(data.topTfrProdutor.length > 0 || data.topTfrFinal.length > 0) && (
               <div className="mt-5">
                 <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>
-                  Maiores tempos de 1ª resposta — 7 piores de cada grupo (mediana do período, útil: {formatDuration(A.percentis?.tfr_p50 ?? null)})
+                  Maiores tempos de 1ª resposta — 7 piores de cada grupo (mediana do período, útil: {formatDurationHoras(A.percentis?.tfr_p50 ?? null)})
                 </p>
                 <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 print:grid-cols-2">
                   {[
@@ -389,7 +383,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
                                 <tr key={c.id} className="border-t border-sand-line bg-sand-surface">
                                   <td className="px-3 py-2 font-medium text-ink">{c.cliente_nome || "—"}</td>
                                   <td className="px-3 py-2 text-ink/70">{fmtDataHora(c.primeira_resposta_humana_at)}</td>
-                                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-[rgb(var(--rel-acento))]">{formatDuration(c.tempo_primeira_resposta_seg)}</td>
+                                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-[rgb(var(--rel-acento))]">{formatDurationHoras(c.tempo_primeira_resposta_seg)}</td>
                                   <td className="px-3 py-2 text-right tabular-nums text-ink/70">{formatDuration(tfrCorridoSeg(c.current_started_at, c.primeira_resposta_humana_at))}</td>
                                   <td className="px-3 py-2 text-center">
                                     {c.link_chamado ? (
@@ -421,8 +415,8 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
           <MetricaGrid>
             <MetricaCard
               label="Relógio do cliente"
-              valor={formatDuration(A.percentis?.ttr_media ?? null)}
-              delta={deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true, formatDuration)}
+              valor={formatDurationHoras(A.percentis?.ttr_media ?? null)}
+              delta={deltaPercentual(A.percentis?.ttr_media, P.percentis?.ttr_media, true, formatDurationHoras)}
               nota="Mesmo valor de Velocidade, do ponto de vista de quem esperou"
             />
             <MetricaCard
@@ -673,19 +667,36 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
               {M.nps.temas}
             </p>
           )}
+          {/* Evolução semanal junto do NPS, sem tabela (mesmo slide no PPTX; a tabela fica na página de NPS). */}
+          {semanasSatisfacao.filter((s) => !s.emAndamento).length > 1 && (
+            <div className="mt-3.5 space-y-3 rounded-2xl border border-sand-line bg-sand-surface p-4 shadow-card print:break-inside-avoid print:shadow-none">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40" style={FONT_LABEL}>Semana a semana — % de avaliações positivas</p>
+              <AvisoNpsParado semanas={semanasSatisfacao} />
+              <GraficoSatisfacaoSemanal semanas={semanasSatisfacao} />
+              <p className="text-[11px] text-ink/40">
+                Semanas de quarta a terça. CSAT só de produtores, pela semana em que a conversa começou; NPS pela data da resposta.
+              </p>
+            </div>
+          )}
         </section>
 
         <section className="mt-11 print:mt-8">
           <SecaoHead
             titulo="SAC — Migrações"
             tag="novo"
-            nota="Sincronizado da Centralização (gestao-tickets) via n8n — deixou de ser manual em 2026-09-23."
+            nota="Sincronizado da Centralização (gestao-tickets) via n8n, de hora em hora. Finalizadas = finalizadas no período; em progresso e aguardando = situação no fim do período."
           />
-          <MetricaGrid>
+          <MetricaGrid cols={4}>
+            <MetricaCard
+              label="Novas"
+              valor={fmtNum(A.migracoes?.total)}
+              delta={deltaPercentual(A.migracoes?.total, P.migracoes?.total, false)}
+            />
             <MetricaCard
               label="Finalizadas"
               valor={fmtNum(A.migracoes?.finalizados)}
               delta={deltaPercentual(A.migracoes?.finalizados, P.migracoes?.finalizados, false)}
+              nota={A.migracoes ? `${fmtNum(A.migracoes.cancelados)} canceladas no período` : undefined}
             />
             <MetricaCard
               label="Em progresso"
@@ -696,9 +707,13 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
               label="Aguardando"
               valor={fmtNum(A.migracoes?.aguardando)}
               delta={deltaPercentual(A.migracoes?.aguardando, P.migracoes?.aguardando, true)}
-              nota={A.migracoes ? `${fmtNum(A.migracoes.cancelados)} cancelados no período` : undefined}
             />
           </MetricaGrid>
+          {A.migracoes && (
+            <p className={`mt-3 text-[12px] font-bold ${A.migracoes.sla_atrasado > 0 ? "text-rust-500" : "text-ink/55"}`}>
+              SLA da fila aberta agora: {fmtNum(A.migracoes.sla_ok)} dentro do prazo · {fmtNum(A.migracoes.sla_risco)} em risco · {fmtNum(A.migracoes.sla_atrasado)} atrasadas
+            </p>
+          )}
           {A.migracoesPorPlataforma.length > 0 && (
             <div className="mt-3.5 grid grid-cols-3 gap-3 sm:grid-cols-6 print:grid-cols-6">
               {A.migracoesPorPlataforma.slice(0, 6).map((p) => (
@@ -710,7 +725,7 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
             </div>
           )}
           <p className="mt-2 text-[11px] text-ink/40">
-            "Por plataforma" é texto livre na origem (Centralização) — mostrado como veio, sem normalizar nomes duplicados/variantes.
+            "Por plataforma" conta as novas do período. É texto livre na origem (Centralização) — mostrado como veio, sem normalizar nomes duplicados/variantes.
           </p>
         </section>
 

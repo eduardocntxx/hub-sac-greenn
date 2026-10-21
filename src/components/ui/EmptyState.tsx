@@ -28,9 +28,14 @@ export function EmptyState({
         className
       )}
     >
-      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-forest-50 text-forest-600 ring-1 ring-inset ring-forest-600/10 dark:bg-forest-500/15 dark:text-forest-300 dark:ring-forest-400/20">
+      <motion.div
+        initial={{ scale: 0.8, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ duration: 0.35, ease: "easeOut", delay: 0.05 }}
+        className="flex h-12 w-12 items-center justify-center rounded-xl bg-forest-500/10 text-forest-600 dark:text-forest-300"
+      >
         <Icon size={22} />
-      </div>
+      </motion.div>
       <h3 className="mt-4 font-display text-base font-semibold text-ink">
         {title}
       </h3>
