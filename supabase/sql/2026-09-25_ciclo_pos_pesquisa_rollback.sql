@@ -9,8 +9,8 @@ update public.crisp_conversations c set
   first_human_response_at = b.first_human_response_at, first_human_response_time = b.first_human_response_time,
   first_human_response_time_minutes = b.first_human_response_time_minutes,
   first_human_operator_crisp_id = b.first_human_operator_crisp_id, first_human_operator_nome = b.first_human_operator_nome
-from public._bkp_ciclo_pesquisa_2026_09_25 b
-join public._res_ciclo_2026_09_25 r on r.crisp_id = b.crisp_id and r.alterado
+from arquivo._bkp_ciclo_pesquisa_2026_09_25 b
+join arquivo._res_ciclo_2026_09_25 r on r.crisp_id = b.crisp_id and r.alterado
 where c.crisp_id = b.crisp_id;
 drop function if exists public.corrigir_ciclo_pos_pesquisa(text);
 drop function if exists public._reaberturas_conversa(text);
