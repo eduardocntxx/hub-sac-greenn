@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Download, ArrowUpDown, Star, ArrowUpRight, ArrowDownRight, SlidersHorizontal, Check, X } from "lucide-react";
+import { motion } from "framer-motion";
+import { Search, Download, ArrowUpDown, Star, ArrowUpRight, ArrowDownRight, SlidersHorizontal, Check, X, ThumbsUp, ThumbsDown, MessagesSquare, Send, Percent, BarChart3, Users } from "lucide-react";
 import { cn, formatDelta, nomesCurtosDisambiguados, classificacaoPorNota } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -12,6 +13,10 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { HorizontalBarChart, corPorFaixa } from "@/components/ui/BarChart";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
+import { PainelCard } from "@/components/ui/PainelCard";
+import { Entrada } from "@/components/ui/Entrada";
+import { CABECALHO_TABELA, LINHA_TABELA, entradaLinha } from "@/components/ui/Tabela";
 import { fetchDistinctOperadores, fetchCsatFiltered, fetchCsatForDashboard, fetchAtendenteAliases, fetchDashboardAtendimentoSummary, fetchCsatEnviosPorAtendente } from "@/services/api";
 import type { CsatFilters } from "@/services/api";
 import type { DbCsatResult } from "@/types/database";
@@ -434,14 +439,11 @@ export default function Csat() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-display text-ink">CSAT</h1>
-          <p className="mt-1 text-sm text-ink/60">
-            Dashboard do período por colaborador e planilha completa com filtros e exportação.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
+      <CabecalhoPagina
+        titulo="CSAT"
+        subtitulo="Dashboard do período por colaborador e planilha completa com filtros e exportação."
+        acoes={
+        <>
           <DateRangePopover
             preset={preset}
             personalizado={personalizado}
@@ -458,29 +460,38 @@ export default function Csat() {
               <Download size={14} /> Exportar CSV
             </Button>
           )}
-        </div>
-      </div>
+        </>
+        }
+      />
 
       {aba === "dashboard" && !loadingDashboard && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Kpi
+            indice={0}
+            icon={ThumbsUp}
             label="CSAT positivo"
             value={resumoAtual.csatPercent !== null ? `${resumoAtual.csatPercent.toFixed(1)}%` : "—"}
             delta={deltaRelativo(resumoAtual.csatPercent ?? 0, resumoAnterior.csatPercent ?? 0)}
             meta="notas 4 e 5"
           />
           <Kpi
+            indice={1}
+            icon={Star}
             label="Média das notas"
             value={resumoAtual.mediaNotas !== null ? `${resumoAtual.mediaNotas.toFixed(1)}/5` : "—"}
           />
-          <Kpi label="Total de Avaliações" value={String(resumoAtual.total)} delta={deltaRelativo(resumoAtual.total, resumoAnterior.total)} />
+          <Kpi indice={2} icon={MessagesSquare} label="Total de Avaliações" value={String(resumoAtual.total)} delta={deltaRelativo(resumoAtual.total, resumoAnterior.total)} />
           <Kpi
+            indice={3}
+            icon={Send}
             label="Pesquisas enviadas"
             value={totalEnvios.atual.enviadas > 0 ? String(totalEnvios.atual.enviadas) : "—"}
             delta={totalEnvios.atual.enviadas > 0 ? deltaRelativo(totalEnvios.atual.enviadas, totalEnvios.anterior.enviadas) : undefined}
             meta="pela data de envio"
           />
           <Kpi
+            indice={4}
+            icon={Percent}
             label="Taxa de resposta"
             value={
               totalEnvios.atual.enviadas > 0
@@ -496,6 +507,9 @@ export default function Csat() {
             }
           />
           <Kpi
+            indice={5}
+            icon={ThumbsUp}
+            tom="bom"
             label="Promotores"
             value={`${resumoAtual.promotores} / ${resumoAtual.total ? ((resumoAtual.promotores / resumoAtual.total) * 100).toFixed(0) : 0}%`}
             delta={deltaRelativo(resumoAtual.promotores, resumoAnterior.promotores)}
@@ -510,6 +524,9 @@ export default function Csat() {
             className="rounded-2xl text-left transition-shadow enabled:cursor-pointer enabled:hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-400"
           >
             <Kpi
+              indice={6}
+              icon={ThumbsDown}
+              tom="ruim"
               label="Detratores"
               value={`${resumoAtual.detratores} / ${resumoAtual.total ? ((resumoAtual.detratores / resumoAtual.total) * 100).toFixed(0) : 0}%`}
               delta={deltaRelativo(resumoAtual.detratores, resumoAnterior.detratores)}
@@ -522,19 +539,17 @@ export default function Csat() {
       )}
 
       {aba === "dashboard" && !loadingDashboard && resumoAtual.total > 0 && (
-        <Card className="p-5">
-          <h2 className="font-display text-sm font-semibold text-ink">Distribuição por avaliação</h2>
-          <p className="mt-1 text-xs text-ink/40">
-            Cada um dos 5 níveis da pesquisa (nota 1 a 5) — mais granular que Promotores (4–5) e Detratores (1–3) acima.
-          </p>
-          <div className="mt-4">
-            <HorizontalBarChart
-              data={distribuicaoPorNota.map((d) => ({ label: `${d.label} (${d.nota})`, value: d.total }))}
-              getColorClass={(_, i) => distribuicaoPorNota[i ?? 0].cor}
-              labelWidth={160}
-            />
-          </div>
-        </Card>
+        <PainelCard
+          icone={BarChart3}
+          titulo="Distribuição por avaliação"
+          subtitulo="Cada um dos 5 níveis da pesquisa (nota 1 a 5) — mais granular que Promotores (4–5) e Detratores (1–3) acima."
+        >
+          <HorizontalBarChart
+            data={distribuicaoPorNota.map((d) => ({ label: `${d.label} (${d.nota})`, value: d.total }))}
+            getColorClass={(_, i) => distribuicaoPorNota[i ?? 0].cor}
+            labelWidth={160}
+          />
+        </PainelCard>
       )}
 
       {aba === "planilha" && (
@@ -575,7 +590,7 @@ export default function Csat() {
             <>
               <Card className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-sand-bg text-left text-xs uppercase tracking-wide text-ink/50">
+                  <thead className={cn("text-left", CABECALHO_TABELA)}>
                     <tr>
                       {[
                         ["data_hora", "Data"],
@@ -588,7 +603,7 @@ export default function Csat() {
                       ].map(([field, label]) => (
                         <th
                           key={label}
-                          className={"px-4 py-3 font-medium" + (field ? " cursor-pointer select-none" : "")}
+                          className={cn("px-4 py-2.5 font-semibold", field && "cursor-pointer select-none")}
                           onClick={() => field && alternarOrdenacao(field)}
                         >
                           <span className="flex items-center gap-1">
@@ -600,11 +615,12 @@ export default function Csat() {
                     </tr>
                   </thead>
                   <tbody>
-                    {planilha.rows.map((r) => (
-                      <tr
+                    {planilha.rows.map((r, i) => (
+                      <motion.tr
                         key={r.id}
+                        {...entradaLinha(i)}
                         onClick={() => setDetalhe(r)}
-                        className="cursor-pointer border-t border-sand-line transition-all hover:relative hover:z-10 hover:scale-[1.01] hover:bg-sand-surface hover:shadow-card-hover"
+                        className={cn("cursor-pointer", LINHA_TABELA)}
                       >
                         <td className="px-4 py-3 text-ink/70">{new Date(r.data_hora).toLocaleString("pt-BR")}</td>
                         <td className="px-4 py-3 text-ink">{r.atendente}</td>
@@ -613,7 +629,7 @@ export default function Csat() {
                           <p className="text-xs text-ink/50">{r.email ?? "—"}</p>
                         </td>
                         <td className="px-4 py-3 text-ink/70">{r.topico ?? "—"}</td>
-                        <td className="px-4 py-3">{r.nota ?? "—"}</td>
+                        <td className="px-4 py-3 font-display font-bold tabular-nums text-ink">{r.nota ?? "—"}</td>
                         <td className="px-4 py-3">
                           <Badge
                             tone={
@@ -630,7 +646,7 @@ export default function Csat() {
                         <td className="max-w-[220px] truncate px-4 py-3 text-ink/70" title={r.comentario ?? undefined}>
                           {r.comentario ?? "—"}
                         </td>
-                      </tr>
+                      </motion.tr>
                     ))}
                   </tbody>
                 </table>
@@ -664,25 +680,26 @@ export default function Csat() {
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {porColaborador.map((c) => (
+          {porColaborador.map((c, i) => (
+            <Entrada key={c.uid} indice={i} elevar className="h-full">
             <Card
-              key={c.uid}
-              className="cursor-pointer p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
+              className="group h-full cursor-pointer p-5 hover:ring-1 hover:ring-forest-500/40"
               onClick={() => setAtendenteDetalhe({ chave: c.uid, nome: c.atendente })}
             >
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-forest-50 text-sm font-display font-semibold text-forest-700 dark:bg-forest-500/15 dark:text-forest-300">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-forest-500/10 text-sm font-display font-bold text-forest-700 transition-transform duration-200 group-hover:scale-110 dark:text-forest-300">
                   {c.atendente?.split(" ").slice(0, 2).map((n) => n[0]).join("")}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-ink">{c.atendente}</p>
+                  <p className="truncate text-[13.5px] font-bold text-ink">{c.atendente}</p>
                 </div>
+                <ArrowUpRight size={13} className="shrink-0 text-ink/40 transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3">
-                <div className="rounded-xl border border-sand-line bg-sand-bg/60 p-3">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40">CSAT positivo</p>
+                <div className="rounded-xl bg-sand-subtle/70 p-3">
+                  <p className="text-[10.5px] font-semibold uppercase tracking-wide text-ink/50">CSAT positivo</p>
                   <p className="mt-1 flex items-baseline gap-1">
-                    <span className="font-display text-lg font-semibold text-ink tabular-nums">
+                    <span className="font-display text-[22px] font-bold leading-none text-ink tabular-nums">
                       {c.percentual !== null ? `${c.percentual.toFixed(1)}%` : "—"}
                     </span>
                     <span className="text-[11px] text-ink/40">/ {rotuloCsat(c.percentual)}</span>
@@ -700,8 +717,8 @@ export default function Csat() {
                     {formatDelta(c.evolucao) ?? "—"}
                   </p>
                 </div>
-                <div className="rounded-xl border border-sand-line bg-sand-bg/60 p-3">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40">Níveis</p>
+                <div className="rounded-xl bg-sand-subtle/70 p-3">
+                  <p className="text-[10.5px] font-semibold uppercase tracking-wide text-ink/50">Níveis</p>
                   <dl className="mt-1.5 space-y-1 text-xs">
                     <div className="flex items-center justify-between">
                       <dt className="text-ink/50">Promotores</dt>
@@ -722,10 +739,10 @@ export default function Csat() {
                 <strong className="text-ink">{c.total}</strong> avaliações · Última em {new Date(c.ultima).toLocaleDateString("pt-BR")}
               </CardContent>
             </Card>
+            </Entrada>
           ))}
           </div>
-          <Card className="p-5">
-            <h2 className="mb-3 font-display text-sm font-semibold text-ink">CSAT por colaborador</h2>
+          <PainelCard icone={Users} titulo="CSAT por colaborador" subtitulo="% de avaliações 4 e 5 · média · clique numa barra para ver o detalhe">
             <HorizontalBarChart
               data={(() => {
                 const rotulos = nomesCurtosDisambiguados(colaboradorPorPercentual.map((c) => c.atendente ?? "—"));
@@ -744,7 +761,7 @@ export default function Csat() {
                 if (c) setAtendenteDetalhe({ chave: c.uid, nome: c.atendente });
               }}
             />
-          </Card>
+          </PainelCard>
         </>
       )}
 
@@ -772,7 +789,7 @@ export default function Csat() {
           ) : (
             <div className="mt-4 max-h-[60vh] overflow-y-auto rounded-xl border border-sand-line">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-sand-bg text-left text-xs uppercase tracking-wide text-ink/50">
+                <thead className={cn("sticky top-0 text-left", CABECALHO_TABELA)}>
                   <tr>
                     <th className="px-3 py-2 font-medium">Data</th>
                     <th className="px-3 py-2 font-medium">Cliente</th>
@@ -783,11 +800,12 @@ export default function Csat() {
                   </tr>
                 </thead>
                 <tbody>
-                  {popupLista.rows.map((r) => (
-                    <tr
+                  {popupLista.rows.map((r, i) => (
+                    <motion.tr
                       key={r.id}
+                      {...entradaLinha(i)}
                       onClick={() => setDetalhe(r)}
-                      className="cursor-pointer border-t border-sand-line transition-colors hover:bg-sand-bg/60"
+                      className={cn("cursor-pointer", LINHA_TABELA)}
                     >
                       <td className="whitespace-nowrap px-3 py-2 text-ink/70">
                         {new Date(r.data_hora).toLocaleDateString("pt-BR")}
@@ -813,7 +831,7 @@ export default function Csat() {
                       <td className="max-w-[240px] truncate px-3 py-2 text-ink/70" title={r.comentario ?? undefined}>
                         {r.comentario ?? "—"}
                       </td>
-                    </tr>
+                    </motion.tr>
                   ))}
                 </tbody>
               </table>

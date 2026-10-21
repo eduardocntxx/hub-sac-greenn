@@ -5934,3 +5934,487 @@ bloqueando (o fluxo resolve várias vezes durante a pesquisa, sem loop). Testado
 insere, ciclo atual ignora, sessão nova insere). Sem limpeza em massa: as linhas antigas são trocadas na próxima
 resolução; as 255 já resolvidas não recebem pesquisa retroativa. SQL/rollback em
 `supabase/sql/2026-10-05_csat_pending_ciclo_novo*.sql`. n8n sem alteração.
+
+### 2026-10-08 — E-mail sem `tipo_cliente`: causa no n8n (não só na Crisp) e ajuste no fluxo de sincronização
+
+Corrige a nota de 2026-09-30 ("a causa do e-mail 'Sem tipo' está na Crisp, não no n8n"): a Crisp tem o segmento, o
+Hub é que não recebia. E-mails sem tipo: ~90–99% por dia de 09/09 a 05/10; 06/10 45%; 07/10 41,5%. O fluxo
+"Sincronizar tipo_cliente e status" (id `CPCtedxy9RAfyiLI`, agendado 06:30, janela de 3 dias) já existia, mas o
+`Code | Analisar Sessão` só reconhecia os segmentos `seller`, `consumidor`, `sdr` e `bluee`; os e-mails recentes
+chegam na Crisp com o segmento `final` (captura do usuário: "Segmentos da conversa: email, final"), então
+`tipo_novo` saía nulo e nada era gravado. Ajuste do usuário em 2026-10-08 10:04: `else if (segments.includes('final'))
+tipo = 'Final'`. Rodada manual às ~10:05 do mesmo dia: e-mails de 06/10 sem tipo 50 → 2, de 07/10 22 → 0, de 08/10
+10 de 17 → 1 de 18. Credencial "Edu - NPS" conferida (a Crisp responde normalmente).
+
+Pontos que seguem abertos:
+- **Fluxo principal ("Crisp → Hub", `NVQiNEOsP4zS4U1Z`)**: a linha da conversa só é criada no primeiro `message:send`
+  (a mensagem do bot), lendo `meta.segments` nesse instante; o caminho `message:received` (`HTTP Request9`/`12`)
+  grava `topico` e `people_id`, **não** o `tipo_cliente`; e o `HTTP Request1` (PATCH do `message:send`) grava `null`
+  por cima de um tipo já existente. Hipótese (não confirmada): a tag entra na Crisp poucos segundos depois da 1ª
+  mensagem do bot e o n8n lê antes. Sem a correção, e-mail novo nasce sem tipo e só é preenchido na próxima rodada
+  do 06:30. Edições preparadas em `~/Downloads/n8n-patch-tipo-cliente.md`, **não aplicadas**.
+- **E-mails de 09/09 a 05/10**: na Crisp só têm o segmento `email` (ex.: `session_b336d0aa...`), então a
+  reconciliação não recupera o tipo; só vale para conversa que tenha segmento hoje (janela de 3 dias).
+- Precedência diferente entre os dois fluxos: o sincronizador usa `else if` (`seller` vence `final`/`consumidor`); o
+  principal deixa `Final` sobrescrever `Produtor`.
+- Chat e WhatsApp: 58 e 38 conversas sem tipo nos últimos 3 dias (não investigado).
+
+### 2026-10-08 — TFR conta nota interna como "1ª resposta humana" (achado, decisão pendente)
+
+Auditoria do CSV de 30/09–06/10 (1.876 conversas, 802 com TFR): em 12 casos (1,6%) a "1ª resposta humana" é uma nota
+interna do atendente (`message_type = note`), invisível para o cliente (ex.: "atendido em outro chamado");
+`_primeiras_respostas_humanas_bruto` (fonte 2, `crisp_messages`) e o `first_human_response_at` gravado pelo n8n
+(`HTTP Request10`) não filtram `message_type`, só bot e a macro de encerramento. Efeito: TFR subestimado (até ~2 h)
+e chamado sem resposta ao cliente aparecendo como respondido (4 casos em que a nota era a única mensagem humana).
+Recalculado só com `text`/`file`/`audio`: 788 de 802 batem exatamente. Correção proposta (filtrar esses tipos na
+função e no nó do n8n) **não aplicada**, aguardando decisão de produto. Também: das 1.093 resolvidas da semana,
+782 (72%) foram resolvidas sem resposta humana (775 da IA Greenn, ~170 min) e puxam a mediana do TTR (172 min);
+com atendimento humano a mediana é 1.317 min corridos. Uma semana já fechada continua mudando (conversas
+transferidas para fora do SAC saem da conta, resolvidas depois entram no TTR, CSAT novo): 1.876 → 1.874 conversas e
+resolvidas 1.093 → 1.132 em ~24 h.
+
+## 2026-10-08 — CSAT: nota sem atendente, pesquisa duplicada e "Pesquisas enviadas/Respondidas" subcontadas
+
+Caso `session_74ac56ff…` (e-mail, 08/10): nota 1 gravada como "Não identificado", segunda pesquisa enviada 3 s depois
+da nota e comentário perdido. Leitura do fluxo "Widget CSAT | Edu DEF": o e-mail de resposta chega ao n8n como várias
+mensagens quase simultâneas ("1" + textos). Os textos que não são nota caem no ramo "mensagem não relacionada", que
+**apaga a `csat_pending` já marcada como respondida** antes de o ramo da nota ler o operador dela (→ "Não identificado");
+sem a linha, a resolução automática seguinte recria a pendência e dispara outra pesquisa; e o texto chega antes de a
+nota existir, então não há avaliação "aguardando comentário". Desde 17/09: 10 das 11 notas "Não identificado" tinham
+outros textos do cliente junto (10 em 277 notas com texto junto, 1 em 241 sem); pesquisa nova em até 2 min depois da
+nota: 17 em 211 desde 01/10 (21/277 com texto junto, 9/241 sem, ou seja, há um segundo caminho, o nó "Resetar
+(Reabertura)", em disputa de tempo com a resolução automática; hipótese).
+
+Mesmo apagamento subconta a coluna da tabela "Detalhes por atendente": a função `csat_envios_por_atendente` contava
+linhas de `csat_pending`, e as respondidas são as que somem. Ana Franca 30/09–06/10: 9 avaliações, 16 enviadas, 4
+respondidas. **Corrigido no banco** (`supabase/sql/2026-10-08_csat_envios_por_mensagem.sql`, rollback ao lado): conversa
+conta como enviada se tem a mensagem "Como você avalia o atendimento que recebeu" no Crisp, ou linha em `csat_pending`,
+ou avaliação; operador = o da `csat_pending` quando existe, senão o dono atual. Mesma assinatura e filtros. Ana Franca
+passou a 22/10; IA Greenn 822/39; Vittor 165/31. Validado como admin (JWT simulado), ~1–2 s de mínimo em 1 semana e
+1 mês. "Respondidas" pode passar de "Avaliações" porque a primeira conta conversas com nota sob o operador do envio e
+a segunda atribui pelo e-mail do atendente da avaliação. O funil (`csat_funil_canal`) não foi alterado: das 1.147
+resolvidas da semana, 1.144 já tinham `csat_pending`, a regra nova dá o mesmo.
+
+Fluxo n8n "Widget CSAT | Edu DEF" (`LpMIU13uGTVZP8xI`) **alterado pelo usuário e confirmado no n8n em 08/10 (versão
+`d4011c1a`, 17:32)**: (A) nós "Resetar CSAT Pending (Reabertura)" e "(Mensagem Não Relacionada)" removidos; (B) espera de
+15 s + 2ª consulta antes de descartar o comentário que chega antes da nota; (C) texto que vem na mesma mensagem da nota
+(e-mail) vira comentário (`comentario_inline` no `Code in JavaScript`, `Formatar Dados1`, `HTTP Request | Salvar CSAT`,
+nó novo "Veio comentário junto com a nota?"); (E) `HTTP Request6` só marca "aguardando" avaliação sem comentário
+(`&comentario=is.null`). Não aplicada: D (segurar a pergunta de comentário no e-mail). O nó "Google Sheets | Salvar
+CSAT" não existe mais no fluxo (planilha "CSAT - SAC" deixou de receber notas e comentários; confirmar se foi de
+propósito). Testes em 08/10 (`session_5466b4af…` WhatsApp, `session_e4dbbc96…` e-mail): nota com atendente, pendência
+mantida, sem pesquisa duplicada, comentário gravado quando chega em mensagem separada (só o 1º texto). C ainda sem teste
+de ponta a ponta. Backup do estado anterior (sem credenciais) e patch em `~/Downloads/n8n-backup/`. Dados passados
+continuam subcontados onde não há mensagem de pesquisa no Crisp (01–07/09). 11 notas "Não identificado" desde 17/09
+seguem sem correção. Slide "Detalhes por atendente" do PPTX perdeu a coluna "Avaliações" (conta diferente de
+"Respondidas").
+
+### Complemento (2026-10-08, noite): regra "comentário só vale depois da pergunta"
+
+Teste das 17:34 (`session_5466b4af…`, WhatsApp): o cliente mandou 4 textos antes de o bot perguntar "Tem algum
+comentário?" (17:35:01) e um deles (17:35:00,7) foi gravado como comentário, porque o fluxo só exigia a avaliação
+"aguardando" e a pergunta com menos de 15 min; a espera de 15 s (Edição B) ainda aceitava de propósito texto anterior
+à pergunta. Nova regra: o `HTTP Request` que procura a avaliação aguardando filtra
+`comentario_solicitado_em <= hora do texto` (`enviado_em`, calculado no `Code in JavaScript` a partir de
+`data.timestamp`). Medido em 358 avaliações: `comentario_solicitado_em` (relógio do n8n) fica sempre 0,04–0,82 s
+**depois** da mensagem da pergunta no Crisp (mediana 0,06 s, nenhum negativo), então a comparação é segura; aplicada aos
+textos reais dos testes de hoje, os 7 textos anteriores à pergunta são rejeitados e os 2 posteriores aceitos. Com a regra,
+a espera de 15 s e os 3 nós de "2ª tentativa" não servem mais e os 3 nós de checagem de reabertura (sem destino desde
+que o DELETE saiu) só gastavam uma chamada ao Crisp por evento: JSONs finais gerados sem eles
+(`Widget_CSAT_Edu_DEF_FINAL_regra-estrita_*.json`, 45 nós, e `…_com-C-inline_*.json`, 46 nós, que mantém o comentário
+na mesma mensagem da nota). Ainda **não importados no n8n**. Checagem de descarte silencioso: das 260 pendências
+respondidas desde 20/09, nenhuma ficou sem avaliação gravada. Limite conhecido: só o 1º texto depois da pergunta vira
+comentário (juntar vários exige uma função no banco, aguardando OK).
+
+### Conferência da tabela "Detalhes por atendente" (2026-10-08, semana 30/09–06/10 × 23/09–29/09)
+
+Recalculado do zero e comparado com a tela: chamados por dono atual (`chamados_periodo_base`, mesmos filtros), período
+anterior, nota média por e-mail do atendente e envios/respondidas. Tudo bate com `atendente_performance` e
+`csat_envios_por_atendente`; a tela diferia em ±1 chamado em 3 linhas (Ana Franca 368→367, Nathalia 258→259, Amanda
+194→195), efeito de a semana fechada continuar mudando (troca de dono). A nota média do Eduardo só dá 12 avaliações
+numa consulta ingênua porque ele tem 2 linhas de alias com o mesmo e-mail (duplica o join); distintas são 6. O +403,7%
+do Eduardo (27→136) é real: respondeu primeiro em 112 de 120 conversas (73 e-mail, 38 chat, 9 WhatsApp). "Pesquisas
+enviadas" é pequena perto de "Chamados" porque a pesquisa só sai na resolução: conversas resolvidas hoje/total da semana
+= Ana Franca 15/306, Eduardo 12/115, Ana Paula 14/110, Nathalia 72/219, Vittor 153/169, Amanda 105/131 (e-mail
+atendido e deixado aberto não gera pesquisa). Taxa de resposta = respondidas ÷ pesquisas enviadas, não ÷ chamados;
+amostras pequenas (Ana Paula 5 avaliações, Eduardo 6, Ana Franca 9). No PPTX o título do slide virou um cartão verde
+(forest-900/forest-500, como o card "Bot (IA Greenn)" do Overview); `slideBase("")` agora omite o título padrão.
+
+### Overview: sub-aba "Fluxo" virou "Volume" (2026-10-09)
+
+Na `Performance.tsx` a sub-aba do Dashboard "Fluxo" passou a se chamar "Volume" (valor interno `"volume"`; quem tinha
+`"fluxo"` salvo em `overview:subAba` no localStorage é convertido na leitura). O mapa de calor "Volume por dia e horário"
+subiu para o topo da aba, acima de Transferências e Motivo de contato. Em Motivo de contato o gráfico "Top 3 tópicos por
+volume" e a tabela de tópicos ficam lado a lado (empilham abaixo de `lg`), com linhas mais baixas e nota de rodapé
+encurtada. Só front: nenhuma função SQL ou RPC mudou.
+
+Da seção "Transferências" saiu só a lista de casos (tabela Cliente/Origem/Destino/Quando/Ação, "Ver mais" e a nota de
+rodapé), por pedido do usuário; os 3 KPIs e os gráficos de origem/destino continuam. A consulta de casos
+(`fetchTransferenciasCasos`) segue ativa porque alimenta os gráficos. Só front, nenhuma função SQL mudou.
+
+Em Motivo de contato o gráfico passou de Top 3 para **Top 4** (mesmas 4 linhas que a tabela mostra antes do "Ver mais") e
+os dois cards têm a mesma altura (`items-stretch`, barras distribuídas na altura do card); com "Ver mais" aberto volta
+a `items-start` pra o gráfico não esticar junto com a tabela longa.
+
+No mapa de calor "Volume por dia e horário" o rótulo de hora passou a aparecer em **todas** as 24 colunas e centralizado
+no quadrado (antes só de 3 em 3, alinhado à esquerda, o que parecia deslocado do quadrado certo). Dado e mapeamento
+conferidos: `volume_dia_hora` agrupa por `America/Sao_Paulo` (`dow` 0=domingo) e a grade usa `ORDEM_DIAS_MAPA` pra pôr a segunda primeiro.
+
+
+Investigação do "—" no gráfico de Origem (Transferências, 2026-10-09): são os IDs Crisp `95ac001a-9375-4371-bf69-c20453fdfa9f`
+(4 eventos, 28/08–08/10) e `597f9b10-0041-448a-9a3b-fb5b045fb16f` (3 eventos, 03/09–25/09), fora da lista atual de
+operadores da Crisp, sem mensagem e sem linha em `operator_id_aliases`. Segundo o usuário é uma ex-colaboradora
+demitida (Lais Magalhaes). Decisão: **manter o "—"**, sem filtro nem alias e sem mexer em `transferencias_resumo`/
+`transferencias_casos` (3 eventos em ~1.135 nos últimos 14 dias). Comercial Greenn e Ana Clara Zanchett
+(`equipe_sac = false`) também aparecem como origem, porque a função só filtra fora-do-SAC pelo dono atual do chamado.
+
+### Overview: sub-abas com o visual do topo e efeitos (2026-10-09)
+
+As quatro sub-abas do Dashboard (Pessoas, Velocidade, Qualidade, Volume) ganharam o mesmo acabamento do topo (5
+indicadores + "Precisa de atenção", que **não mudaram**). Só front; nenhuma função SQL, RPC ou consulta mudou.
+
+- **Peças novas** em `src/pages/overview/PecasSubAbas.tsx`: `KpiPainel` (chip de ícone, número grande, barra de
+  proporção, selo de variação só onde já existia período anterior), `PainelCard` (mesmo formato do `BlocoAtencao`),
+  `BarrasRanking` (barras em pílula, líder em cor cheia, hover esmaece as outras), `MetricaTile`, `SelectPainel`
+  (select nativo estilizado, destaca quando há filtro), `Entrada`, `LinkVer`, `BotaoExpandir`, `CarregandoPainel`/
+  `VazioPainel` (esqueleto e estado vazio no lugar de "Carregando..."/card liso) e os estilos de tabela
+  (`CABECALHO_TABELA`, `LINHA_TABELA`, `entradaLinha`). O mapa de calor virou o componente `MapaCalor.tsx`
+  (entrada em onda, zoom no hover e leitura "Pico: Seg 9h · 89 chamados" que troca para a célula sob o mouse); ficou
+  separado para o hover não re-renderizar a página inteira. As constantes do mapa saíram do `Performance.tsx`.
+- **Efeitos**: entrada em sequência (fade + sobe), levantar no hover, barras que crescem, linhas de tabela que entram
+  em sequência. `BarraAnimada` (OverviewBlocos) passou a respeitar `prefers-reduced-motion` (o `MotionConfig` só cobre
+  transform, não largura); o visual do topo é o mesmo.
+- **Conteúdo**: as notas de rodapé longas (Velocidade, Relógios, Reabertura, FCR/Recontato, Volume, Transferências,
+  Motivo de contato) passaram para o "?" do `SecaoHead`, como no topo; o texto é o mesmo. O "ver mais" que abre os
+  pop-ups continua. Tabelas de Reabertura/Recontato: atendente com avatar, nº de reaberturas em selo, "Ver" como link
+  estilizado (antes `<a><Button/></a>`), data sem segundos e contador "N casos" + "Limpar" nos filtros.
+- **Não mexido de propósito**: `HorizontalBarChart`/`BarChart` compartilhados (CSAT e outras telas seguem como estão), o
+  topo do Overview, as abas Atendimentos/IA genérica e as demais páginas do app.
+
+### CSAT: botão "Resolver sem avaliação" no widget do Crisp (2026-10-13)
+
+Pedido: poder resolver o chamado sem mandar a pesquisa e abrir as métricas direto do widget CSAT. Não existe
+código deste repositório envolvido (widget Crisp + fluxo n8n "Widget CSAT | Edu DEF"); o que entra aqui é o banco.
+
+- **Por que não basta um botão que só resolve**: a mudança de estado para `resolved` chega ao webhook
+  `crisp-csat-response`, passa por `Estado é Resolved?` → `Salvar CSAT Pending (Atômico)` e envia a pesquisa. O que
+  impede o envio é já existir linha em `csat_pending` (o nó usa `ignore-duplicates`). E o webhook `crisp-csat`
+  (botão do widget) não ramificava pela `action`: qualquer botão `hook` mandaria a pesquisa.
+- **Efeito nas métricas**: `csat_envios_por_atendente` e `csat_funil_canal` contam toda linha de `csat_pending` como
+  pesquisa enviada. Gravar a linha só para bloquear o envio derrubaria a taxa de resposta de quem dispensou. O front
+  só lê `csat_pending` por essas duas RPCs.
+- **Banco** (`supabase/sql/2026-10-13_csat_pending_dispensado.sql`, rollback ao lado): coluna
+  `csat_pending.dispensado boolean not null default false`; as duas funções passam a ignorar linha dispensada
+  (`tem_pending = p.session_id is not null and not p.dispensado`; `and not p.dispensado` dentro do `exists` do
+  funil). Nada mais mudou nelas.
+- **n8n** (fora do repo): `Normalizar Envio Manual (Webhook1)` → `É Resolver Sem CSAT?` (procura `resolve_only` no body).
+  Verdadeiro: `Dispensar CSAT (Resolver sem avaliação)` (POST `csat_pending` com `respondido = true`,
+  `dispensado = true`, `ignore-duplicates`) → `Crisp | Resolver Conversa (Sem CSAT)` (PATCH `resolved`, 3
+  tentativas). Falso: `Salvar CSAT Pending (Atômico - Manual)`, como antes. Recomendado (não verificado se foi
+  aplicado): `dispensado: false` no corpo do nó "Atômico - Manual", para quem dispensa e depois manda a pesquisa.
+- **Widget**: três botões, `Enviar CSAT` (hook `send_csat`), `Resolver sem avaliação` (hook `resolve_only`) e
+  `Ver métricas` (link para `/meu-painel`).
+- **Validação (2026-10-13, conversa de WhatsApp de teste)**: linha criada às 19:34:37 UTC com `dispensado = true` e
+  `respondido = true`; `first_resolved_at` às 19:34:38 (250 ms depois); 0 mensagens "Como você avalia…" e 0 avaliações
+  na conversa. Envio normal seguiu funcionando (linha com `dispensado = false` às 19:35:17 e mensagem da pesquisa às
+  19:35:18). A conversa voltou a `pending` porque houve mensagem de operador às 19:35:23 (Crisp reabre conversa
+  resolvida quando chega mensagem); não é falha do botão.
+- **Comportamento a conhecer**: a dispensa vale pelo ciclo inteiro. Resolver de novo no mesmo ciclo não manda
+  pesquisa (a linha do ciclo atual bloqueia). Reabertura real pelo cliente (novo `current_started_at`) volta a enviar,
+  pelo gatilho `trg_csat_pending_substitui_antigo`.
+- **Rollback**: `2026-10-13_csat_pending_dispensado_rollback.sql` restaura as duas funções e remove a coluna.
+  Antes, desativar no n8n o nó "Dispensar CSAT" e tirar `dispensado` do nó "Atômico - Manual", senão o insert dá 400.
+
+### Auditoria geral: cron sem deadlock, escala só com ativos, backlog "esperando o cliente", índices e memória (2026-10-14)
+
+Varredura de advisors, `pg_stat_statements`, `cron.job_run_details` e integridade de dados.
+
+- **Cron de reaberturas com deadlock diário** (`supabase/sql/2026-10-14_reaberturas_cron_sem_deadlock.sql`, rollback
+  ao lado): `reaberturas-reais-diario` (06:30, 60 dias) falhou com `deadlock detected` em 6 de 7 dias desde 07/10,
+  porque `reaberturas-reais-5min` também roda às 06:30 e os dois fazem DELETE + INSERT em `reaberturas_reais`.
+  `atualizar_reaberturas_reais` agora pega `pg_advisory_xact_lock` antes de tudo. O job de 5 min passou de 7 para 2
+  dias: 99,1% das 1.623 reaberturas desde 10/09 têm a mensagem do cliente em até 2 dias (14 passaram disso, máx. 16
+  dias) e entram pelo diário. Tempo por rodada: ~3,1 s antes; 0,16–2,6 s depois (varia com a memória, ver abaixo).
+  Validar o diário em 15/10 06:30.
+- **Escala de sábado** (`2026-10-14_escala_sabado_so_ativos.sql`): `_atendente_escalado_sabado_base` contava a Brenda
+  Coutinho (inativa, posição #2), escalada para 17/10. Agora a ordem é `row_number()` sobre `posicao` só de ativos
+  (também corrige o buraco na numeração ao remover alguém do meio da lista, que deixava sábado vazio). Para a sequência
+  seguir de onde estava, `data_referencia` passou de 2026-01-03 para 2026-10-10: 10/10 Eduardo (igual), 17/10 Ana
+  Franca, 24/10 Ana Paula, 31/10 Eduardo. 26/09 e 03/10 não mudaram; de 19/09 para trás o Calendário mostra o rodízio
+  novo. Tela de Escalas marca inativo e não oferece inativo no seletor.
+- **Backlog "esperando o cliente"** (`2026-10-14_backlog_aguardando_cliente.sql`): 3.147 abertas em 14/10, 1.864
+  (59%) com a última mensagem de um atendente humano — follow-up "Seu desafio permanece?"/"Seu caso foi
+  solucionado?" que ninguém resolveu na Crisp (1.340 delas com +7 dias). `backlog_por_idade` ganhou
+  `aguardando_cliente`; `backlog_casos` ganhou a mesma coluna por conversa (null = sem mensagem gravada) e desempate
+  por `crisp_id`. Grants refeitos iguais (authenticated/service_role, sem anon), testado com JWT de admin e de
+  colaborador (colaborador vê o resumo, lista vazia). No Overview: bloco "Esperando o cliente responder" no card de
+  backlog e coluna "Esperando" (Cliente/Atendimento) na lista da faixa, no lugar de "Status" (sempre "Aberto").
+- **Índices duplicados** (`2026-10-14_indices_duplicados.sql`, rollback no próprio arquivo): removidos com
+  `drop index concurrently` `idx_crisp_conversations_started_at`, `idx_crisp_conversations_crisp_id` (o planner usa
+  `crisp_conversations_crisp_id_key`, conferido), `idx_csat_email`, `idx_csat_results_user_id`. Nenhum sustentava
+  constraint; nenhum índice inválido ficou; n8n seguiu gravando.
+- **PPTX**: o tempo do clique era o download do chunk do `pptxgenjs` (431 kB). Agora é pré-carregado quando a
+  pré-visualização do relatório abre. Cabeçalho do slide "Detalhes por atendente": o cartão de 2026-10-08 usava as
+  cores fixas do card do bot no Overview (forest-900) e no tema claro virava o único bloco escuro do deck (print do
+  usuário). Agora segue a paleta do tema (`cardBg`/`cardBorder`, ícone no acento, título em caixa alta no acento como
+  os outros slides), a borda esquerda alinha com a moldura da tabela e o card fica entre 0,26in e 0,88in (centro na
+  altura do selo Greenn). Conferido renderizando o PPTX real nos dois temas (export com dados de exemplo + LibreOffice
+  25.8 AppImage com Plus Jakarta Sans, tudo na pasta temporária). O render mostrou três defeitos, corrigidos: o card
+  quase encostava na tarja do slide, a tarja própria do card formava uma linha dupla com ela (removida) e os ombros do
+  ícone (`round2SameRect`) saíam retos e o boneco lia como cadeado (agora meia elipse, `pie` de 180° a 0°).
+  **Revertido no mesmo dia** (usuário: o título do slide continuava fora do padrão): o cartão saiu e o slide usa o
+  título comum de `slideBase`, como todos os outros; `slideBase` não aceita mais título vazio. Conferido no render.
+- **Overview lento — causa medida, não resolvida**: custo quente das mais pesadas (30 dias): `atendente_performance`
+  3,7 s, `relogio_posse_periodo` 3,3 s, `velocidade_por_tipo_cliente` 1,9 s (x2 com o período anterior). Mas o mesmo
+  SQL varia 10–30x entre execuções com o banco ocioso. Teste: CPU pura estável (~620 ms para 3 mi de linhas), leitura
+  de `crisp_messages` 3,5 s na 1ª vez e 27 ms na 2ª, mesmo com `pg_statio` marcando 100% "hit" — o cache do Postgres
+  (224 MB numa máquina de 1 GB) está indo para o swap. Upgrade de compute resolveria a maior parte; segue adiado por
+  decisão do usuário.
+- **`_atendente_performance_base` sem o cálculo descartado**
+  (`2026-10-14_atendente_performance_sem_reaberturas_descartadas.sql`, rollback no arquivo): ela chamava
+  `reopened_count_real_periodo` só para o `total_atendimentos` da base, que `atendente_performance` não lê. Aplicado
+  num bloco `repeatable read` que comparou a saída de `atendente_performance` antes/depois em 3 cenários (30 dias
+  úteis; 7 dias corridas + Produtor; 7 dias WhatsApp) e abortaria em qualquer diferença: idêntica. (A 1ª tentativa,
+  sem snapshot fixo, abortou por dado novo do n8n entre as duas leituras.) 30 dias, quente: ~3,7 s → ~2,5 s.
+- **Achado para decidir**: `reopened_count_real_periodo` (~2 s, regra antiga) segue recalculada por 10 funções.
+  Ler de `reaberturas_reais` custaria ~10x menos, mas mudaria 0,8% dos
+  totais (30 dias: 1.605 → 1.592), por eventos antes de 08/09, eventos de estado com o mesmo horário (323 pares
+  duplicados em `crisp_conversation_state_history`) e mensagens que chegam depois da última atualização da tabela.
+
+## CSAT × NPS semana a semana + NPS parado desde 04/10 (2026-10-14)
+
+Pedido do time (via usuário): "o último neutro ou detrator de NPS foi em 01/10 — melhorou a satisfação dos
+produtores ou caiu o volume de avaliações?", com relatório semanal (enviadas, respondidas, % positivas/negativas)
+cruzado com o NPS, e gráfico no PPTX.
+
+- **Achado principal: o NPS parou de chegar no Hub em 04/10/2026** (última resposta 04/10 11:14; antes ~3 por dia,
+  ~17–25 por semana; zero em 10 dias). O "último detrator em 01/10" (01/10 22:07) é isso, não melhora. A gravação é
+  em tempo real (insert ~6 s depois da resposta): webhook do Typeform → n8n → busca do produtor no MySQL (`payload`
+  com chaves `webhook`/`mysql`) → `nps_responses`. Esse fluxo não aparece no MCP do n8n (só 5 fluxos expostos);
+  causa não investigada. O Hub não sabe quantas pesquisas de NPS são enviadas, só as respostas.
+- **CSAT não melhorou**: semana de 07/10 com 70% de positivas no geral e 78% nos produtores (as anteriores ficavam
+  em 79–85% e 87–94%). A semana mais recente ainda recebe avaliações atrasadas.
+- **`satisfacao_semanal(p_inicio, p_fim, p_tipo_cliente)`** (`2026-10-14_satisfacao_semanal.sql` + rollback): uma
+  linha por semana (quarta a terça, inclusive sem dado). CSAT com as regras de `csat_funil_canal` (enviadas,
+  respondidas) e de `csat_distribuicao_notas` (positiva 4–5, negativa 1–3, sem neutro — decisão do usuário: "3, 2 e
+  1 são negativas"); `p_tipo_cliente` pelo tipo da conversa (`chamado_tem_tipo_cliente`), com
+  `csat_results.categoria_cliente` quando não há conversa ligada. NPS pela data da resposta (9–10 / 7–8 / 0–6). Acesso:
+  `pode_ver_overview()`; colunas de NPS null sem admin/permissão `nps` (null = sem acesso, 0 = nenhuma resposta).
+  Sem execute para anon, 1 overload. Conferido como admin (JWT simulado), 6 semanas de 02/09 a 13/10: enviadas,
+  respondidas, positivas e negativas idênticas às funções existentes; com 'Produtor', igual a
+  `csat_distribuicao_por_tipo_cliente` exceto 1 avaliação em 02/09 (sem conversa ligada, entra pela categoria).
+  Vittor (colaborador com `nps`) vê o NPS; usuário fora do Hub recebe 0 linhas. 8 semanas: ~0,5–0,6 s quente
+  (1ª execução 2,9 s, cache da Micro).
+- **Hub**: página de NPS ganhou o card "CSAT × NPS por semana" (últimas 8 semanas, nunca antes de 02/09 — banco
+  migrado em 01/09; seletor Produtores/Todos, padrão Produtores): aviso em vermelho quando as últimas semanas
+  completas não têm resposta de NPS, gráfico SVG das duas curvas (% positivas do CSAT × % promotores; semana sem NPS
+  vira buraco, semana em andamento fica só na tabela) e tabela. Componentes em `src/components/SatisfacaoSemanal.tsx`,
+  contas em `src/lib/satisfacaoSemanal.ts`.
+- **Reunião de Resultados**: seção "Satisfação semana a semana" na pré-visualização e slide novo depois do NPS (8
+  semanas até o fim do período, só produtores): linhas de % positivas (CSAT acento, NPS em azul — cor nova `azul`
+  na paleta do PPTX), barras de respostas por semana e tabela com cabeçalho agrupado CSAT/NPS. Conferido renderizando
+  o PPTX real nos dois temas; o 1º render tinha rótulos encavalados quando as curvas ficam próximas (removidos da
+  linha, os valores estão na tabela) e a semana em andamento puxava a curva para 100% com 3 notas (tirada dos
+  gráficos).
+- **Slide enxugado (mesmo dia)**: o usuário não gostou do slide próprio ("temos que deixar enxuto, talvez junto do
+  NPS"). O slide "Satisfação semana a semana" saiu; o slide de NPS ganhou, abaixo dos 4 cards (agora com 2,0in de
+  altura), só o gráfico de linhas (% CSAT positivo dos produtores × % promotores) e a nota com o aviso de NPS parado.
+  Com "temas mais abordados" preenchido, os temas vão num card à direita do gráfico. Barras e tabela ficaram só na
+  página de NPS do Hub. A pré-visualização segue o mesmo desenho (gráfico dentro da seção de NPS, sem tabela).
+  Conferido no render dos dois temas, com e sem temas.
+
+## SAC — Migrações contava o status de hoje do que foi aberto na semana (2026-10-15)
+
+O usuário estranhou o slide de migrações da RR de 07–13/10 (0 finalizadas, 2 em progresso, 11 aguardando, SLA
+"0 · 0 · 0"). O slide reproduzia exatamente o banco; o erro era o que a função contava.
+
+- **Filtro errado**: `_migracoes_resumo_base` filtrava `ticket_created_at` no período e contava pelo `status` atual.
+  "Finalizada" virava "aberta nesta semana e já finalizada", o que quase nunca acontece (migração leva mais de uma
+  semana), e os números de semanas passadas mudavam a cada abertura do relatório. Pelo `ticket_status_history` da
+  Centralização: 3 finalizadas e 2 canceladas em 07–13/10 (slide: 0 e 0), 8 finalizadas em 30/09–06/10 (slide: 3).
+- **SLA nunca chegava**: o fluxo do n8n não mandava `sla_state` desde a carga inicial de 23/09 — 48 migrações sem SLA
+  e 126 com SLA congelado naquela data.
+- **Rodava 1x por dia**: o Schedule Trigger "A cada hora" tinha só `triggerAtMinute: 40`, sem `field: "hours"`; o
+  padrão do n8n é dias. As 48 linhas novas têm todas `synced_at` às 00:40.
+- **Upsert não apagava**: o ticket `7468086c…` (24/09), apagado na Centralização, seguia contando.
+
+Correção (`supabase/sql/2026-10-15_migracoes_sync_v2.sql`, rollback ao lado; Centralização:
+`gestao-tickets/supabase/migrations/20261015120000_migracoes_para_hub.sql`):
+- Centralização: `migracoes_para_hub()` (só `service_role`) devolve `{"rows": [...]}` com SLA, `finalizado_em`,
+  `cancelado_em` e `historico_status`. Um valor só, então não esbarra no max-rows de 1000 do PostgREST. Texto livre
+  do cliente (telefone, área de membros, descrição) fica de fora — `area_membros` tem senha digitada.
+- Hub: colunas novas em `migracoes_sync` (`finalizado_em`, `cancelado_em`, `historico_status`, `faturamento_mensal`,
+  `data_prevista_inicio`, `gerente`, `cs`, `sac`); `sync_migracoes(payload)` (só `service_role`) faz upsert + remove o
+  que sumiu, e recusa payload vazio. `_migracoes_resumo_base` mantém a assinatura: finalizadas/canceladas pela data da
+  mudança de status; em progresso/aguardando pelo status no fim do período (ou agora); `pausada` conta em aguardando
+  (antes não entrava em nenhum card); `total` = novas; SLA da fila aberta no último sync.
+- n8n: fluxo novo `gestao-tickets/n8n/sync-migracoes-hub.json` (3 nodes, de hora em hora, sem Code node).
+- RR (tela e PPTX): 4 cards — Novas, Finalizadas (com canceladas na nota), Em progresso, Aguardando; "Novas por
+  plataforma"; linha "SLA da fila aberta agora" também na tela.
+Esperado para 07–13/10: 13 novas, 3 finalizadas, 2 canceladas, 18 em progresso, 22 aguardando (1 pausada); SLA 34 ok,
+3 em risco, 5 atrasadas (conferido rodando a lógica sobre o retorno de `migracoes_para_hub()`). 30/09–06/10: 22
+novas, 8 finalizadas, 2 canceladas, 26 em progresso, 6 aguardando (2 pausadas).
+
+## CSAT: nota de e-mail escrita no meio do texto se perdia (2026-10-15)
+
+Caso: `session_136f8cc1…` — o cliente respondeu a pesquisa por e-mail com "Nota 5, e muito obrigado eu recebi o
+físico…" e nada foi gravado em `csat_results`. O nó `Code in JavaScript` do fluxo "Widget CSAT | Edu DEF" só lia a
+nota quando a mensagem **começava** com o número (`/^([1-5])\b/`); "Nota 5", "nota: 5/5", "Minha nota pelo
+atendimento é 5", "Muito bom.5", "Atendimento 1" caíam no caminho de comentário e eram descartados (não havia
+avaliação aguardando comentário). De 15/09 a 15/10: 15 notas perdidas (12 notas 5, 3 notas 1, todas e-mail) contra
+47 notas de e-mail gravadas — quase 1 em 4.
+
+Correção no n8n (aplicada pelo usuário em 15/10 ~10:18; código em `~/Downloads/n8n-backup/Widget_CSAT_Code_in_JavaScript_2026-10-15.js`):
+o leitor corta a pesquisa citada ("…nota de 1 a 5") e a assinatura do Outlook, e aceita o número no início, "nota"/"N."
+até 25 caracteres antes do número, ou frase curta terminando no número. Rejeita "Nota 10", "nota 4,5", "2 mil",
+"4 emails". Testado contra as 315 primeiras respostas de clientes à pesquisa (15/09–15/10): só as 15 mudam, nenhuma
+das 41 com nota gravada muda. Na primeira colagem o terminal cortou linhas longas e o nó ficou com erro de sintaxe
+por poucos minutos (nenhuma pesquisa perdida); copiar código para o n8n de um editor, não do terminal.
+
+Recuperação: as 15 notas foram inseridas em `csat_results` no formato do fluxo — atendente = operador de
+`csat_pending.operator_user_id` (quem estava com a conversa no envio, regra do fluxo; 8 são do IA Greenn),
+`data_hora` = hora da resposta do cliente, comentário = texto junto da nota (10 de 15), `estado = 'unresolved'`,
+categoria/tags pelo `tipo_cliente` — e `csat_pending.respondido = true`. Pelo período do chamado: 10 em setembro, 5
+em outubro. O gatilho de auditoria de `csat_results` só cobre UPDATE/DELETE, então o INSERT não aparece em
+`auditoria_log`. Rollback: `supabase/sql/2026-10-15_csat_recuperar_notas_email_rollback.sql`.
+
+## Banco: limpeza de tabelas sem uso (2026-10-15)
+
+Inventário do `public` (54 tabelas + 1 view), cruzado com o front (`src/`, Edge Functions), corpo das funções SQL,
+policies de outras tabelas, chaves estrangeiras, views, publicação realtime e os fluxos do n8n em
+`~/Downloads/n8n-backup/`. Contagem por `count(*)` (não pela estimativa de `pg_stat`).
+
+- **Movidas para o schema `arquivo`** (fora da API, sem acesso de `anon`/`authenticated`): `_bkp_ciclo_pesquisa_2026_09_25`,
+  `_bkp_csat_nota_falsa_2026_09_25`, `_bkp_csat_pending_presos_2026_09_25`, `_bkp_funcoes_csat_2026_10_05`,
+  `_res_ciclo_2026_09_25`. Os rollbacks de 25/09 e 05/10 em `supabase/sql/` agora leem `arquivo.*`.
+- **Apagadas** (0 linhas, nenhuma referência): `audit_logs` (duplicata de `auditoria_log`), `clientes_risco` (página Em
+  Risco, removida em 31/08), `permissions` (duplicata de `user_permissions`), `updates` (Atualizações usam
+  `announcements`), `rr_history` (formulário de RR removido), `favorites`, `quick_links`, `settings`, view
+  `v_reopened_count_real`. Por decisão do usuário, também `calendar_week_responsibles` (4 linhas, última semana
+  07/09; a tela saiu do Calendário) e o schema paralelo reservado `crisp_ratings`/`nps_followups` (sempre vazios).
+- Resultado: `public` com 38 tabelas e nenhuma view. `contagem_periodo`, `atendente_performance`, `user_permissions`,
+  `calendar_holidays` e `modules` testados como admin (JWT simulado, transação desfeita) depois da limpeza.
+- Tipo `DbRRHistory` removido de `src/types/database.ts` (sem uso).
+- SQL: `supabase/sql/2026-10-15_limpeza_tabelas.sql`; rollback (DDL gerado de `pg_catalog`, com policies, grants, triggers
+  e as 4 linhas) em `2026-10-15_limpeza_tabelas_rollback.sql`.
+- Execução: o bloqueio automático do Claude Code barrou o `drop`; o usuário liberou em `.claude/settings.local.json`
+  só escrita em `supabase/sql/`, `docs/`, `CLAUDE.md`, `src/types/` e um script de uso único
+  (`~/.cache/hub-sac/rodar-limpeza-2026-10-15.sh`) que recusa rodar se o SQL mudar (hash fixo).
+
+Fica para outra decisão: o peso do banco não está no número de tabelas. `crisp_messages` tem ~127 MB de ~185 MB e
+`auditoria_log` cresce ~1 mil linhas/dia, quase tudo UPDATE do n8n em `crisp_conversations` — regra de retenção
+para essas duas é o que aliviaria a memória do Micro.
+
+### Tempo útil em horas, não em dias (2026-10-16)
+
+Pergunta do usuário sobre o chamado do cliente Sergio Soares (chat, 07/10 06:02) com TFR "2d 14h": o número estava
+certo. O bot passou o caso para o Mr. Greenn às 06:13 e ninguém pegou da fila até a Ana Franca responder em 14/10 12:59
+(sem roteamento para ela no histórico): 62h úteis (13h por dia útil, 4h no sábado, 0 no domingo e no feriado de 12/10)
+ou 175h corridas. "2d" em dias de 24h dava a impressão errada. Novo `formatDurationHoras` em `formatDuration.ts`: acima de
+24h continua em horas ("62h 5min"); abaixo é igual a `formatDuration`. Trocado só onde o valor é útil (conferido no SQL
+de cada RPC): KPI de 1ª resposta, Velocidade por tipo, "Relógio do cliente", ranking de atendentes (`tempoCurto`),
+transferências, motivos, listas de atendimentos e popup (TFR, TTR, tempo aberto, 1ª resposta geral), Meu Painel,
+Reunião de Resultados, relatório e PPTX. "Relógio de trabalho ativo" do Overview passou para `fmtHorasExpediente` (antes
+`formatDuration`, mostrava "1sem 5d"). Continuam em `formatDuration` os tempos corridos: posse (`tempo_ativo_seg`,
+timeline), espera do cliente, resposta do bot, "corrido: …" e `csat_tempo_real`. Ponto aberto (decisão de produto): o
+TFR conta para quem respondeu primeiro, então o tempo parado no Mr. Greenn cai no TFR do atendente que pega da fila.
+
+### Overview: NPS, maiores TFR e Migrações vindos da Reunião (2026-10-16)
+
+Pedido do usuário: ter no Overview os dados da Reunião de Resultados. Em vez de uma sub-aba "Geral" (repetiria quase
+tudo que o Overview já tem e dispararia as ~25 consultas da RR juntas no Micro), entrou só o que faltava, nas sub-abas
+existentes, em `src/pages/overview/SecoesReuniao.tsx`, com as mesmas funções da RR:
+- Qualidade: NPS do período (respostas, promotores, neutros, detratores, NPS no contexto, variação vs. período anterior)
+  e o gráfico CSAT × NPS das últimas 8 semanas (CSAT só de produtores), com o aviso de NPS parado. Só para admin ou
+  permissão `nps` (o RLS de `nps_responses` também barra).
+- Velocidade: 7 maiores TFR do período (Produtor e Cliente Final; com filtro de tipo, só aquele tipo), com atendente,
+  TFR útil, corrido e link; clique abre o popup do atendimento. Só admin (`atendimentos_com_metricas` é `is_admin()`).
+- Volume: Migrações (novas, finalizadas, em progresso, aguardando, SLA da fila agora, novas por plataforma). Todo
+  colaborador aprovado (`migracoes_resumo` checa `usuario_aprovado()`).
+NPS e Migrações não respeitam os filtros de atendente/tipo (dito no "?"). `resumirNps` e `tfrCorridoSeg` foram para
+`lib/resultadosSac.ts` (antes um em `ReuniaoResultados.tsx` e o outro duplicado no relatório e no PPTX). Reclame Aqui
+ficou de fora: na RR é campo manual em `usePersistedState`, só no navegador de quem digitou, sem dado no banco.
+Conferido no banco como admin (30 dias): migrações 60 novas/22 finalizadas, NPS 58 respostas, top TFR Produtor 38,9h.
+
+### Conferência do backlog (2026-10-19)
+
+Pergunta do usuário: o backlog do Overview (3.231–3.235 abertas, ~2.500 com +7 dias) está certo? Está: em 3.231 o último
+evento da Crisp é `unresolved`. É conversa que ninguém resolve na Crisp, não fila: na última mensagem (sem nota), 2.049
+eram de atendente humano (follow-up "Seu desafio permanece?" etc.), 979 do bot (quase sempre pedindo CPF/CNPJ ou já tendo
+reenviado acesso/registrado reembolso), 192 do cliente e 9 sem mensagem. 61 tinham cliente sem resposta humana há +7 dias
+(59 sem a "Lola", `lola@crisp.chat`, conversa de demonstração da Crisp que `cliente_e_teste()` não pega): CSV entregue em
+`~/Downloads/conversas_sem_resposta_7dias_2026-10-19.csv` (fora do repo, tem dado de cliente). Telefone só existe no Hub
+via `csat_results`/`nps_responses` (3 de 59); o "Crisp → Hub" não grava `meta.phone`.
+
+Medido em 30 dias: qualquer mensagem depois de uma resolução reabre a conversa na Crisp (cliente 2048/2049, bot 156/158,
+humano 27/33 com `unresolved` em até 2 min). Das 4 abertas com `resolved` como último evento, 3 tinham mensagem depois
+(evento de reabertura perdido; Hub certo em mostrar aberta) e 1 (`session_91f0d962`, 19/10) era corrida do fluxo de CSAT:
+resolved 15:44:58 → unresolved 15:45:01 → resolved 15:45:04, e o PATCH do pending chegou por último no n8n (auditoria:
+resolved 15:45:06, pending 15:45:07). `supabase/sql/2026-10-19_fechar_conversa_presa.sql` rodou com 0 linhas: às 03:12
+de 20/10 um processo com service_role já tinha fechado 10 conversas de uma vez (`resolved_at = last_message_at`, sem
+evento em state_history, sem `app.origem`, nada em `integracao_execucoes`). Origem não identificada. O fluxo
+"Sincronizar tipo_cliente e status" (n8n, 06:30) deveria fechar pendentes já resolvidas uma vez que a Crisp confirma
+fechadas, mas grava um evento `resolved` junto, e não houve nenhum evento retroativo nos últimos 8 dias: conferir
+as execuções dele no n8n. Ele também não olha conversa que nunca foi resolvida (`first_resolved_at` nulo, ~2.700).
+
+### Cartão "Conversas resolvidas" na mesma base de "Chamados" (2026-10-20)
+
+Em 19–20/10 o Overview mostrava "342 conversas resolvidas de 268 conversas no período (127,6%)". O 342 era
+`reabertura_por_tipo_cliente.total_resolvidos`: conversas com resolução no período, de qualquer data de início (176
+começaram antes de 19/10), mais 41 que só foram reabertas no período — o denominador da taxa de reabertura, não uma
+contagem de resolvidas. Dividido pelas conversas que começaram no período, não fechava a conta. Nova RPC
+`resolucao_periodo(inicio, fim, canal, atendentes, tipo)` (`supabase/sql/2026-10-20_resolucao_periodo.sql`,
+`pode_ver_overview()`, sem execute para anon, ~0,25 s para 2 e 30 dias): `conversas` (mesma base de
+`contagem_periodo.total_conversas`), `resolvidas` (dessas, quantas estão resolvidas agora; 122, igual ao funil do CSAT),
+`fechadas` (conversas com resolução dentro do período, sem as só reabertas; 301) e `fechadas_de_antes` (176). O cartão
+mostra só as do período, a pedido do usuário ("122 · de 268 que chegaram no período (45,5%)"; resolvidas + abertas =
+chegaram); a variação é em pontos da taxa, porque o período anterior teve mais tempo para resolver. `fechadas` e
+`fechadas_de_antes` ficam na RPC, sem uso na tela. Os textos da reabertura
+no Overview passaram a "conversas resolvidas ou reabertas no período" (RR, relatório, PPTX e Meu Painel mantêm "conversas
+resolvidas"). "Atendido e não resolvido" segue pelo `current_started_at` (inclui conversa antiga reaberta pelo cliente
+no período: 132 em 19–20/10, 91 das que começaram no período).
+
+### Desempenho: FCR que falhava, ranking mais leve e sem repetir timeout (2026-10-20)
+
+Medição (30 dias, admin, mínimo de 2 execuções): `atendente_performance` 6,2–12,7 s, `velocidade_por_tipo_cliente`
+2,1–6,0 s, `relogio_posse_periodo` 2,1–3,5 s, `motivo_contato_resumo` 1,5–11,3 s, `relogio_espera_cliente` 1,3–3,4 s;
+o resto abaixo de 1 s aquecido. A 1ª chamada é 3–10× mais lenta (memória do Micro). Regra do usuário: otimização só
+com resultado idêntico (memória `feedback_otimizar_sem_mudar_metrica`).
+- `fcr_recontato_resumo` (Qualidade) não terminava em 100 s com 14 ou 30 dias: o app cortava em 25 s e a seção
+  falhava. O planner estimava 22 elegíveis (6.180 reais) e reexecutava o CTE `reab` (`_reaberturas_conversa` por
+  conversa) a cada linha de um Nested Loop. `2026-10-20_fcr_recontato_plano.sql`: `reab as materialized` +
+  `statement_timeout 45s`, mesmo SQL. Idêntico à atual em 7 dias (sem filtro; WhatsApp + Ana Franca; chat + 2
+  atendentes + Produtor); 30 dias em ~5 s. Uma reescrita set-based sem `_reaberturas_conversa` foi descartada: diferia
+  em 1–2 FCR em ~6 mil (empate de horário entre eventos de estado).
+- `_atendente_performance_base`: CTE `interacoes` chamava `nome_canonico_por_operator_id`/`cliente_e_teste`/
+  `operador_fora_sac` por mensagem (~60 mil em 30 dias); agora agrupa por conversa + operador antes
+  (`2026-10-20_atendente_performance_interacoes.sql`). CTE de ~1,1–1,7 s para ~0,5 s. Saída de `interacoes` idêntica em
+  3 cenários e a de `atendente_performance` inteira idêntica (30 dias úteis; corridas + Produtor; setembro WhatsApp
+  resolvidas; período fechado 20/09–19/10). Uma 1ª comparação com o período incluindo hoje deu 3 linhas diferentes por
+  mensagem nova entre as duas chamadas; repetida, zero.
+- `App.tsx`: consulta que estoura o `statement_timeout` (57014) não é repetida (eram 3 tentativas extras, ~100 s de
+  banco por seção que falhava).
+Não mexido por mudar número: `motivo_contato_resumo` usa `reopened_count_real_periodo` (troca pelo cache muda ~0,8%,
+decisão de produto pendente).
+
+### Visual do Overview na plataforma toda (2026-10-20 e 21)
+
+Pedido do usuário: levar o visual do Overview para todas as telas, com mais animação (o Meu Painel, tela de entrada,
+estava "muito feio"). As peças do Overview viraram componentes oficiais em `src/components/ui/` (`CabecalhoPagina`,
+`Indicador` com `ChipIcone`/`SeloDelta`/`MetricaTile`, `PainelCard`, `SecaoHead`, `Tabela`, `BarraAnimada`,
+`NumeroAnimado`, `Entrada`); `overview/PecasSubAbas.tsx` e `OverviewBlocos.tsx` passaram a reexportar, sem mudar o
+Overview. `Kpi` manteve a API e passou a desenhar o `Indicador`, então CSAT, NPS, Reclame Aqui, RR e Meu Painel mudaram
+sem mexer nas chamadas; `EmptyState` ganhou o chip do Overview.
+- Telas: Meu Painel refeito (saudação, indicadores contando até o valor, cards com barras animadas, tabela com linhas em
+  sequência), CSAT, NPS, Reclame Aqui, Reunião de Resultados (o relatório PPTX/PDF não mudou), Missões, Calendário (o
+  painel do dia entra deslizando), Helpdesks, Cursos, Documentação, Atualizações, Outros Links, Perfil, Administração
+  (aba ativa com sublinhado que desliza; tabelas de Usuários, Permissões, Cursos, Documentação, Atualizações e Outros
+  Links no estilo do Overview; Perfis/Escalas com entrada em sequência; Metas sem o segundo `h1`), Definir senha e
+  Aguardando aprovação (mesma entrada suave do Login).
+- `MotionConfig reducedMotion="user"` ficou no `App.tsx` (antes só no Overview), para valer também fora do layout
+  (Login, Definir senha). Largura, altura e número animado checam `useReducedMotion` à parte.
+- Dados: nenhuma consulta, filtro ou cálculo mudou (conferido no diff de cada tela). No Meu Painel, o
+  `if (!user) return null` vinha antes de três `useMemo` (ordem de hooks errada); agora fica depois deles.
+- Verificado: `tsc -b` e `npm run build`. As telas não foram abertas logadas no navegador nesta sessão (sem sessão no
+  ambiente): conferir no preview da Vercel do PR, inclusive no modo escuro.
+- A sessão de 20/10 parou no limite de uso no meio da Administração; o resto foi feito em 21/10.

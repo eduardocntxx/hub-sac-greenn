@@ -1,7 +1,10 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { ArrowUpRight, ExternalLink, Hourglass, Inbox, MessageSquareHeart, type LucideIcon } from "lucide-react";
+import { ArrowDown, ArrowUp, ExternalLink, Hourglass, Inbox, MessageSquareHeart, type LucideIcon } from "lucide-react";
 import { Card } from "@/components/ui/Card";
+import { Indicador, SeloDelta } from "@/components/ui/Indicador";
+import { SecaoHead } from "@/components/ui/SecaoHead";
+import { BarraAnimada } from "@/components/ui/BarraAnimada";
 import { Badge } from "@/components/ui/Badge";
 import { Dialog } from "@/components/ui/Dialog";
 import { cn } from "@/lib/utils";
@@ -12,118 +15,13 @@ import type { DbCsatResult } from "@/types/database";
 // Blocos da aba Dashboard do Overview (redesenho de 2026-09-24): topo com
 // 5 indicadores, "Precisa de atenção" e o cabeçalho padrão das seções.
 
-// ---------- Cabeçalho padrão de seção ----------
-// Título + uma linha de explicação + "?" com a definição (no lugar dos
-// textos escondidos em `title` que existiam antes em cada card).
-export function SecaoHead({ titulo, subtitulo, ajuda, acao }: { titulo: string; subtitulo?: string; ajuda?: ReactNode; acao?: ReactNode }) {
-  return (
-    <div className="mb-3 flex items-start justify-between gap-3">
-      <div>
-        <h2 className="font-display text-[15px] font-bold text-ink">{titulo}</h2>
-        {subtitulo && <p className="mt-0.5 text-[12.5px] text-ink/50">{subtitulo}</p>}
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {acao}
-        {ajuda && <Ajuda>{ajuda}</Ajuda>}
-      </div>
-    </div>
-  );
-}
+// Cabeçalho de seção, selo de variação, indicador e barra viraram peças
+// oficiais em `components/ui` (2026-10-20); reexportados aqui.
+export { SecaoHead, SeloDelta, BarraAnimada };
 
-function Ajuda({ children }: { children: ReactNode }) {
-  const [aberto, setAberto] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!aberto) return;
-    const fechar = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setAberto(false);
-    };
-    document.addEventListener("mousedown", fechar);
-    return () => document.removeEventListener("mousedown", fechar);
-  }, [aberto]);
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        aria-label="O que significa"
-        aria-expanded={aberto}
-        onClick={() => setAberto((a) => !a)}
-        className={cn(
-          "flex h-6 w-6 items-center justify-center rounded-full border border-sand-line-strong text-xs font-bold text-ink/50 transition hover:text-ink",
-          aberto && "bg-sand-subtle text-ink"
-        )}
-      >
-        ?
-      </button>
-      {aberto && (
-        <div className="absolute right-0 top-8 z-20 w-72 rounded-xl border border-sand-line-strong bg-sand-surface p-3 text-xs leading-relaxed text-ink/60 shadow-float">
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------- Indicador do topo ----------
-// Variação num selo (verde = melhorou, vermelho = piorou, cinza = estável).
-function SeloDelta({ delta }: { delta?: DeltaInfo }) {
-  if (!delta) return <span className="text-xs text-ink/40">sem comparação</span>;
-  return (
-    <span
-      className={cn(
-        "inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[11.5px] font-semibold tabular-nums",
-        delta.bom === null
-          ? "bg-sand-subtle text-ink/50"
-          : delta.bom
-            ? "bg-forest-500/10 text-forest-700 dark:text-forest-300"
-            : "bg-rust-500/10 text-rust-600 dark:text-rust-400"
-      )}
-    >
-      {delta.texto}
-    </span>
-  );
-}
-
-// Entrada em sequência (fade + sobe 8px), `indice` define o atraso.
-export function SaudeKpi({ label, valor, delta, contexto, indice = 0, onClick, dica }: { label: string; valor: string; delta?: DeltaInfo; contexto?: string; indice?: number; onClick?: () => void; dica?: string }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: "easeOut", delay: indice * 0.06 }}
-      whileHover={{ y: -2 }}
-      className="h-full"
-    >
-    <Card
-      className={cn("flex h-full flex-col gap-2 p-4 transition-shadow hover:shadow-card-hover", onClick && "cursor-pointer hover:ring-1 hover:ring-forest-500/40")}
-      onClick={onClick}
-      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
-      role={onClick ? "link" : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      title={dica}
-    >
-      <span className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink/50">
-        {label}
-        {onClick && <ArrowUpRight size={13} className="shrink-0 text-ink/40" />}
-      </span>
-      <span className="font-display text-[28px] font-bold leading-none tracking-tight tabular-nums text-ink">{valor}</span>
-      <SeloDelta delta={delta} />
-      {contexto && <span className="text-xs leading-snug text-ink/50">{contexto}</span>}
-    </Card>
-    </motion.div>
-  );
-}
-
-// Barra que cresce de 0 até a largura final ao aparecer.
-function BarraAnimada({ largura, className, atraso = 0 }: { largura: number; className: string; atraso?: number }) {
-  return (
-    <motion.i
-      className={cn("block h-full", className)}
-      initial={{ width: 0 }}
-      animate={{ width: `${Math.max(0, Math.min(100, largura))}%` }}
-      transition={{ duration: 0.6, ease: "easeOut", delay: atraso }}
-    />
-  );
+// Indicador do topo: sem ícone e sempre com o selo ("sem comparação" quando não há período anterior).
+export function SaudeKpi(props: { label: string; valor: string; delta?: DeltaInfo; contexto?: string; indice?: number; onClick?: () => void; dica?: string }) {
+  return <Indicador {...props} semComparacao />;
 }
 
 // Card interno do "Precisa de atenção": fundo destacado + ícone no título.
@@ -180,6 +78,11 @@ export function PrecisaAtencao({
   const backlogHumano = backlogOrdenado.reduce((t, b) => t + (b.com_humano ?? 0), 0);
   const backlogSoBot = backlogTotal - backlogHumano;
   const backlogVelho = backlogOrdenado.find((b) => b.faixa === "+7 dias")?.total ?? 0;
+  // null = função antiga no banco, sem a coluna: o bloco some em vez de mostrar 0.
+  const aguardandoCliente = backlog.some((b) => b.aguardando_cliente != null)
+    ? backlog.reduce((t, b) => t + (b.aguardando_cliente ?? 0), 0)
+    : null;
+  const aguardandoClienteVelho = backlogOrdenado.find((b) => b.faixa === "+7 dias")?.aguardando_cliente ?? 0;
 
   return (
     <Card className="border-forest-500/30 bg-forest-500/[0.04] p-5">
@@ -191,6 +94,7 @@ export function PrecisaAtencao({
             <p><b>Atendido e não resolvido:</b> conversas do período com resposta humana que continuam abertas, por dono atual. Sem resolução, o cliente não recebe a pesquisa de CSAT. Parado = sem mensagem nova há 48h.</p>
             <p className="mt-2"><b>Funil do CSAT:</b> respondidas ÷ resolvidas, por canal, com as conversas iniciadas no período.</p>
             <p className="mt-2"><b>Backlog:</b> tudo que está aberto agora, pela idade — não depende do período.</p>
+            <p className="mt-2"><b>Esperando o cliente:</b> abertas em que a última mensagem (sem contar nota interna e bot) foi de um atendente. Ninguém deve nada ao cliente, só falta resolver na Crisp ou ele responder.</p>
           </>
         }
       />
@@ -303,6 +207,20 @@ export function PrecisaAtencao({
               </div>
             </div>
           )}
+          {aguardandoCliente != null && backlogTotal > 0 && (
+            <div className="rounded-xl bg-sand-subtle px-2.5 py-2 text-[12.5px]">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-ink/70">Esperando o cliente responder</span>
+                <b className="tabular-nums text-ink">
+                  {fmtNum(aguardandoCliente)} <span className="font-normal text-ink/50">({fmtPct1((aguardandoCliente / backlogTotal) * 100)})</span>
+                </b>
+              </div>
+              <p className="mt-0.5 text-[11px] text-ink/50">
+                A última mensagem foi de um atendente
+                {aguardandoClienteVelho > 0 && <>; {fmtNum(aguardandoClienteVelho)} com +7 dias, candidatas a resolver na Crisp</>}.
+              </p>
+            </div>
+          )}
           <p className="text-xs text-ink/50">"Atendido e não resolvido" conta só as com resposta humana e iniciadas no período, por isso é menor.</p>
         </BlocoAtencao>
       </div>
@@ -311,6 +229,44 @@ export function PrecisaAtencao({
 }
 
 // ---------- Pop-up das avaliações ruins ----------
+type CampoOrdemRuins = "nota" | "data" | "cliente" | "atendente" | "canal" | "comentario";
+type SentidoOrdem = "asc" | "desc";
+
+const CAMPOS_ORDEM_RUINS: readonly (readonly [CampoOrdemRuins, string, SentidoOrdem])[] = [
+  ["nota", "Nota", "asc"],
+  ["data", "Data", "desc"],
+  ["cliente", "Cliente", "asc"],
+  ["atendente", "Atendente", "asc"],
+  ["canal", "Canal", "asc"],
+  ["comentario", "Comentário", "desc"],
+];
+
+function ordenarRuins(lista: DbCsatResult[], campo: CampoOrdemRuins, sentido: SentidoOrdem): DbCsatResult[] {
+  const fator = sentido === "asc" ? 1 : -1;
+  const texto = (v: string | null | undefined) => (v ?? "").trim();
+  const porData = (a: DbCsatResult, b: DbCsatResult) => new Date(b.data_hora).getTime() - new Date(a.data_hora).getTime();
+  return [...lista].sort((a, b) => {
+    let cmp = 0;
+    if (campo === "nota") cmp = (a.nota ?? 0) - (b.nota ?? 0);
+    else if (campo === "data") cmp = new Date(a.data_hora).getTime() - new Date(b.data_hora).getTime();
+    else if (campo === "comentario") {
+      // Sem comentário fica sempre no fim, qualquer que seja o sentido;
+      // entre os que têm, ordena pelo tamanho do texto.
+      const ta = texto(a.comentario).length;
+      const tb = texto(b.comentario).length;
+      if ((ta === 0) !== (tb === 0)) return ta === 0 ? 1 : -1;
+      cmp = ta - tb;
+    } else {
+      const va = texto(campo === "cliente" ? a.cliente : campo === "atendente" ? a.atendente : a.canal);
+      const vb = texto(campo === "cliente" ? b.cliente : campo === "atendente" ? b.atendente : b.canal);
+      // Vazio (sem cliente/atendente/canal) também vai pro fim.
+      if ((va === "") !== (vb === "")) return va === "" ? 1 : -1;
+      cmp = va.localeCompare(vb, "pt-BR", { sensitivity: "base" });
+    }
+    return cmp !== 0 ? cmp * fator : porData(a, b);
+  });
+}
+
 export function CsatRuinsDialog({
   avaliacoes,
   carregando,
@@ -322,16 +278,44 @@ export function CsatRuinsDialog({
   onClose: () => void;
   onAbrirDetalhe: (r: DbCsatResult) => void;
 }) {
-  const lista = avaliacoes ?? [];
+  const [campo, setCampo] = useState<CampoOrdemRuins>("nota");
+  const [sentido, setSentido] = useState<SentidoOrdem>("asc");
+  const lista = useMemo(() => ordenarRuins(avaliacoes ?? [], campo, sentido), [avaliacoes, campo, sentido]);
   const comComentario = lista.filter((r) => (r.comentario ?? "").trim() !== "").length;
+  const escolherCampo = (novo: CampoOrdemRuins) => {
+    setCampo(novo);
+    setSentido(CAMPOS_ORDEM_RUINS.find(([c]) => c === novo)?.[2] ?? "asc");
+  };
   return (
     <Dialog onClose={onClose} className="max-w-5xl">
-      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="font-display text-base font-bold text-ink">Avaliações ruins (nota 1–3)</h3>
           <p className="mt-0.5 text-xs text-ink/50">
-            {carregando ? "Carregando..." : `${fmtNum(lista.length)} avaliações · ${fmtNum(comComentario)} com comentário · pior nota primeiro`}
+            {carregando ? "Carregando..." : `${fmtNum(lista.length)} avaliações · ${fmtNum(comComentario)} com comentário`}
           </p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <label htmlFor="ordem-ruins" className="text-xs text-ink/50">Ordenar por</label>
+          <select
+            id="ordem-ruins"
+            value={campo}
+            onChange={(e) => escolherCampo(e.target.value as CampoOrdemRuins)}
+            className="h-8 rounded-lg border border-sand-line bg-sand-surface px-2 text-xs text-ink"
+          >
+            {CAMPOS_ORDEM_RUINS.map(([valor, rotulo]) => (
+              <option key={valor} value={valor}>{rotulo}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setSentido((s) => (s === "asc" ? "desc" : "asc"))}
+            aria-label={sentido === "asc" ? "Ordem crescente" : "Ordem decrescente"}
+            title={sentido === "asc" ? "Crescente" : "Decrescente"}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-sand-line text-ink/70 transition hover:bg-sand-subtle"
+          >
+            {sentido === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
+          </button>
         </div>
       </div>
       {!carregando && lista.length === 0 ? (

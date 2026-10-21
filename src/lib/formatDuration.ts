@@ -52,6 +52,25 @@ export function formatDuration(totalSeconds: number | null | undefined): string 
   return partes.join(" ");
 }
 
+/**
+ * Para tempo em horas úteis (TFR/TTR úteis, tempo aberto útil): acima de 24h
+ * continua em horas em vez de virar dias. Um "dia" útil tem 13h de
+ * expediente, então "2d 14h" (dias de 24h) não dizia quanto tempo de
+ * expediente passou — "62h" diz. Abaixo de 24h é igual a formatDuration.
+ * Tempo corrido (posse, espera do cliente) continua em formatDuration.
+ * Exemplos: 3725 → "1h 2min 5s" · 223200 → "62h" · 223500 → "62h 5min"
+ */
+export function formatDurationHoras(totalSeconds: number | null | undefined): string {
+  if (totalSeconds === null || totalSeconds === undefined || Number.isNaN(totalSeconds)) return "—";
+
+  const total = Math.round(totalSeconds);
+  if (total < DIA) return formatDuration(total);
+
+  const h = Math.floor(total / HORA);
+  const min = Math.floor((total % HORA) / MIN);
+  return min > 0 ? `${h}h ${min}min` : `${h}h`;
+}
+
 /** Mesma formatação, mas a partir de um valor já em minutos (com casas decimais). */
 export function formatDurationFromMinutes(totalMinutes: number | null | undefined): string {
   if (totalMinutes === null || totalMinutes === undefined || Number.isNaN(totalMinutes)) return "—";

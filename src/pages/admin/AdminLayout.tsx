@@ -1,5 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
 
 // Agrupado por domínio (só organização visual — nenhuma rota mudou):
 // Geral | Identidade e acesso | Escala do time | Conteúdo da plataforma.
@@ -37,14 +39,10 @@ const grupos: { nome: string; tabs: { to: string; label: string; end?: boolean }
 export default function AdminLayout() {
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-xl font-semibold text-ink">
-          Administração
-        </h1>
-        <p className="mt-1 text-sm text-ink/60">
-          Gerencie usuários, perfis, permissões, módulos e todo o conteúdo da plataforma.
-        </p>
-      </div>
+      <CabecalhoPagina
+        titulo="Administração"
+        subtitulo="Gerencie usuários, perfis, permissões, módulos e todo o conteúdo da plataforma."
+      />
 
       <div className="flex flex-wrap items-end gap-x-5 gap-y-3 border-b border-sand-line pb-0">
         {grupos.map((g, gi) => (
@@ -58,14 +56,24 @@ export default function AdminLayout() {
                   end={t.end}
                   className={({ isActive }) =>
                     cn(
-                      "border-b-2 px-2.5 py-2 text-sm font-medium -mb-px whitespace-nowrap",
-                      isActive
-                        ? "border-forest-500 text-forest-600"
-                        : "border-transparent text-ink/50 hover:text-ink"
+                      "relative -mb-px whitespace-nowrap px-2.5 py-2 text-sm font-medium transition-colors",
+                      isActive ? "text-forest-600 dark:text-forest-300" : "text-ink/50 hover:text-ink"
                     )
                   }
                 >
-                  {t.label}
+                  {({ isActive }) => (
+                    <>
+                      {t.label}
+                      {/* Sublinhado da aba ativa desliza entre as abas. */}
+                      {isActive && (
+                        <motion.span
+                          layoutId="admin-aba-ativa"
+                          transition={{ duration: 0.25, ease: "easeOut" }}
+                          className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-forest-500"
+                        />
+                      )}
+                    </>
+                  )}
                 </NavLink>
               ))}
             </div>

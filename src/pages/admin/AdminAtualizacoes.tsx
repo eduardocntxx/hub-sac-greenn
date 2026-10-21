@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 import { Plus, Pencil, Trash2, Search, Megaphone } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +11,8 @@ import { Badge } from "@/components/ui/Badge";
 import { Dialog } from "@/components/ui/Dialog";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { CABECALHO_TABELA, LINHA_TABELA, entradaLinha } from "@/components/ui/Tabela";
+import { cn } from "@/lib/utils";
 import { fetchAllAnnouncements, upsertAnnouncement, deleteAnnouncement } from "@/services/api";
 import type { DbAnnouncement } from "@/types/database";
 
@@ -82,12 +85,12 @@ export default function AdminAtualizacoes() {
       ) : (
         <Card className="overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-sand-bg text-left text-xs uppercase tracking-wide text-ink/50">
+            <thead className={cn("text-left", CABECALHO_TABELA)}>
               <tr><th className="px-4 py-3 font-medium">Comunicado</th><th className="px-4 py-3 font-medium">Prioridade</th><th className="px-4 py-3 font-medium">Fixado</th><th className="px-4 py-3 font-medium">Status</th><th className="px-4 py-3 font-medium text-right">Ações</th></tr>
             </thead>
             <tbody>
-              {filtrados.map((a) => (
-                <tr key={a.id} className="border-t border-sand-line">
+              {filtrados.map((a, i) => (
+                <motion.tr key={a.id} {...entradaLinha(i)} className={LINHA_TABELA}>
                   <td className="px-4 py-3"><p className="font-medium text-ink">{a.titulo}</p><p className="text-xs text-ink/50">{a.categoria}</p></td>
                   <td className="px-4 py-3"><Badge tone={prioridadeTone[a.prioridade]}>{a.prioridade}</Badge></td>
                   <td className="px-4 py-3">{a.fixado ? "sim" : "não"}</td>
@@ -98,7 +101,7 @@ export default function AdminAtualizacoes() {
                       <button onClick={() => remover(a.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-rust-500/10 hover:text-rust-500"><Trash2 size={15} /></button>
                     </div>
                   </td>
-                </tr>
+                </motion.tr>
               ))}
             </tbody>
           </table>

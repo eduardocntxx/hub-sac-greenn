@@ -4,6 +4,11 @@ import { ShieldCheck } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { CardSkeleton } from "@/components/ui/Skeleton";
+import { motion } from "framer-motion";
+import { Entrada } from "@/components/ui/Entrada";
+import { SecaoHead } from "@/components/ui/SecaoHead";
+import { CABECALHO_TABELA, LINHA_TABELA, entradaLinha } from "@/components/ui/Tabela";
+import { cn } from "@/lib/utils";
 import {
   fetchUsers,
   fetchModules,
@@ -112,8 +117,9 @@ export default function AdminPermissoes() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        {perfis.map((p) => (
-          <Card key={p.nome}>
+        {perfis.map((p, i) => (
+          <Entrada key={p.nome} indice={i} className="h-full">
+          <Card className="h-full">
             <CardContent>
               <div className="flex items-center justify-between">
                 <h3 className="font-display text-sm font-semibold text-ink">
@@ -126,13 +132,12 @@ export default function AdminPermissoes() {
               <p className="mt-1 text-sm text-ink/60">{p.descricao}</p>
             </CardContent>
           </Card>
+          </Entrada>
         ))}
       </div>
 
       <div>
-        <h2 className="mb-3 font-display text-sm font-semibold text-ink">
-          Permissões granulares por colaborador
-        </h2>
+        <SecaoHead titulo="Permissões granulares por colaborador" className="mb-3" />
         {erro && <p className="mb-2 text-sm text-rust-500">{erro}</p>}
 
         {isLoading ? (
@@ -142,9 +147,9 @@ export default function AdminPermissoes() {
         ) : (
           <Card className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-sand-bg text-left text-xs uppercase tracking-wide text-ink/50">
+              <thead className={cn("text-left", CABECALHO_TABELA)}>
                 <tr>
-                  <th className="sticky left-0 bg-sand-bg px-4 py-3 font-medium">
+                  <th className="sticky left-0 bg-sand-subtle px-4 py-3 font-medium">
                     Colaborador
                   </th>
                   {modulosGerenciaveis.map((m) => (
@@ -155,8 +160,8 @@ export default function AdminPermissoes() {
                 </tr>
               </thead>
               <tbody>
-                {colaboradores.map((u) => (
-                  <tr key={u.id} className="border-t border-sand-line">
+                {colaboradores.map((u, i) => (
+                  <motion.tr key={u.id} {...entradaLinha(i)} className={LINHA_TABELA}>
                     <td className="sticky left-0 bg-sand-surface px-4 py-3">
                       <p className="font-medium text-ink">{u.nome}</p>
                       <p className="text-xs text-ink/50">{u.equipe}</p>
@@ -181,7 +186,7 @@ export default function AdminPermissoes() {
                         </td>
                       );
                     })}
-                  </tr>
+                  </motion.tr>
                 ))}
               </tbody>
             </table>

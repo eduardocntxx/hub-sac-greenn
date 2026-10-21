@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MotionConfig } from "framer-motion";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { AppLayout } from "@/layouts/AppLayout";
 import { AdminOnlyRoute } from "@/routes/ProtectedRoute";
@@ -45,13 +46,25 @@ const AdminMetas = lazyWithRetry(() => import("@/pages/admin/AdminMetas"));
 // staleTime de 60s: sem isso (padrão 0) toda montagem/foco de aba refaz as
 // agregações pesadas do Postgres. Mutações continuam refrescando na hora via
 // invalidateQueries, que ignora staleTime.
+// Consulta que estourou o statement_timeout (57014; 25 s no papel
+// authenticated) não é repetida: as 3 tentativas extras padrão ocupavam o
+// banco por ~100 s e deixavam as outras telas lentas (2026-10-20).
+const TIMEOUT_POSTGRES = "57014";
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 60_000 } },
+  defaultOptions: {
+    queries: {
+      staleTime: 60_000,
+      retry: (falhas, erro) => (erro as { code?: string } | null)?.code !== TIMEOUT_POSTGRES && falhas < 3,
+    },
+  },
 });
 
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      {/* reducedMotion="user": quem pediu "reduzir movimento" no sistema vê o app
+          sem animação de transform (larguras e números tratam à parte). */}
+      <MotionConfig reducedMotion="user">
       <AuthProvider>
         <BrowserRouter>
           <RouteBoundary>
@@ -109,6 +122,7 @@ export default function App() {
           </RouteBoundary>
         </BrowserRouter>
       </AuthProvider>
+      </MotionConfig>
     </QueryClientProvider>
   );
 }

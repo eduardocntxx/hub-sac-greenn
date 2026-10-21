@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 import { Plus, Pencil, Trash2, Search, Users as UsersIcon, Check } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +11,8 @@ import { Badge } from "@/components/ui/Badge";
 import { Dialog } from "@/components/ui/Dialog";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { CABECALHO_TABELA, LINHA_TABELA, entradaLinha } from "@/components/ui/Tabela";
+import { cn } from "@/lib/utils";
 import { fetchUsers, fetchRoles, upsertUser, approveUser, deleteUser, inviteUser } from "@/services/api";
 import type { DbUser } from "@/types/database";
 
@@ -166,7 +169,7 @@ export default function AdminUsuarios() {
       ) : (
         <Card className="overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-sand-bg text-left text-xs uppercase tracking-wide text-ink/50">
+            <thead className={cn("text-left", CABECALHO_TABELA)}>
               <tr>
                 <th className="px-4 py-3 font-medium">Nome</th>
                 <th className="px-4 py-3 font-medium">Equipe</th>
@@ -176,8 +179,8 @@ export default function AdminUsuarios() {
               </tr>
             </thead>
             <tbody>
-              {filtrados.map((u) => (
-                <tr key={u.id} className="border-t border-sand-line">
+              {filtrados.map((u, i) => (
+                <motion.tr key={u.id} {...entradaLinha(i)} className={LINHA_TABELA}>
                   <td className="px-4 py-3">
                     <p className="font-medium text-ink">{u.nome}</p>
                     <p className="text-xs text-ink/50">{u.email}</p>
@@ -222,7 +225,7 @@ export default function AdminUsuarios() {
                       </button>
                     </div>
                   </td>
-                </tr>
+                </motion.tr>
               ))}
             </tbody>
           </table>

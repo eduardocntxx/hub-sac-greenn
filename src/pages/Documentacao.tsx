@@ -5,6 +5,9 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
+import { Entrada } from "@/components/ui/Entrada";
+import { ChipIcone } from "@/components/ui/Indicador";
 import { fetchDocumentation } from "@/services/api";
 
 export default function Documentacao() {
@@ -22,14 +25,7 @@ export default function Documentacao() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-display text-ink">
-          Documentação
-        </h1>
-        <p className="mt-1 text-sm text-ink/60">
-          Repositório central de documentos internos do time de Suporte.
-        </p>
-      </div>
+      <CabecalhoPagina titulo="Documentação" subtitulo="Repositório central de documentos internos do time de Suporte." />
 
       <div className="relative max-w-md">
         <Search
@@ -58,21 +54,21 @@ export default function Documentacao() {
         />
       ) : (
         <div className="space-y-2">
-          {filtrados.map((d) => (
-            <a key={d.id} href={d.link ?? "#"} target="_blank" rel="noreferrer" className="block">
-              <Card className="flex items-center justify-between p-4 transition-colors hover:border-forest-300">
+          {filtrados.map((d, i) => (
+            <Entrada key={d.id} indice={i} elevar>
+            <a href={d.link ?? "#"} target="_blank" rel="noreferrer" className="block">
+              <Card className="group flex items-center justify-between p-4 hover:ring-1 hover:ring-forest-500/40">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-forest-50 text-forest-600 dark:bg-forest-500/15 dark:text-forest-300">
-                    <FileText size={16} />
-                  </div>
+                  <ChipIcone icone={FileText} className="transition-transform duration-200 group-hover:scale-110" />
                   <div>
-                    <p className="text-sm font-medium text-ink">{d.titulo}</p>
+                    <p className="text-[13.5px] font-bold text-ink">{d.titulo}</p>
                     <p className="text-xs text-ink/50">{d.descricao}</p>
                   </div>
                 </div>
                 <Badge tone="neutral">{d.categoria ?? "Geral"}</Badge>
               </Card>
             </a>
+            </Entrada>
           ))}
         </div>
       )}

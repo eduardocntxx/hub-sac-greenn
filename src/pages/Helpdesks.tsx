@@ -9,6 +9,11 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
+import { SecaoHead } from "@/components/ui/SecaoHead";
+import { Entrada } from "@/components/ui/Entrada";
+import { ChipIcone } from "@/components/ui/Indicador";
+import { cn } from "@/lib/utils";
 import { Dialog } from "@/components/ui/Dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -135,16 +140,16 @@ export default function Helpdesks() {
   );
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-display text-ink">Helpdesks</h1>
-          <p className="mt-1 text-sm text-ink/60">Central de Helpdesks Greenn e solicitações de novos.</p>
-        </div>
-        <Button onClick={abrirSolicitacao}>
-          <Plus size={16} /> Solicitar novo Helpdesk
-        </Button>
-      </div>
+    <div className="space-y-6">
+      <CabecalhoPagina
+        titulo="Helpdesks"
+        subtitulo="Central de Helpdesks Greenn e solicitações de novos."
+        acoes={
+          <Button onClick={abrirSolicitacao}>
+            <Plus size={16} /> Solicitar novo Helpdesk
+          </Button>
+        }
+      />
 
       {erro && <p className="text-sm text-rust-500">{erro}</p>}
 
@@ -163,10 +168,10 @@ export default function Helpdesks() {
                   if (h && h.status !== coluna) moverPara(h, coluna);
                   setArrastando(null);
                 }}
-                className="rounded-2xl bg-sand-bg/60 p-3"
+                className="rounded-2xl bg-sand-subtle/60 p-3 ring-1 ring-sand-line"
               >
                 <div className="mb-3 flex items-center justify-between px-1">
-                  <h2 className="font-display text-sm font-semibold text-ink">{statusLabel[coluna]}</h2>
+                  <h2 className="font-display text-[13.5px] font-bold text-ink">{statusLabel[coluna]}</h2>
                   <Badge tone="neutral">{itens.length}</Badge>
                 </div>
                 <div className="space-y-2">
@@ -175,9 +180,9 @@ export default function Helpdesks() {
                   ) : itens.length === 0 ? (
                     <p className="px-1 text-xs text-ink/40">Nenhum item.</p>
                   ) : (
-                    itens.map((h) => (
+                    itens.map((h, i) => (
+                      <Entrada key={h.id} indice={i}>
                       <Card
-                        key={h.id}
                         draggable
                         onDragStart={(e) => {
                           e.dataTransfer.setData("text/plain", h.id);
@@ -185,15 +190,16 @@ export default function Helpdesks() {
                         }}
                         onDragEnd={() => setArrastando(null)}
                         onClick={() => setDetalhe(h)}
-                        className={
-                          "cursor-grab p-3 transition-opacity active:cursor-grabbing " +
-                          (arrastando === h.id ? "opacity-50" : "")
-                        }
+                        className={cn(
+                          "cursor-grab p-3 transition-[opacity,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:ring-1 hover:ring-forest-500/40 active:cursor-grabbing",
+                          arrastando === h.id && "rotate-1 opacity-50"
+                        )}
                       >
-                        <p className="text-sm font-medium text-ink">{h.nome}</p>
+                        <p className="text-[13.5px] font-bold text-ink">{h.nome}</p>
                         <p className="mt-1 line-clamp-2 text-xs text-ink/50">{h.descricao}</p>
                         <p className="mt-2 text-xs text-ink/40">{h.solicitante?.nome ?? "—"}</p>
                       </Card>
+                      </Entrada>
                     ))
                   )}
                 </div>
@@ -204,7 +210,7 @@ export default function Helpdesks() {
       ) : (
         <>
           <div>
-            <h2 className="mb-3 font-display text-sm font-semibold text-ink">Helpdesks disponíveis</h2>
+            <SecaoHead titulo="Helpdesks disponíveis" subtitulo="Clique para ver o detalhe." />
             {isLoading ? (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {Array.from({ length: 3 }).map((_, i) => <CardSkeleton key={i} />)}
@@ -213,18 +219,23 @@ export default function Helpdesks() {
               <EmptyState icon={Wrench} title="Nenhum Helpdesk disponível ainda" description="Assim que uma solicitação for finalizada, ela aparece aqui." />
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {finalizados.map((h) => (
-                  <Card key={h.id} className="cursor-pointer p-5 hover:border-forest-300" onClick={() => setDetalhe(h)}>
-                    <div className="flex items-start justify-between">
-                      <h3 className="font-display text-sm font-semibold text-ink">{h.nome}</h3>
+                {finalizados.map((h, i) => (
+                  <Entrada key={h.id} indice={i} elevar className="h-full">
+                  <Card className="group h-full cursor-pointer p-5 hover:ring-1 hover:ring-forest-500/40" onClick={() => setDetalhe(h)}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <ChipIcone icone={Wrench} className="transition-transform duration-200 group-hover:scale-110" />
+                        <h3 className="font-display text-[13.5px] font-bold text-ink">{h.nome}</h3>
+                      </div>
                       {h.link && (
                         <a href={h.link} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
                           <ExternalLink size={14} className="text-ink/30 hover:text-forest-600" />
                         </a>
                       )}
                     </div>
-                    <p className="mt-1 text-sm text-ink/60">{h.descricao}</p>
+                    <p className="mt-2 text-sm text-ink/60">{h.descricao}</p>
                   </Card>
+                  </Entrada>
                 ))}
               </div>
             )}
@@ -232,15 +243,17 @@ export default function Helpdesks() {
 
           {minhas.length > 0 && (
             <div>
-              <h2 className="mb-3 font-display text-sm font-semibold text-ink">Minhas solicitações</h2>
+              <SecaoHead titulo="Minhas solicitações" />
               <div className="space-y-2">
-                {minhas.map((h) => (
-                  <Card key={h.id} className="cursor-pointer p-4" onClick={() => setDetalhe(h)}>
+                {minhas.map((h, i) => (
+                  <Entrada key={h.id} indice={i} elevar>
+                  <Card className="cursor-pointer p-4 hover:ring-1 hover:ring-forest-500/40" onClick={() => setDetalhe(h)}>
                     <div className="flex items-center justify-between">
-                      <span className="font-medium text-ink">{h.nome}</span>
+                      <span className="text-[13.5px] font-bold text-ink">{h.nome}</span>
                       <Badge tone="warning">{statusLabel[h.status]}</Badge>
                     </div>
                   </Card>
+                  </Entrada>
                 ))}
               </div>
             </div>

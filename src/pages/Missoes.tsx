@@ -10,6 +10,11 @@ import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
+import { SecaoHead } from "@/components/ui/SecaoHead";
+import { Entrada } from "@/components/ui/Entrada";
+import { ChipIcone } from "@/components/ui/Indicador";
+import { NumeroAnimado } from "@/components/ui/NumeroAnimado";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import {
@@ -186,25 +191,23 @@ export default function Missoes() {
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-display text-ink">Missões</h1>
-          <p className="mt-1 text-sm text-ink/60">
-            Suas missões ativas, atualizadas em tempo real a partir do banco de dados.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Badge tone="brand" className="gap-1.5 py-1.5 text-[13px]">
-            Minhas Moedas: <strong className="font-display">{moedasGanhas}</strong> <Coins size={13} />
-          </Badge>
-          {isAdmin && (
-            <Button onClick={abrirNova}>
-              <Plus size={16} /> Nova missão
-            </Button>
-          )}
-        </div>
-      </div>
+    <div className="space-y-6">
+      <CabecalhoPagina
+        titulo="Missões"
+        subtitulo="Suas missões ativas, atualizadas em tempo real a partir do banco de dados."
+        acoes={
+          <>
+            <div className="flex h-8 items-center gap-1.5 rounded-full bg-amber-500/10 px-3 text-[13px] font-semibold text-amber-700 dark:text-amber-400">
+              <Coins size={14} /> <span className="tabular-nums"><NumeroAnimado texto={String(moedasGanhas)} /></span> moedas
+            </div>
+            {isAdmin && (
+              <Button onClick={abrirNova}>
+                <Plus size={16} /> Nova missão
+              </Button>
+            )}
+          </>
+        }
+      />
 
       {erro && <p className="text-sm text-rust-500">{erro}</p>}
 
@@ -248,34 +251,36 @@ export default function Missoes() {
                   if (jaEstaAqui) return;
                   moverProgresso(missionId, col.alvo(meta));
                 }}
-                className="rounded-2xl p-1"
+                className="rounded-2xl bg-sand-subtle/60 p-3 ring-1 ring-sand-line"
               >
-                <div className="mb-3 flex items-center gap-2">
-                  <h2 className="font-display text-sm font-semibold text-ink">{col.titulo}</h2>
+                <div className="mb-3 flex items-center gap-2 px-1">
+                  <span className={cn("h-2 w-2 rounded-full", col.dot)} />
+                  <h2 className="font-display text-[13.5px] font-bold text-ink">{col.titulo}</h2>
                   <Badge tone="neutral">{colunas[col.chave].length}</Badge>
                 </div>
                 <div className="min-h-[60px] space-y-3">
                   {colunas[col.chave].length === 0 ? (
                     <p className="text-xs text-ink/40">Arraste uma missão pra cá.</p>
                   ) : (
-                    colunas[col.chave].map((p) => {
+                    colunas[col.chave].map((p, i) => {
                       const m = p.missions;
                       return (
+                        <Entrada key={p.id} indice={i}>
                         <Card
-                          key={p.id}
                           draggable
                           onDragStart={(e) => e.dataTransfer.setData("text/plain", p.mission_id)}
                           onClick={() => m && setDetalhe(m)}
-                          className="cursor-grab p-4 active:cursor-grabbing"
+                          className="cursor-grab p-4 transition-transform duration-200 hover:-translate-y-0.5 hover:ring-1 hover:ring-forest-500/40 active:cursor-grabbing"
                         >
                           <div className="flex items-start gap-2">
                             <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", col.dot)} />
                             <div className="min-w-0 flex-1">
-                              <h3 className="truncate text-sm font-semibold text-ink">{m?.titulo}</h3>
+                              <h3 className="truncate text-[13.5px] font-bold text-ink">{m?.titulo}</h3>
                               <p className="mt-0.5 line-clamp-2 text-xs text-ink/50">{m?.descricao}</p>
                             </div>
                           </div>
                         </Card>
+                        </Entrada>
                       );
                     })
                   )}
@@ -287,20 +292,24 @@ export default function Missoes() {
       </div>
 
       <div>
-        <h2 className="mb-3 font-display text-sm font-semibold text-ink">Missões disponíveis para assumir</h2>
+        <SecaoHead titulo="Missões disponíveis para assumir" subtitulo="Missões sem responsável — assuma uma para começar." />
         {loadingTodas ? (
           <p className="text-sm text-ink/50">Carregando...</p>
         ) : missoesDisponiveis.length === 0 ? (
           <p className="text-sm text-ink/50">Nenhuma missão sem responsável no momento.</p>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
-            {missoesDisponiveis.map((m) => (
-              <Card key={m.id}>
+            {missoesDisponiveis.map((m, i) => (
+              <Entrada key={m.id} indice={i} elevar className="h-full">
+              <Card className="group h-full hover:ring-1 hover:ring-forest-500/40">
                 <CardContent>
                   <div className="flex items-start justify-between gap-2">
-                    <div className="cursor-pointer" onClick={() => setDetalhe(m)}>
-                      <h3 className="font-display text-sm font-semibold text-ink">{m.titulo}</h3>
-                      <p className="mt-1 text-sm text-ink/60">{m.descricao}</p>
+                    <div className="flex cursor-pointer items-start gap-2.5" onClick={() => setDetalhe(m)}>
+                      <ChipIcone icone={Target} className="transition-transform duration-200 group-hover:scale-110" />
+                      <div>
+                        <h3 className="font-display text-[13.5px] font-bold text-ink">{m.titulo}</h3>
+                        <p className="mt-1 text-sm text-ink/60">{m.descricao}</p>
+                      </div>
                     </div>
                     {m.dificuldade && <Badge tone={dificuldadeTone[m.dificuldade]}>{m.dificuldade}</Badge>}
                   </div>
@@ -314,6 +323,7 @@ export default function Missoes() {
                   </div>
                 </CardContent>
               </Card>
+              </Entrada>
             ))}
           </div>
         )}
@@ -321,9 +331,7 @@ export default function Missoes() {
 
       {isAdmin && (
         <div>
-          <h2 className="mb-3 font-display text-sm font-semibold text-ink">
-            Gerenciar todas as missões
-          </h2>
+          <SecaoHead titulo="Gerenciar todas as missões" subtitulo="Arraste entre as colunas para mudar o status." />
           {loadingTodas ? (
             <CardSkeleton />
           ) : !todasMissoes || todasMissoes.length === 0 ? (
@@ -345,10 +353,10 @@ export default function Missoes() {
                         await queryClient.invalidateQueries({ queryKey: ["missions"] });
                       }
                     }}
-                    className="rounded-2xl bg-sand-bg/60 p-3"
+                    className="rounded-2xl bg-sand-subtle/60 p-3 ring-1 ring-sand-line"
                   >
                     <div className="mb-3 flex items-center justify-between px-1">
-                      <h3 className="font-display text-sm font-semibold capitalize text-ink">{coluna}</h3>
+                      <h3 className="font-display text-[13.5px] font-bold capitalize text-ink">{coluna}</h3>
                       <Badge tone="neutral">{itens.length}</Badge>
                     </div>
                     <div className="space-y-2">
@@ -361,7 +369,7 @@ export default function Missoes() {
                             draggable
                             onDragStart={(e) => e.dataTransfer.setData("text/plain", m.id)}
                             onClick={() => abrirEdicao(m)}
-                            className="cursor-grab p-3 active:cursor-grabbing"
+                            className="cursor-grab p-3 transition-transform duration-200 hover:-translate-y-0.5 hover:ring-1 hover:ring-forest-500/40 active:cursor-grabbing"
                           >
                             <p className="text-sm font-medium text-ink">{m.titulo}</p>
                             <p className="mt-1 text-xs text-ink/50">{m.categoria}</p>

@@ -4,6 +4,10 @@ import { Plus, Trash2, GripVertical, CalendarDays } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
+import { SecaoHead } from "@/components/ui/SecaoHead";
+import { entradaLinha } from "@/components/ui/Tabela";
 import {
   fetchEscalaSabado,
   upsertEscalaSabadoItem,
@@ -94,7 +98,8 @@ export default function AdminEscalas() {
         <p className="text-sm text-ink/60">
           Sábados não têm horário fixo individual — a sequência abaixo define
           o rodízio manual de quem fica de plantão a cada sábado, calculado
-          automaticamente a partir da posição de cada um na lista.
+          automaticamente a partir da posição de cada um na lista. Quem está
+          inativo é pulado.
         </p>
       </div>
 
@@ -125,7 +130,7 @@ export default function AdminEscalas() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div>
-          <h2 className="mb-3 font-display text-sm font-semibold text-ink">Sequência de atendentes</h2>
+          <SecaoHead titulo="Sequência de atendentes" className="mb-3" />
           <Card className="overflow-hidden">
             {isLoading ? (
               <p className="p-4 text-sm text-ink/50">Carregando...</p>
@@ -133,15 +138,18 @@ export default function AdminEscalas() {
               <p className="p-4 text-sm text-ink/50">Nenhum atendente na escala ainda.</p>
             ) : (
               <ul>
-                {escala.map((e) => (
-                  <li key={e.id} className="flex items-center gap-2 border-t border-sand-line px-4 py-3 first:border-t-0">
+                {escala.map((e, i) => (
+                  <motion.li key={e.id} {...entradaLinha(i)} className="flex items-center gap-2 border-t border-sand-line px-4 py-3 transition-colors first:border-t-0 hover:bg-sand-subtle/60">
                     <GripVertical size={14} className="text-ink/30" />
                     <Badge tone="neutral">#{e.posicao}</Badge>
-                    <span className="flex-1 text-sm text-ink">{e.users?.nome ?? "—"}</span>
+                    <span className={cn("flex-1 text-sm", e.users?.ativo === false ? "text-ink/40 line-through" : "text-ink")}>{e.users?.nome ?? "—"}</span>
+                    {e.users?.ativo === false && (
+                      <Badge tone="warning" title="Usuário inativo: é pulado no rodízio. Remova da lista se não for voltar.">Inativo</Badge>
+                    )}
                     <button onClick={() => remover(e.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-rust-500/10 hover:text-rust-500">
                       <Trash2 size={15} />
                     </button>
-                  </li>
+                  </motion.li>
                 ))}
               </ul>
             )}
@@ -149,7 +157,7 @@ export default function AdminEscalas() {
           <div className="mt-3 flex gap-2">
             <select value={novoUsuario} onChange={(e) => setNovoUsuario(e.target.value)} className="h-10 flex-1 rounded-lg border border-sand-line bg-sand-surface px-3 text-sm">
               <option value="">Selecione um colaborador...</option>
-              {(usuarios ?? []).map((u) => (
+              {(usuarios ?? []).filter((u) => u.ativo).map((u) => (
                 <option key={u.id} value={u.id}>{u.nome}</option>
               ))}
             </select>
@@ -158,15 +166,15 @@ export default function AdminEscalas() {
         </div>
 
         <div>
-          <h2 className="mb-3 font-display text-sm font-semibold text-ink">Próximos sábados</h2>
+          <SecaoHead titulo="Próximos sábados" className="mb-3" />
           <Card className="divide-y divide-sand-line">
-            {(escaladosPorSabado ?? []).map(({ data, atendente }) => (
-              <div key={data.toISOString()} className="flex items-center justify-between px-4 py-3">
+            {(escaladosPorSabado ?? []).map(({ data, atendente }, i) => (
+              <motion.div key={data.toISOString()} {...entradaLinha(i)} className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-sand-subtle/60">
                 <span className="text-sm text-ink/70">
                   {data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })}
                 </span>
                 <Badge tone={atendente ? "success" : "neutral"}>{atendente?.nome ?? "Sem escala definida"}</Badge>
-              </div>
+              </motion.div>
             ))}
             {(!escaladosPorSabado || escaladosPorSabado.length === 0) && (
               <p className="p-4 text-sm text-ink/50">Adicione atendentes à sequência para ver a projeção.</p>

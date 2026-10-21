@@ -1,4 +1,5 @@
 import { Hourglass, Leaf } from "lucide-react";
+import { motion } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -8,7 +9,13 @@ export default function AguardandoAprovacao() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-sand-bg px-4">
-      <Card className="w-full max-w-sm p-6 text-center shadow-float">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: "easeOut" }}
+        className="w-full max-w-sm"
+      >
+      <Card className="w-full p-6 text-center shadow-float">
         <div className="mx-auto mb-4 flex h-9 w-9 items-center justify-center rounded-lg bg-forest-500 text-white">
           <Leaf size={18} />
         </div>
@@ -27,6 +34,7 @@ export default function AguardandoAprovacao() {
           Sair
         </Button>
       </Card>
+      </motion.div>
     </div>
   );
 }

@@ -1,7 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Download } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/Card";
+import { motion } from "framer-motion";
+import { Download, Star, MessageCircle, PhoneCall, MessagesSquare, Clock, Target, Users, PencilLine } from "lucide-react";
+import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
+import { PainelCard } from "@/components/ui/PainelCard";
+import { CABECALHO_TABELA, LINHA_TABELA, entradaLinha } from "@/components/ui/Tabela";
+import { cn } from "@/lib/utils";
 import { Kpi } from "@/components/ui/Kpi";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -30,17 +34,19 @@ import {
   fetchTempoRespostaBot,
   fetchBacklogPorIdade,
   fetchNpsResponses,
+  fetchSatisfacaoSemanal,
   fetchMigracoesResumo,
   fetchMigracoesPorPlataforma,
   fetchAtendimentosComMetricas,
   type AtendentePerformanceRow,
 } from "@/services/api";
-import { formatDuration } from "@/lib/formatDuration";
+import { formatDurationHoras } from "@/lib/formatDuration";
 // exportResultadosSacToPptx é
 // sempre importados dinamicamente (`await import(...)`) dentro do próprio
 // clique — pptxgenjs só baixa quando alguém de fato exporta, não no
 // bundle inicial da página (ver PR#11, "lazy loading de rotas").
-import { manualDataVazia, periodoVazio, type ResultadosSacData, type ManualData, type NpsResumo } from "@/lib/resultadosSac";
+import { manualDataVazia, periodoVazio, resumirNps, type ResultadosSacData, type ManualData } from "@/lib/resultadosSac";
+import { janelaSemanal } from "@/lib/satisfacaoSemanal";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { RelatorioResultadosSac } from "@/components/RelatorioResultadosSac";
 
@@ -58,15 +64,6 @@ function limitesPersonalizado(periodoId: string) {
 function media(vals: (number | null)[]) {
   const validos = vals.filter((v): v is number => v !== null);
   return validos.length ? validos.reduce((a, b) => a + b, 0) / validos.length : null;
-}
-
-function resumirNps(respostas: { classificacao: "Promotor" | "Neutro" | "Detrator" }[]): NpsResumo {
-  return {
-    total: respostas.length,
-    promotores: respostas.filter((r) => r.classificacao === "Promotor").length,
-    neutros: respostas.filter((r) => r.classificacao === "Neutro").length,
-    detratores: respostas.filter((r) => r.classificacao === "Detrator").length,
-  };
 }
 
 function toISODate(d: Date) {
@@ -436,6 +433,14 @@ export default function ReuniaoResultados() {
     retry: 1,
   });
   const npsResumoAtual = useMemo(() => (npsRespostasAtual ? resumirNps(npsRespostasAtual) : null), [npsRespostasAtual]);
+  // CSAT de produtores × NPS nas últimas 8 semanas até o fim do período (slide "Satisfação semana a semana").
+  const janelaSatisfacao = useMemo(() => janelaSemanal(fimPeriodo), [fimPeriodo]);
+  const { data: satisfacaoSemanal } = useQuery({
+    queryKey: ["satisfacao-semanal", "Produtor", janelaSatisfacao.inicio.toISOString(), janelaSatisfacao.fim.toISOString()],
+    queryFn: () => fetchSatisfacaoSemanal(janelaSatisfacao.inicio, janelaSatisfacao.fim, "Produtor"),
+    enabled: estagio1Habilitado,
+    retry: 1,
+  });
 
   // "SAC — Migrações" deixou de ser manual em 2026-09-23 — sincronizado via
   // n8n a partir da Centralização (gestao-tickets) pra `migracoes_sync` no
@@ -770,6 +775,12 @@ export default function ReuniaoResultados() {
 
   const [mostrarRelatorio, setMostrarRelatorio] = useState(false);
   const [exportandoPptx, setExportandoPptx] = useState(false);
+  // Pré-carrega o chunk do pptxgenjs (~430 kB) assim que a pré-visualização abre:
+  // sem isso o download acontecia só no clique de "Exportar PPTX" e era a maior
+  // parte da espera. Falha aqui é ignorada — o clique tenta o import de novo.
+  useEffect(() => {
+    if (mostrarRelatorio) import("@/lib/exportPptx").catch(() => {});
+  }, [mostrarRelatorio]);
   // Tema do PPTX escolhido na pré-visualização; fica lembrado neste navegador.
   const [temaPptx, setTemaPptx] = usePersistedState<"escuro" | "claro">("rr:temaPptx", "escuro");
 
@@ -823,11 +834,13 @@ export default function ReuniaoResultados() {
         resolvidasApos24h: resolvidasApos24hAnterior ?? [],
       },
       csatPorAtendente: perfAtual ?? [],
+      csatPorAtendenteAnterior: semBaseAnterior ? [] : perfAnterior ?? [],
       csatPorAtendenteDist: csatPorAtendenteDist ?? [],
       csatEnvios: csatEnvios ?? [],
       topTfrProdutor: topTfrProdutorAtual?.rows ?? [],
       topTfrFinal: topTfrFinalAtual?.rows ?? [],
       backlog: backlogAtual ?? [],
+      satisfacaoSemanal: satisfacaoSemanal ?? [],
       manual: dadosManuais,
     }),
     [
@@ -867,7 +880,9 @@ export default function ReuniaoResultados() {
       migracoesAnterior,
       migracoesPorPlataformaAtual,
       perfAtual,
+      perfAnterior,
       backlogAtual,
+      satisfacaoSemanal,
       dadosManuais,
       csatFunilAtual,
       csatFunilAnterior,
@@ -886,19 +901,18 @@ export default function ReuniaoResultados() {
           tabela de Detalhamento e o formulário em branco ANTES do
           relatório, porque `position:fixed` vira `static` no print e só
           flui como mais um bloco da página em vez de cobri-la). */}
-      <div className="space-y-8 print:hidden">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-display text-ink">
-            Reunião de Resultados
-          </h1>
-          <p className="mt-1 text-sm text-ink/60">
+      <div className="space-y-6 print:hidden">
+      <CabecalhoPagina
+        titulo="Reunião de Resultados"
+        subtitulo={
+          <>
             Selecione a granularidade e o período — aplica em toda a página. CSAT, atendimentos e
             detalhamento por atendente são calculados automaticamente{" "}
             {isAdmin ? "a partir do resultado de todo o time" : "a partir dos seus registros"} no banco.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+          </>
+        }
+        acoes={
+        <>
           <SegmentedControl
             options={[["mensal", "Mensal"], ["semanal", "Semanal"], ["personalizado", "Personalizado"]] as const}
             value={granularidade}
@@ -926,7 +940,7 @@ export default function ReuniaoResultados() {
             onChange={(e) => {
               setPeriodo(e.target.value);
             }}
-            className="h-10 rounded-xl border border-sand-line bg-sand-surface px-3 text-sm"
+            className="h-9 cursor-pointer rounded-xl border border-sand-line bg-sand-surface px-3 text-[13px] font-medium text-ink/70 shadow-card outline-none transition hover:border-sand-line-strong focus-visible:ring-2 focus-visible:ring-forest-500/40"
           >
             {periodos.map((p) => (
               <option key={p.id} value={p.id}>
@@ -945,16 +959,17 @@ export default function ReuniaoResultados() {
               {mostrarDadosManuais ? "Fechar dados manuais" : "Dados manuais (RA, NPS...)"}
             </Button>
           )}
-        </div>
-      </div>
+        </>
+        }
+      />
 
       {isAdmin && mostrarDadosManuais && (
-        <Card>
-          <CardContent className="space-y-6 py-5">
-            <p className="text-sm text-ink-soft">
-              Preenchido aqui uma vez, fica salvo pras próximas exportações — só precisa mudar o que
-              mudou na semana. Campo vazio aparece como "—" no PDF/PPTX, nunca é inventado.
-            </p>
+        <PainelCard
+          icone={PencilLine}
+          titulo="Dados manuais"
+          subtitulo='Preenchido aqui uma vez, fica salvo pras próximas exportações — só precisa mudar o que mudou na semana. Campo vazio aparece como "—" no PDF/PPTX, nunca é inventado.'
+        >
+          <div className="space-y-6">
 
             <div>
               <h3 className="mb-2 text-sm font-semibold text-ink">Reclame Aqui</h3>
@@ -981,12 +996,14 @@ export default function ReuniaoResultados() {
               </h3>
               <CampoManualArea label="Temas mais abordados" value={dadosManuais.nps.temas} onChange={(v) => setDadosManuais((d) => ({ ...d, nps: { ...d.nps, temas: v } }))} placeholder="[Checkout] Cliente relata demora de 6 a 10s no Pix/cartão..." />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </PainelCard>
       )}
 
       <div className={isAdmin ? "grid gap-4 sm:grid-cols-2 lg:grid-cols-4" : "grid gap-4 sm:grid-cols-3"}>
         <Kpi
+          indice={0}
+          icon={Star}
           label={isAdmin ? "CSAT do time" : "CSAT do período"}
           value={carregandoPrincipais ? "..." : csatValor.toFixed(1)}
           delta={csatDeltaValor}
@@ -994,11 +1011,15 @@ export default function ReuniaoResultados() {
         {isAdmin ? (
           <>
             <Kpi
+              indice={1}
+              icon={MessageCircle}
               label="Total de conversas"
               value={carregandoPrincipais ? "..." : String(conversasValor)}
               delta={conversasDeltaValor}
             />
             <Kpi
+              indice={2}
+              icon={PhoneCall}
               label="Total de chamados"
               value={carregandoPrincipais ? "..." : String(chamadosValor)}
               delta={chamadosDeltaValor}
@@ -1006,14 +1027,18 @@ export default function ReuniaoResultados() {
           </>
         ) : (
           <Kpi
+            indice={1}
+            icon={MessagesSquare}
             label="Atendimentos avaliados"
             value={carregandoPrincipais ? "..." : String(conversasValor)}
             delta={conversasDeltaValor}
           />
         )}
         <Kpi
+          indice={3}
+          icon={Clock}
           label="Tempo médio de resolução"
-          value={(isAdmin ? loadingTeamSummary : loadingConversas) ? "..." : formatDuration(tempoResolucaoSeg)}
+          value={(isAdmin ? loadingTeamSummary : loadingConversas) ? "..." : formatDurationHoras(tempoResolucaoSeg)}
           delta={tempoResolucaoDelta}
           invertDeltaColor
         />
@@ -1025,31 +1050,25 @@ export default function ReuniaoResultados() {
         </p>
       )}
 
-      <Card className="p-5">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-sm font-semibold text-ink">
-            Resultado da meta do período
-          </h2>
+      <PainelCard
+        icone={Target}
+        titulo="Resultado da meta do período"
+        acao={
           <Badge tone={csatValor >= 4.5 ? "success" : "danger"}>
             {csatValor >= 4.5 ? "Meta batida (CSAT ≥ 4.5)" : "Meta não atingida"}
           </Badge>
-        </div>
+        }
+      >
         {tempoResolucaoSeg === null && !carregandoPrincipais && (
-          <p className="mt-2 text-xs text-ink/50">
+          <p className="text-xs text-ink/50">
             Sem conversas com resolução registrada neste período em <code>crisp_conversations</code>.
           </p>
         )}
-      </Card>
+      </PainelCard>
 
       {isAdmin && (
-        <Card>
-          <div className="p-5 pb-0">
-            <h2 className="font-display text-sm font-semibold text-ink">Detalhamento por atendente</h2>
-            <p className="mt-1 text-xs text-ink/50">
-              Chamados e avaliações de cada atendente, comparado com o período anterior.
-            </p>
-          </div>
-          <div className="p-5">
+        <PainelCard icone={Users} titulo="Detalhamento por atendente" subtitulo="Chamados e avaliações de cada atendente, comparado com o período anterior.">
+          <div>
             {loadingPerfAtual ? (
               <p className="text-sm text-ink/50">Carregando...</p>
             ) : perfComparativo.length === 0 ? (
@@ -1057,19 +1076,19 @@ export default function ReuniaoResultados() {
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="text-left text-xs uppercase tracking-wide text-ink/50">
+                  <thead className={cn("text-left", CABECALHO_TABELA)}>
                     <tr>
-                      <th className="py-2 pr-4 font-medium">Atendente</th>
-                      <th className="py-2 pr-4 font-medium">Chamados</th>
-                      <th className="py-2 pr-4 font-medium">Avaliações</th>
-                      <th className="py-2 pr-4 font-medium">CSAT médio</th>
+                      <th className="px-3 py-2.5 font-semibold">Atendente</th>
+                      <th className="px-3 py-2.5 font-semibold">Chamados</th>
+                      <th className="px-3 py-2.5 font-semibold">Avaliações</th>
+                      <th className="px-3 py-2.5 font-semibold">CSAT médio</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(detalhamentoCompleto ? perfComparativo : perfComparativo.slice(0, 3)).map((r) => (
-                      <tr key={r.operator_nome} className="border-t border-sand-line">
-                        <td className="py-2 pr-4 font-medium text-ink">{r.operator_nome}</td>
-                        <td className="py-2 pr-4 text-ink/70">
+                    {(detalhamentoCompleto ? perfComparativo : perfComparativo.slice(0, 3)).map((r, i) => (
+                      <motion.tr key={r.operator_nome} {...entradaLinha(i)} className={LINHA_TABELA}>
+                        <td className="px-3 py-2.5 font-medium text-ink">{r.operator_nome}</td>
+                        <td className="px-3 py-2.5 tabular-nums text-ink/70">
                           {r.total_atendimentos}
                           {r.deltaChamados !== undefined && (
                             <span className={r.deltaChamados >= 0 ? "ml-1 text-xs text-forest-600" : "ml-1 text-xs text-rust-500"}>
@@ -1077,7 +1096,7 @@ export default function ReuniaoResultados() {
                             </span>
                           )}
                         </td>
-                        <td className="py-2 pr-4 text-ink/70">
+                        <td className="px-3 py-2.5 tabular-nums text-ink/70">
                           {r.total_avaliacoes}
                           {r.deltaAvaliacoes !== undefined && (
                             <span className={r.deltaAvaliacoes >= 0 ? "ml-1 text-xs text-forest-600" : "ml-1 text-xs text-rust-500"}>
@@ -1085,8 +1104,8 @@ export default function ReuniaoResultados() {
                             </span>
                           )}
                         </td>
-                        <td className="py-2 pr-4 text-ink/70">{r.csat_medio?.toFixed(1) ?? "—"}</td>
-                      </tr>
+                        <td className="px-3 py-2.5 tabular-nums text-ink/70">{r.csat_medio?.toFixed(1) ?? "—"}</td>
+                      </motion.tr>
                     ))}
                   </tbody>
                 </table>
@@ -1102,7 +1121,7 @@ export default function ReuniaoResultados() {
               </div>
             )}
           </div>
-        </Card>
+        </PainelCard>
       )}
 
       </div>

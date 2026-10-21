@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 import { Plus, Pencil, Trash2, Search, FileText } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +11,8 @@ import { Badge } from "@/components/ui/Badge";
 import { Dialog } from "@/components/ui/Dialog";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { CABECALHO_TABELA, LINHA_TABELA, entradaLinha } from "@/components/ui/Tabela";
+import { cn } from "@/lib/utils";
 import { fetchAllDocumentation, upsertDocumentation, deleteDocumentation } from "@/services/api";
 import type { DbDocumentation } from "@/types/database";
 
@@ -80,12 +83,12 @@ export default function AdminDocumentacao() {
       ) : (
         <Card className="overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-sand-bg text-left text-xs uppercase tracking-wide text-ink/50">
+            <thead className={cn("text-left", CABECALHO_TABELA)}>
               <tr><th className="px-4 py-3 font-medium">Documento</th><th className="px-4 py-3 font-medium">Categoria</th><th className="px-4 py-3 font-medium">Ordem</th><th className="px-4 py-3 font-medium">Status</th><th className="px-4 py-3 font-medium text-right">Ações</th></tr>
             </thead>
             <tbody>
-              {filtrados.map((d) => (
-                <tr key={d.id} className="border-t border-sand-line">
+              {filtrados.map((d, i) => (
+                <motion.tr key={d.id} {...entradaLinha(i)} className={LINHA_TABELA}>
                   <td className="px-4 py-3"><p className="font-medium text-ink">{d.titulo}</p><p className="text-xs text-ink/50">{d.descricao}</p></td>
                   <td className="px-4 py-3 text-ink/70">{d.categoria}</td>
                   <td className="px-4 py-3 text-ink/70">{d.ordem}</td>
@@ -96,7 +99,7 @@ export default function AdminDocumentacao() {
                       <button onClick={() => remover(d.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-rust-500/10 hover:text-rust-500"><Trash2 size={15} /></button>
                     </div>
                   </td>
-                </tr>
+                </motion.tr>
               ))}
             </tbody>
           </table>

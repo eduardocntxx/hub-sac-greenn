@@ -4,7 +4,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Target } from "lucide-react";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
+import { PainelCard } from "@/components/ui/PainelCard";
+import { SecaoHead } from "@/components/ui/SecaoHead";
 import { Button } from "@/components/ui/Button";
 import { fetchSlaConfigPadrao, upsertSlaConfigPadrao } from "@/services/api";
 
@@ -54,23 +55,17 @@ export default function AdminMetas() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-display text-ink">Metas</h1>
-        <p className="mt-1 text-sm text-ink/60">
-          Metas usadas pro cálculo de SLA no Overview (Velocidade) e no CSAT — hoje uma regra única, vale pra todos os
-          canais e motivos.
-        </p>
-      </div>
+      <SecaoHead
+        titulo="Metas"
+        subtitulo="Metas usadas pro cálculo de SLA no Overview (Velocidade) e no CSAT — hoje uma regra única, vale pra todos os canais e motivos."
+      />
 
-      <Card className="max-w-xl">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Target size={16} className="text-forest-600" />
-            <CardTitle>Metas de atendimento</CardTitle>
-          </div>
-          <CardDescription>Chamados dentro desses valores contam como "SLA cumprido" nos indicadores.</CardDescription>
-        </CardHeader>
-        <CardContent>
+      <PainelCard
+        className="max-w-xl"
+        icone={Target}
+        titulo="Metas de atendimento"
+        subtitulo='Chamados dentro desses valores contam como "SLA cumprido" nos indicadores.'
+      >
           {isLoading ? (
             <p className="text-sm text-ink/50">Carregando...</p>
           ) : !config ? (
@@ -134,8 +129,7 @@ export default function AdminMetas() {
               </Button>
             </form>
           )}
-        </CardContent>
-      </Card>
+      </PainelCard>
     </div>
   );
 }
