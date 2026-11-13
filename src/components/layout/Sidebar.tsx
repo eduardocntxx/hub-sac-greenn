@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard,
   TrendingUp,
+  HandCoins,
   Target,
   ClipboardList,
   GraduationCap,
@@ -32,6 +33,7 @@ const sacItems = [
   { to: "/missoes", label: "Missões", icon: Target },
   { to: "/reuniao-resultados", label: "Reunião de Resultados", icon: ClipboardList },
   { to: "/performance", label: "Overview", icon: TrendingUp },
+  { to: "/suporte-estrategico", label: "Suporte Estratégico", icon: HandCoins },
   { to: "/cursos", label: "Cursos", icon: GraduationCap },
   { to: "/documentacao", label: "Documentação", icon: BookOpen },
   { to: "/atualizacoes", label: "Atualizações", icon: Megaphone },

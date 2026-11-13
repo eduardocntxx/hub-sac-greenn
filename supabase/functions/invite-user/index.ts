@@ -36,14 +36,15 @@ Deno.serve(async (req: Request) => {
 
     const { data: callerProfile, error: profileError } = await adminClient
       .from("users")
-      .select("id, roles(nome)")
+      .select("id, ativo, roles(nome)")
       .eq("auth_id", authData.user.id)
       .single();
 
     const rolesData = callerProfile?.roles as { nome?: string } | { nome?: string }[] | null;
     const roleName = Array.isArray(rolesData) ? rolesData[0]?.nome : rolesData?.nome;
 
-    if (profileError || roleName !== "Administrador") {
+    // Mesma regra do is_admin() no banco: admin desativado não é admin.
+    if (profileError || !callerProfile?.ativo || roleName !== "Administrador") {
       return json({ error: "Apenas administradores podem convidar usuários." }, 403);
     }
 

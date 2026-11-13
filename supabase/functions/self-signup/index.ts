@@ -68,13 +68,23 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Perfil padrão (Colaborador) não encontrado." }, 500);
     }
 
-    const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
-      email,
-      password: senha,
-      email_confirm: true,
+    // Cadastro pelo fluxo normal do Auth (não admin.createUser com email_confirm): a conta só entra
+    // depois que a pessoa clica no link enviado pro e-mail, o que prova que ela é dona dele. Antes
+    // (até 22/10/2026) a conta nascia confirmada e qualquer um podia se cadastrar com o e-mail de um
+    // colega. O link volta pra Site URL do projeto.
+    const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      auth: { persistSession: false },
     });
+    const { data: authData, error: authError } = await anonClient.auth.signUp({ email, password: senha });
     if (authError || !authData?.user) {
       return json({ error: authError?.message ?? "Não foi possível criar a conta." }, 400);
+    }
+    // Sem identities = o e-mail já existe no Auth (o Supabase devolve um usuário falso em vez de erro).
+    if (!authData.user.identities?.length) {
+      return json(
+        { error: "Já existe uma conta com este e-mail. Use 'Entrar com Google' ou contate um administrador." },
+        409
+      );
     }
 
     const { data: novoUsuario, error: insertError } = await adminClient

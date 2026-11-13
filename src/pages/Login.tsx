@@ -69,6 +69,10 @@ export default function Login() {
     try {
       await login(email, password);
     } catch (err) {
+      if ((err as { code?: string }).code === "email_not_confirmed") {
+        setLoginError("Confirme seu e-mail pelo link que enviamos antes de entrar.");
+        return;
+      }
       setLoginError(err instanceof Error ? err.message : "Não foi possível entrar.");
     } finally {
       setSubmitting(false);
@@ -266,11 +270,11 @@ export default function Login() {
                   <Check size={26} />
                 </div>
                 <div>
-                  <p className="font-medium text-ink">Conta criada!</p>
+                  <p className="font-medium text-ink">Confirme seu e-mail</p>
                   <p className="mt-1 text-sm text-ink/60">
-                    Um administrador do Hub precisa revisar seu acesso antes de você
-                    poder usar a plataforma. Você já pode fazer login, mas vai ver uma
-                    tela de espera até ser aprovado.
+                    Enviamos um link de confirmação para o seu e-mail. Depois de
+                    confirmar, um administrador do Hub ainda precisa aprovar seu
+                    acesso: até lá, você vê uma tela de espera ao entrar.
                   </p>
                 </div>
                 <Button variant="secondary" className="w-full" onClick={() => setAba("entrar")}>

@@ -160,7 +160,8 @@ vai para o schema `arquivo` (fora da API, sem acesso de `anon`/`authenticated`),
    `supabase.auth.signInWithPassword`. Desde 2026-08-31 (ver `docs/HISTORICO.md`)
    também existe autocadastro público (aba "Criar conta", restrito a
    `@greenn.com.br`, validado no servidor pela Edge Function
-   `self-signup`), "esqueci minha senha"
+   `self-signup`; desde 2026-10-22 a conta só entra depois do link de
+   confirmação por e-mail, então depende de SMTP — ver seção 10), "esqueci minha senha"
    (`resetPasswordForEmail` → reaproveita `/definir-senha`) e login via
    Google (`signInWithOAuth`, precisa do provider habilitado no painel
    do Supabase — configuração externa pendente do usuário). Contas
@@ -174,7 +175,9 @@ vai para o schema `arquivo` (fora da API, sem acesso de `anon`/`authenticated`),
    false`, sem acesso a nada além da tela "Aguardando aprovação" até um
    admin aprovar em Administração → Usuários. Trigger
    `prevent_self_privilege_escalation` impede um usuário não-admin de
-   mudar a própria coluna `aprovado`/`role_id`/`auth_id` via API direta.
+   mudar a própria coluna `aprovado`/`role_id`/`auth_id`/`email`/`ativo` via
+   API direta (`email` porque o CSAT é ligado por e-mail; desde 2026-10-22).
+   Só age com usuário logado: service_role, CLI e SQL editor não são travados.
 
 ## 6. Sistema de permissões (RBAC)
 
@@ -182,6 +185,9 @@ Dois níveis, compostos:
 
 **Nível 1 — Perfil (role)**: `Administrador` tem acesso irrestrito a tudo
 (front e banco, via `is_admin()` no Postgres). `Colaborador` é o padrão.
+Desde 2026-10-22 `is_admin()` exige `ativo` e `has_permission()` exige
+`ativo` e `aprovado`: desativar no Hub corta o acesso mesmo com o login
+do Auth ainda existindo.
 Perfis são administráveis em **Administração → Perfis**
 (`AdminPerfis.tsx` + `upsertRole`/`fetchRoles`), mas o front só trata dois
 valores especiais: qualquer `roles.nome !== "Administrador"` cai em
@@ -400,8 +406,9 @@ conversas (avaliadas ou não).
   `notificationSound.ts` e atualiza o contador do sino no Header). A
   tabela precisa estar na publicação `supabase_realtime` no Postgres para
   o canal funcionar — isso é configurado no banco, não no frontend.
-- **Storage**: bucket `tool-images` (leitura pública, escrita só admin),
-  usado por `uploadToolImage()` para imagens de "Outros Links".
+- **Storage**: bucket `tool-images` (leitura pública, escrita só admin, só
+  imagem até 5 MB), usado por `uploadToolImage()` para imagens de "Outros
+  Links". `avatars` não é usado e não aceita escrita (2026-10-22).
 - **Nenhuma migration está neste repositório** — mudanças de schema são
   aplicadas diretamente no projeto Supabase. Ver risco na seção 20.
 
@@ -610,9 +617,14 @@ conversas (avaliadas ou não).
 - "Atendido e não resolvido" usa como dono quem mandou a última mensagem,
   não o último roteamento (não alterado).
 - FCR com 0 recontato na semana 17–23/09 é suspeito.
-- Auth: signup direto não valida domínio, `aprovado` não está no RLS, sem
-  SMTP próprio (limite de 2 e-mails/h). Desde 2026-09-30, `site_url` =
-  `https://hub-sac-greenn.vercel.app` e a senha mínima do servidor é 8.
+- Auth: `/auth/v1/signup` direto não valida domínio (a conta fica sem linha
+  em `users` e não lê nada; desligar o signup bloquearia o Google também).
+  Sem SMTP próprio (2 e-mails/h; o SMTP padrão pode só entregar a membros da
+  organização), e desde 2026-10-22 o autocadastro depende do e-mail de
+  confirmação. Sem MFA, CAPTCHA nem alerta. `site_url` =
+  `https://hub-sac-greenn.vercel.app`, senha mínima 8.
+- Repositório GitHub público (2026-10-22): `CLAUDE.md`/`docs/` descrevem a
+  segurança e têm alguns e-mails de cliente. Decisão do usuário.
 - E-mail sem `tipo_cliente` (2026-10-08): a Crisp tem o segmento (`final` nos e-mails recentes), mas o fluxo
   principal grava o tipo só no `message:send` e pode sobrescrever por `null`; o fluxo "Sincronizar tipo_cliente e
   status" (06:30, 3 dias) corrige depois e já reconhece `final`. E-mail de 09/09–05/10 só tem o segmento `email`
@@ -756,6 +768,8 @@ CSAT etc.) em `docs/HISTORICO.md`.
   já corrigido nas tabelas de calendário (`docs/HISTORICO.md`, 2026-09-01) e em
   `missions`/`reclame_aqui_cases`/`helpdesks` (anteriormente).
 - **Função nova de métrica sobre conversas**: sempre `and not public.cliente_e_teste(cc.cliente_nome, cc.cliente_email) and not public.operador_fora_sac(cc.operator_crisp_id)` na base (`docs/HISTORICO.md`, 2026-09-24).
+- **Policy de "própria linha"** (por `user_id` ou e-mail) em tabela com dado de cliente: `and (select public.usuario_aprovado())` no ramo (`docs/HISTORICO.md`, 2026-10-22).
+- **Headers/CSP no `vercel.json`**: origem externa nova (API, fonte, script, imagem fora de `https:`) precisa entrar na CSP, senão é bloqueada em produção; nada de `<script>` inline no `index.html` (o tema está em `public/tema.js`).
 - **Tabela nova / RPC nova**: policy de SELECT usa `(select public.usuario_aprovado())`, nunca `using (true)`; função `security definer` nova checa `usuario_aprovado()`/`pode_ver_overview()`/`is_admin()` ou fica sem execute pra `authenticated` (`docs/HISTORICO.md`, 2026-09-25).
 - **`crisp_conversations.canal` para WhatsApp é sempre o URN cru
   `urn:crisp.im:whatsapp:0`, nunca `"WhatsApp"`** (só `csat_results.canal`
@@ -962,6 +976,7 @@ CSAT etc.) em `docs/HISTORICO.md`.
 | Reclame Aqui | `/reclame-aqui` | Permissão granular `reclame_aqui` ou admin |
 | NPS | `/nps` | Permissão granular `nps` ou admin |
 | Overview (ex-Performance) | `/performance` | Todo colaborador ativo e aprovado vê a aba Dashboard (indicadores de saúde, "Precisa de atenção", sub-abas Pessoas/Velocidade/Qualidade/Volume); abas Atendimentos e IA genérica, pop-ups e listas de conversas são admin-only. Desde 2026-10-16 tem também o que só existia na Reunião (`overview/SecoesReuniao.tsx`): NPS e CSAT × NPS em Qualidade (admin ou permissão `nps`), maiores TFR em Velocidade (admin) e Migrações em Volume (todos). Reclame Aqui não entra: na RR é digitado à mão e fica só no navegador de quem digitou. `/analytics` redireciona pra cá (página Analytics excluída em 2026-09-24); `/em-risco` foi removida em 2026-08-31 |
+| Suporte Estratégico | `/suporte-estrategico` | Todo colaborador ativo e aprovado (`pode_ver_overview()` na função `taxa_oferta`). Desde 2026-11-12: taxa de oferta do playbook do Felipe (meta 80%) por pessoa e por ferramenta, a partir das tags `oferta`/`oferta-*` do Crisp gravadas em `crisp_conversations.segmentos` pelo "Crisp → Hub" ao resolver a conversa. Pessoa = quem resolveu (`resolved_operator_*`); conversas sem `segmentos` (resolvidas antes de 12/11 ~11:15) ficam fora da taxa. SQL em `supabase/sql/2026-11-12_segmentos_oferta.sql` e `2026-11-12_taxa_oferta.sql`. Taxa de ativação e ticket dos ativados dependem de dev/BI |
 | Administração (Usuários, Perfis, Permissões, Escalas, Metas, Cursos, Documentação, Atualizações, Outros Links) | `/admin/*` | Admin-only estrito |
 
 

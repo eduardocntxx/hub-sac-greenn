@@ -16,17 +16,8 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <script>
-      // Aplica o tema antes do primeiro paint, pra não piscar claro→escuro
-      // no load. Mantido em sincronia com src/hooks/useTheme.ts.
-      (function () {
-        try {
-          var salvo = localStorage.getItem("hub-sac:tema");
-          var escuro = salvo ? salvo === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
-          if (escuro) document.documentElement.classList.add("dark");
-        } catch (e) {}
-      })();
-    </script>
+    <!-- Tema antes do primeiro paint (ver public/tema.js). Script bloqueante de propósito. -->
+    <script src="/tema.js"></script>
   </head>
   <body class="bg-sand-bg text-ink font-body antialiased">
     <div id="root"></div>

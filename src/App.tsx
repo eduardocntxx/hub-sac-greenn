@@ -22,6 +22,7 @@ const Csat = lazyWithRetry(() => import("@/pages/Csat"));
 const ReclameAqui = lazyWithRetry(() => import("@/pages/ReclameAqui"));
 const Nps = lazyWithRetry(() => import("@/pages/Nps"));
 const Performance = lazyWithRetry(() => import("@/pages/Performance"));
+const SuporteEstrategico = lazyWithRetry(() => import("@/pages/SuporteEstrategico"));
 const Helpdesks = lazyWithRetry(() => import("@/pages/Helpdesks"));
 const Calendario = lazyWithRetry(() => import("@/pages/Calendario"));
 const Missoes = lazyWithRetry(() => import("@/pages/Missoes"));
@@ -80,6 +81,7 @@ export default function App() {
                 {/* Analytics excluído em 2026-09-24; o Overview (aberto a todos) substitui. */}
                 <Route path="analytics" element={<Navigate to="/performance" replace />} />
                 <Route path="performance" element={<Performance />} />
+                <Route path="suporte-estrategico" element={<SuporteEstrategico />} />
                 <Route path="reuniao-resultados" element={<ReuniaoResultados />} />
                 <Route path="cursos" element={<Cursos />} />
                 <Route path="documentacao" element={<Documentacao />} />
