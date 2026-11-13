@@ -6418,3 +6418,48 @@ sem mexer nas chamadas; `EmptyState` ganhou o chip do Overview.
 - Verificado: `tsc -b` e `npm run build`. As telas não foram abertas logadas no navegador nesta sessão (sem sessão no
   ambiente): conferir no preview da Vercel do PR, inclusive no modo escuro.
 - A sessão de 20/10 parou no limite de uso no meio da Administração; o resto foi feito em 21/10.
+
+### Varredura de segurança e correções (2026-10-22)
+
+Pedido do usuário: auditoria completa (checklist de 40 itens de apps Supabase) e correção do que fosse encontrado.
+Varredura só leitura: banco pela CLI (`db query --linked`; os dois MCPs do Supabase recusaram acesso), bundle e headers
+do site em produção, chamadas sem login à API, código. Base boa: RLS em todas as tabelas do `public`; sem login a API
+devolve `[]`/401; nenhuma view sem `security_invoker`; nenhuma função executável por `anon`; só a chave `anon` no
+bundle; nenhum SQL dinâmico.
+
+Achados e correções (SQL em `supabase/sql/2026-10-22_*`, cada um com rollback ao lado; testados em bloco `do` que
+termina em exceção, nada persiste):
+- **CSAT de outro atendente pelo autocadastro (crítico).** O `self-signup` criava a conta já confirmada
+  (`email_confirm: true`) sem provar posse do e-mail, e a policy de `csat_results` liberava `email_atendente = e-mail
+  da conta` sem olhar `aprovado`. Quem cadastrasse o e-mail de um dos 5 atendentes `@greenn.com.br` sem conta no Hub
+  lia as avaliações dele (nome/telefone/e-mail do cliente), sem aprovação. Teste: conta pendente 175 → 0 linhas;
+  colaborador aprovado e admin 1073 → 1073. Correção: ramo "própria linha" das policies de `csat_results` e
+  `crisp_conversations` exige `usuario_aprovado()` (`csat_proprio_so_aprovado.sql`); `self-signup` passou a usar
+  `auth.signUp` (a conta só entra depois do link de confirmação; decisão do usuário entre isso, "só Google e convite"
+  e manter). Depende de e-mail: sem SMTP próprio são 2/h e o SMTP padrão pode só entregar a membros da organização.
+  Login mostra "Confirme seu e-mail..." para `email_not_confirmed`.
+- **Colaborador editava o próprio `email` e `ativo`** (gatilho travava só `aprovado`/`role_id`/`auth_id`): trocando o
+  e-mail para o de um atendente sem conta, lia o CSAT dele (7 e-mails, 522 avaliações); desativado se reativava.
+  **`is_admin()`/`has_permission()` ignoravam `ativo`.** Correção (`usuario_inativo_e_proprio_cadastro.sql`): gatilho
+  trava também `email`/`ativo` e só age com usuário logado (`auth.uid()` preenchido; antes desfazia em silêncio SQL
+  manual de `postgres`); `is_admin()` exige `ativo`, `has_permission()` exige `ativo` e `aprovado`. Teste: as 4
+  brechas fecham; colaborador e admin ativos iguais; admin segue editando e-mail de outro usuário. `invite-user`
+  também passou a exigir `ativo` de quem convida.
+- **Storage** (`storage_limites.sql`): `tool-images` só imagem até 5 MB; `avatars` (vazio, sem uso no front) perdeu
+  as policies de escrita — qualquer conta logada, inclusive criada direto em `/auth/v1/signup` com qualquer domínio,
+  enviava arquivo de qualquer tipo/tamanho, público.
+- **Headers** (`vercel.json`): CSP (`script-src 'self'`, `connect-src` só o Supabase do projeto, `frame-ancestors
+  'none'`), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`. O script de tema saiu do
+  `index.html` para `public/tema.js` (CSP sem inline). Testado com o build servido com os mesmos headers no Chrome
+  headless: login renderiza, nenhuma violação. Telas logadas não testadas (sem sessão no ambiente).
+- `npm audit fix` (sem `--force`): corrigiu `dompurify`. Restam `image-size` (via `pptxgenjs`, DoS com imagem
+  forjada; só processamos imagens nossas) e `react-router` (open redirect; o Hub não navega para URL do usuário),
+  ambos exigem versão major.
+
+Não corrigido (decisão/configuração fora do código): repositório GitHub **público** (docs são um mapa de segurança e
+têm alguns e-mails de cliente); `/auth/v1/signup` aberto a qualquer domínio (desligar bloqueia o cadastro via Google
+também; a conta criada assim não tem linha em `users` e não lê nada); sem SMTP próprio, MFA, CAPTCHA, alerta;
+configuração de Auth (rate limit, expiração de sessão, senha vazada) não lida — precisa do painel. Não recomendado:
+criptografar coluna de PII (quebra métricas e o n8n) e dividir as policies `FOR ALL` (todas exigem admin/permissão).
+
+Aplicação: o modo automático bloqueou escrever em produção; SQL e deploy das funções ficaram para o usuário rodar.

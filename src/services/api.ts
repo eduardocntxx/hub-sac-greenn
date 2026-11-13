@@ -134,8 +134,9 @@ export interface SignUpInput {
 }
 
 // Autocadastro público (domínio @greenn.com.br, validado no servidor pela
-// própria Edge Function) — conta nasce com aprovado=false, sem acesso ao
-// Hub até um admin aprovar em Administração → Usuários.
+// própria Edge Function) — conta só entra depois de confirmar o e-mail pelo
+// link enviado, e nasce com aprovado=false, sem acesso ao Hub até um admin
+// aprovar em Administração → Usuários.
 export async function signUpUser(input: SignUpInput): Promise<DbUser> {
   const { user } = await invokeFunction<{ user: DbUser }>("self-signup", input);
   return user;
@@ -2452,4 +2453,29 @@ export async function fetchMinhasConversasMetricas(inicio: Date, fim: Date): Pro
   });
   if (error) throw error;
   return (data ?? []) as MinhaConversaMetrica[];
+}
+
+// Taxa de oferta do Suporte Estratégico (playbook do Felipe, 2026-11-12): uma linha por atendente, contando conversas
+// de produtor resolvidas no período. atendimentos/com_oferta só contam conversas com segmentos gravados;
+// sem_segmentos = resolvidas antes da captura (12/11 ~11:15). Ver supabase/sql/2026-11-12_taxa_oferta.sql.
+export interface TaxaOfertaRow {
+  atendente: string;
+  atendimentos: number;
+  com_oferta: number;
+  sem_segmentos: number;
+  orderbump: number;
+  upsell: number;
+  checkout: number;
+  vitrine: number;
+  closer: number;
+  vision: number;
+}
+
+export async function fetchTaxaOferta(inicio: Date, fim: Date): Promise<TaxaOfertaRow[]> {
+  const { data, error } = await client().rpc("taxa_oferta", {
+    data_inicio: inicio.toISOString(),
+    data_fim: fim.toISOString(),
+  });
+  if (error) throw error;
+  return (data ?? []) as TaxaOfertaRow[];
 }
