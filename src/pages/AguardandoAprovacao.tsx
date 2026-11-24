@@ -20,7 +20,14 @@ export default function AguardandoAprovacao() {
           <Leaf size={18} />
         </div>
         <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400">
-          <Hourglass size={26} />
+          {/* Ampulheta virando num ritmo calmo enquanto espera. */}
+          <motion.span
+            className="flex"
+            animate={{ rotate: [0, 0, 180, 180] }}
+            transition={{ duration: 3.2, times: [0, 0.7, 0.85, 1], repeat: Infinity, ease: "easeInOut" }}
+          >
+            <Hourglass size={26} />
+          </motion.span>
         </div>
         <h1 className="font-display text-base font-semibold text-ink">
           Sua conta ainda não foi aprovada

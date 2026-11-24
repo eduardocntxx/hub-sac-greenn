@@ -72,9 +72,10 @@ export function MapaCalorVolume({ grid, max }: { grid: Map<string, number>; max:
                     // CSS no quadrado de dentro, pra não herdar o atraso da onda.
                     <motion.div
                       key={h}
-                      initial={{ opacity: 0, scale: 0.6 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.3, ease: "easeOut", delay: (linha + h) * 0.012 }}
+                      // Cada célula acende com um brilho e assenta com mola, em onda diagonal.
+                      initial={{ opacity: 0, scale: 0.4, filter: "brightness(1.8)" }}
+                      animate={{ opacity: 1, scale: 1, filter: "brightness(1)", transitionEnd: { filter: "none" } }}
+                      transition={{ type: "spring", stiffness: 260, damping: 16, delay: (linha + h) * 0.018, opacity: { duration: 0.2, delay: (linha + h) * 0.018 }, filter: { duration: 0.5, delay: (linha + h) * 0.018 } }}
                       onMouseEnter={() => setAtiva({ dow, h })}
                       className="relative h-8 hover:z-10"
                     >

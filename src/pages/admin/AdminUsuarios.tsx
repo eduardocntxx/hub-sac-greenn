@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type BaseSyntheticEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -15,6 +15,7 @@ import { CABECALHO_TABELA, LINHA_TABELA, entradaLinha } from "@/components/ui/Ta
 import { cn } from "@/lib/utils";
 import { fetchUsers, fetchRoles, upsertUser, approveUser, deleteUser, inviteUser } from "@/services/api";
 import type { DbUser } from "@/types/database";
+import { aprovado, tremerInvalidos, salvoNoBotao, excluirItem } from "@/lib/efeitos";
 
 const userSchema = z.object({
   nome: z.string().min(2, "Informe o nome completo"),
@@ -85,7 +86,7 @@ export default function AdminUsuarios() {
     setDialogAberto(true);
   }
 
-  async function onSubmit(data: UserForm) {
+  async function onSubmit(data: UserForm, evento?: BaseSyntheticEvent) {
     setSalvando(true);
     setErro(null);
     try {
@@ -95,6 +96,7 @@ export default function AdminUsuarios() {
         await inviteUser(data);
       }
       await queryClient.invalidateQueries({ queryKey: ["users"] });
+      await salvoNoBotao(evento);
       setDialogAberto(false);
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível salvar.");
@@ -103,18 +105,20 @@ export default function AdminUsuarios() {
     }
   }
 
-  async function remover(id: string) {
+  async function remover(id: string, item?: HTMLElement | null) {
     try {
-      await deleteUser(id);
+      await deleteUser(id); if (item) await excluirItem(item);
       await queryClient.invalidateQueries({ queryKey: ["users"] });
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível remover.");
     }
   }
 
-  async function aprovar(id: string) {
+  async function aprovar(id: string, linha?: HTMLElement | null) {
     try {
       await approveUser(id);
+      // Cadastro aprovado: selo verde com check, brilho e confete na linha.
+      if (linha) void aprovado(linha);
       await queryClient.invalidateQueries({ queryKey: ["users"] });
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível aprovar.");
@@ -204,7 +208,7 @@ export default function AdminUsuarios() {
                     <div className="flex justify-end gap-1">
                       {!u.aprovado && (
                         <button
-                          onClick={() => aprovar(u.id)}
+                          onClick={(e) => aprovar(u.id, e.currentTarget.closest("tr"))}
                           title="Aprovar acesso"
                           className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-forest-500/10 hover:text-forest-600"
                         >
@@ -218,7 +222,7 @@ export default function AdminUsuarios() {
                         <Pencil size={15} />
                       </button>
                       <button
-                        onClick={() => remover(u.id)}
+                        onClick={(e) => remover(u.id, e.currentTarget.closest<HTMLElement>("tr, [data-ui='card']"))}
                         className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-rust-500/10 hover:text-rust-500"
                       >
                         <Trash2 size={15} />
@@ -242,7 +246,7 @@ export default function AdminUsuarios() {
                 ? "Isso atualiza o registro em public.users."
                 : "A pessoa recebe um e-mail de convite automático pra definir a própria senha — o acesso já é criado e vinculado sozinho."}
             </p>
-            <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-3">
+            <form onSubmit={handleSubmit(onSubmit, tremerInvalidos)} className="mt-4 space-y-3">
               <div>
                 <label className="mb-1 block text-xs font-medium text-ink/70">Nome</label>
                 <input

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type BaseSyntheticEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -8,6 +8,7 @@ import { PainelCard } from "@/components/ui/PainelCard";
 import { SecaoHead } from "@/components/ui/SecaoHead";
 import { Button } from "@/components/ui/Button";
 import { fetchSlaConfigPadrao, upsertSlaConfigPadrao } from "@/services/api";
+import { tremerInvalidos, salvoNoBotao } from "@/lib/efeitos";
 
 const metasSchema = z.object({
   meta_primeira_resposta_min: z.coerce.number().min(1, "Informe um valor maior que zero"),
@@ -40,13 +41,14 @@ export default function AdminMetas() {
     }
   }, [config, reset]);
 
-  async function onSubmit(data: MetasForm) {
+  async function onSubmit(data: MetasForm, evento?: BaseSyntheticEvent) {
     if (!config) return;
     setErro(null);
     setSalvo(false);
     try {
       await upsertSlaConfigPadrao(config.id, data);
       await queryClient.invalidateQueries({ queryKey: ["sla-config-padrao"] });
+      await salvoNoBotao(evento);
       setSalvo(true);
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível salvar as metas.");
@@ -72,7 +74,7 @@ export default function AdminMetas() {
             <p className="text-sm text-rust-500">Nenhuma regra de meta encontrada em sla_config.</p>
           ) : (
             <form
-              onSubmit={handleSubmit(onSubmit)}
+              onSubmit={handleSubmit(onSubmit, tremerInvalidos)}
               className="space-y-4"
               onChange={() => {
                 setSalvo(false);

@@ -14,7 +14,7 @@
     --color-ink: 27 33 36;
     --color-ink-soft: 102 109 109;
     --color-ink-tertiary: 153 158 157;
-    --color-sand-bg: 240 242 245;
+    --color-sand-bg: 237 242 241;
     --color-sand-surface: 255 255 255;
     --color-sand-subtle: 240 242 245;
     --color-sand-line: 229 231 231;
@@ -88,7 +88,82 @@
     animation: shimmer 1.8s ease-in-out infinite;
   }
 
+  /* Pop-up aberto (Dialog marca body[data-dialogo]): a tela de trás recua e desfoca. */
+  #conteudo-tela {
+    transform-origin: 50% 30vh;
+    transition:
+      transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
+      filter 0.6s;
+  }
+  body[data-dialogo] #conteudo-tela {
+    transform: perspective(1200px) translateZ(-40px);
+    filter: blur(1px) saturate(0.9);
+  }
+
+  /* Botão afunda no clique e volta com mola. */
+  .botao-fundo {
+    transition:
+      background-color 0.2s,
+      box-shadow 0.2s,
+      transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1.6);
+  }
+  .botao-fundo:active {
+    transform: perspective(400px) translateZ(-26px);
+    transition-duration: 0.2s, 0.2s, 0.08s;
+  }
+
+  /* Menu lateral: cada ícone tem um gesto próprio ao passar o mouse (vindo da Central). */
+  a:hover .gesto-pulo {
+    animation: gesto-pulo 480ms ease-out;
+  }
+  a:hover .gesto-gira {
+    animation: gesto-gira 620ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  a:hover .gesto-balanca {
+    transform-origin: 50% 15%;
+    animation: gesto-balanca 600ms ease-out;
+  }
+  a:hover .gesto-amassa {
+    animation: gesto-amassa 460ms ease-out;
+  }
+  a:hover .gesto-anda {
+    animation: gesto-anda 520ms ease-out;
+  }
+  a:hover .gesto-cresce {
+    animation: gesto-cresce 420ms ease-out;
+  }
+  @keyframes gesto-pulo {
+    40% { transform: translateY(-4px) scale(1.12); }
+    70% { transform: translateY(1px) scale(0.96, 1.04); }
+  }
+  @keyframes gesto-gira {
+    to { transform: perspective(120px) rotateY(360deg); }
+  }
+  @keyframes gesto-balanca {
+    25% { transform: rotate(16deg); }
+    50% { transform: rotate(-12deg); }
+    75% { transform: rotate(6deg); }
+  }
+  @keyframes gesto-amassa {
+    35% { transform: translateY(-3px) scale(1.06, 0.94); }
+    65% { transform: translateY(1px) scale(0.96, 1.04); }
+  }
+  @keyframes gesto-anda {
+    35% { transform: translateX(4px) rotate(-5deg); }
+    70% { transform: translateX(-2px); }
+  }
+  @keyframes gesto-cresce {
+    50% { transform: scale(1.22) rotate(-6deg); }
+  }
+
   @media (prefers-reduced-motion: reduce) {
+    a:hover :is(.gesto-pulo, .gesto-gira, .gesto-balanca, .gesto-amassa, .gesto-anda, .gesto-cresce) {
+      animation: none;
+    }
+    body[data-dialogo] #conteudo-tela,
+    .botao-fundo:active {
+      transform: none;
+    }
     .animate-shimmer {
       animation: none;
     }

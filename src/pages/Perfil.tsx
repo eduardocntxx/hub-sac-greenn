@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type BaseSyntheticEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,6 +13,7 @@ import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
 import { PainelCard } from "@/components/ui/PainelCard";
 import { Entrada } from "@/components/ui/Entrada";
 import { fetchMyHorario, updateMyHorario, updateOwnProfile } from "@/services/api";
+import { tremerInvalidos, salvoNoBotao } from "@/lib/efeitos";
 
 const perfilSchema = z.object({
   nome: z.string().min(1, "Nome é obrigatório"),
@@ -53,13 +54,14 @@ export default function Perfil() {
     setEditandoPerfil(true);
   }
 
-  async function salvarPerfil(dados: PerfilForm) {
+  async function salvarPerfil(dados: PerfilForm, evento?: BaseSyntheticEvent) {
     if (!user) return;
     setSalvandoPerfil(true);
     setErroPerfil(null);
     try {
       await updateOwnProfile(user.id, dados);
       await refreshUser();
+      await salvoNoBotao(evento);
       setEditandoPerfil(false);
     } catch (err) {
       setErroPerfil(err instanceof Error ? err.message : "Não foi possível salvar o perfil.");
@@ -109,7 +111,7 @@ export default function Perfil() {
       <Card>
         <CardContent>
           {editandoPerfil ? (
-            <form onSubmit={handleSubmitPerfil(salvarPerfil)} className="space-y-3">
+            <form onSubmit={handleSubmitPerfil(salvarPerfil, tremerInvalidos)} className="space-y-3">
               <div>
                 <label className="mb-1 block text-xs font-medium text-ink/70">Nome</label>
                 <input

@@ -4,13 +4,15 @@ import { Card } from "@/components/ui/Card";
 import { Entrada } from "@/components/ui/Entrada";
 import { BarraAnimada } from "@/components/ui/BarraAnimada";
 import { NumeroAnimado } from "@/components/ui/NumeroAnimado";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/utils";
 import type { DeltaInfo } from "@/lib/resultadosSac";
 
 // Indicador do visual do Overview, usado em toda a plataforma: ícone no chip,
-// rótulo, número grande (contando até o valor), selo de variação, barra de
+// rótulo, número grande (rolando até o valor), selo de variação, barra de
 // proporção opcional e contexto. Tudo em cor sólida do tema, com par `dark:`
-// nos tons de destaque.
+// nos tons de destaque. Marca forte (2026-11-23): o primeiro de cada fileira
+// (`indice={0}`) vem cheio de verde.
 
 export type Tom = "marca" | "bom" | "atencao" | "ruim";
 
@@ -42,13 +44,20 @@ export function ChipIcone({ icone: Icone, tom = "marca", className }: { icone: L
 }
 
 // Variação num selo (verde = melhorou, vermelho = piorou, cinza = estável).
-export function SeloDelta({ delta }: { delta?: DeltaInfo }) {
-  if (!delta) return <span className="text-xs text-ink/40">sem comparação</span>;
+export function SeloDelta({ delta, sobreVerde = false }: { delta?: DeltaInfo; sobreVerde?: boolean }) {
+  if (!delta) return <span className={cn("text-xs", sobreVerde ? "text-white/60" : "text-ink/40")}>sem comparação</span>;
   return (
     <span
       className={cn(
         "inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[11.5px] font-semibold tabular-nums",
-        delta.bom === null
+        // No card cheio de verde o selo fica branco, mas o texto mantém a cor do resultado.
+        sobreVerde
+          ? delta.bom === null
+            ? "bg-white/15 text-white"
+            : delta.bom
+              ? "bg-white text-forest-700"
+              : "bg-white text-rust-600"
+          : delta.bom === null
           ? "bg-sand-subtle text-ink/50"
           : delta.bom
             ? "bg-forest-500/10 text-forest-700 dark:text-forest-300"
@@ -71,7 +80,7 @@ export function Indicador({
   delta,
   semComparacao = false,
   contexto,
-  indice = 0,
+  indice,
   onClick,
   dica,
   className,
@@ -95,10 +104,18 @@ export function Indicador({
   dica?: string;
   className?: string;
 }) {
+  // Carregando ("..."): esqueleto com brilho no lugar das reticências.
+  const carregando = valor === "..." || valor === "…";
+  const destaque = indice === 0;
   return (
-    <Entrada indice={indice} elevar className="h-full">
+    <Entrada indice={indice ?? 0} elevar className="h-full">
       <Card
-        className={cn("group flex h-full flex-col gap-2 p-4", onClick && "cursor-pointer hover:ring-1 hover:ring-forest-500/40", className)}
+        className={cn(
+          "group flex h-full flex-col gap-2 p-4",
+          destaque && "border-transparent bg-forest-600 text-white shadow-destaque dark:border-transparent dark:bg-forest-600",
+          onClick && "cursor-pointer hover:ring-1 hover:ring-forest-500/40",
+          className
+        )}
         onClick={onClick}
         onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
         role={onClick ? "button" : undefined}
@@ -106,23 +123,25 @@ export function Indicador({
         title={dica}
       >
         <div className="flex items-center gap-2.5">
-          {icone && <ChipIcone icone={icone} tom={tom} className="transition-transform duration-200 group-hover:scale-110" />}
-          <span className="min-w-0 flex-1 text-[11px] font-semibold uppercase tracking-wide text-ink/50">{label}</span>
-          {onClick && <ArrowUpRight size={13} className="shrink-0 text-ink/40 transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />}
+          {icone && <ChipIcone icone={icone} tom={tom} className={cn("h-9 w-9 transition-transform duration-200 group-hover:scale-110", destaque && "bg-white/15 text-white dark:text-white")} />}
+          <span className={cn("min-w-0 flex-1 text-[12.5px] font-semibold", destaque ? "text-white/80" : "text-ink/60")}>{label}</span>
+          {onClick && <ArrowUpRight size={13} className={cn("shrink-0 transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5", destaque ? "text-white/60" : "text-ink/40")} />}
         </div>
         <div className="flex items-baseline gap-1.5">
-          <span className={cn("font-display text-[28px] font-bold leading-none tracking-tight tabular-nums", valorClassName ?? VALOR[tom])}>
-            <NumeroAnimado texto={valor} />
+          <span className={cn("font-display text-[33px] font-bold leading-none tracking-[-0.025em] tabular-nums", destaque ? "text-white" : valorClassName ?? VALOR[tom])}>
+            {carregando ? <Skeleton className={cn("h-7 w-24 rounded-md", destaque && "bg-white/15")} /> : <NumeroAnimado texto={valor} />}
           </span>
-          {meta && <span className="text-[11px] text-ink/40">/ {meta}</span>}
+          {meta && <span className={cn("text-[11px]", destaque ? "text-white/60" : "text-ink/40")}>/ {meta}</span>}
         </div>
         {barra != null && (
-          <span className="h-1.5 overflow-hidden rounded-full bg-sand-subtle">
-            <BarraAnimada className={cn("rounded-full", BARRA_TOM[tom])} largura={barra} atraso={Math.min(indice, 10) * 0.06 + 0.1} />
+          <span className={cn("h-1.5 overflow-hidden rounded-full", destaque ? "bg-white/20" : "bg-sand-subtle")}>
+            <BarraAnimada className={cn("rounded-full", destaque ? "bg-white" : BARRA_TOM[tom])} largura={barra} atraso={Math.min(indice ?? 0, 10) * 0.06 + 0.1} />
           </span>
         )}
-        {delta ? <SeloDelta delta={delta} /> : semComparacao ? <SeloDelta /> : null}
-        {contexto && <div className="text-xs leading-snug text-ink/50">{contexto}</div>}
+        {delta ? <SeloDelta delta={delta} sobreVerde={destaque} /> : semComparacao ? <SeloDelta sobreVerde={destaque} /> : null}
+        {contexto && (
+          <div className={cn("text-xs leading-snug", destaque ? "text-white/65 [&_*]:!text-white/65" : "text-ink/50")}>{contexto}</div>
+        )}
       </Card>
     </Entrada>
   );
@@ -132,7 +151,7 @@ export function Indicador({
 export function MetricaTile({ icone: Icone, label, valor, apoio, title, children }: { icone: LucideIcon; label: string; valor: string; apoio?: ReactNode; title?: string; children?: ReactNode }) {
   return (
     <div className="rounded-xl bg-sand-subtle/70 p-3" title={title}>
-      <p className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-ink/50">
+      <p className="flex items-center gap-1.5 text-[12px] font-semibold text-ink/60">
         <Icone size={13} className="shrink-0 text-forest-600 dark:text-forest-300" />
         {label}
       </p>

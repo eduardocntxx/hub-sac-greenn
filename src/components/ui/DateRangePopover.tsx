@@ -4,6 +4,7 @@ import { CalendarDays, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { PERIODO_LABELS, resolvePeriodo, type PeriodoPreset } from "@/lib/dateRanges";
 import { buildMonthGrid, toISODate, MESES, DIAS_SEMANA_CURTO } from "@/lib/calendarUtils";
 import { cn } from "@/lib/utils";
+import { ANIMACAO_MENU } from "@/components/ui/menu3d";
 
 interface DateRangePopoverProps {
   preset: PeriodoPreset;
@@ -86,10 +87,8 @@ export function DateRangePopover({
       <AnimatePresence>
       {aberto && (
         <motion.div
-          initial={{ opacity: 0, y: -4, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: -4, scale: 0.98 }}
-          transition={{ duration: 0.15, ease: "easeOut" }}
+          {...ANIMACAO_MENU}
+          data-cascata-area
           className={cn(
             "absolute right-0 top-full z-20 mt-1.5 origin-top-right overflow-hidden rounded-xl border border-sand-line bg-sand-surface p-1.5 shadow-float",
             preset === "personalizado" ? "w-72" : "w-56"
@@ -98,6 +97,7 @@ export function DateRangePopover({
           {(Object.entries(PERIODO_LABELS) as [PeriodoPreset, string][]).map(([valor, label]) => (
             <button
               key={valor}
+              data-cascata
               onClick={() => {
                 onChangePreset(valor);
                 if (valor !== "personalizado") setAberto(false);

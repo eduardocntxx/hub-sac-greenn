@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 // Tabelas no visual do Overview: cabeçalho cinza em caixa alta, linha que
 // destaca no hover e linhas entrando em sequência (`motion.tr {...entradaLinha(i)}`).
 export const CABECALHO_TABELA = "bg-sand-subtle text-[11px] uppercase tracking-wide text-ink/50";
-export const LINHA_TABELA = "border-t border-sand-line transition-colors hover:bg-sand-subtle/60";
+export const LINHA_TABELA = "border-t border-sand-line transition-colors hover:bg-forest-500/[0.05]";
 
 // Depois da 10ª linha, todas entram juntas (lista longa não fica esperando).
 export const entradaLinha = (i: number) =>

@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MotionConfig, motion } from "framer-motion";
-import { AlertTriangle, ArrowRightLeft, Bot, CircleCheck, Clock, ExternalLink, Download, Handshake, Hourglass, Inbox, LayoutGrid, Layers, ListChecks, Percent, PhoneCall, Repeat, RotateCcw, Search, Send, SlidersHorizontal, Star, StarOff, Tag, ThumbsDown, ThumbsUp, Timer, Trophy, Users, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowRightLeft, ArrowUp, Bot, CircleCheck, Clock, ExternalLink, Download, Handshake, Hourglass, Inbox, LayoutGrid, Layers, ListChecks, Percent, PhoneCall, Repeat, RotateCcw, Search, Send, SlidersHorizontal, Star, StarOff, Tag, ThumbsDown, ThumbsUp, Timer, Trophy, Users, X, Zap } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -85,6 +85,8 @@ import { MigracoesPainel, NpsPainel, TopTfrPainel } from "@/pages/overview/Secoe
 import { formatDuration, formatDurationHoras } from "@/lib/formatDuration";
 import { cn, nomesCurtosDisambiguados } from "@/lib/utils";
 import { DateRangePopover } from "@/components/ui/DateRangePopover";
+import { PAINEL_TITULO, TituloPagina } from "@/components/ui/CabecalhoPagina";
+import { useAnimacaoAba } from "@/components/ui/abaLivro";
 import { exportAtendimentosToCsv } from "@/lib/exportCsv";
 
 // Valores reais de crisp_conversations.status são "pending"/"resolved" (só
@@ -203,6 +205,7 @@ export default function Performance() {
   // "fluxo" é o nome antigo da aba "volume": quem já tinha ele salvo no localStorage cai em "volume".
   const [subAbaSalva, setSubAba] = usePersistedState<"pessoas" | "velocidade" | "qualidade" | "volume" | "fluxo">("overview:subAba", "pessoas");
   const subAba = subAbaSalva === "fluxo" ? "volume" : subAbaSalva;
+  const animacaoSubAba = useAnimacaoAba(subAba, ["pessoas", "velocidade", "qualidade", "volume"]);
   const [posseDetalheSoAbertos, setPosseDetalheSoAbertos] = useState(false);
   const [ruinsAberto, setRuinsAberto] = useState(false);
   const [csatDetalhe, setCsatDetalhe] = useState<DbCsatResult | null>(null);
@@ -587,6 +590,27 @@ export default function Performance() {
     });
     return copia;
   }, [rankingHumano, rankingOrdenarPor, rankingDirecao]);
+  // Reordenou o ranking: quem subiu ganha setinha verde e quem desceu, vermelha (some sozinha).
+  const chaveRanking = `${rankingOrdenarPor ?? ""}-${rankingDirecao}`;
+  const posicoesAntes = useRef(new Map<string, number>());
+  const ultimaChaveRanking = useRef(chaveRanking);
+  const [mudouPosicao, setMudouPosicao] = useState(new Map<string, number>());
+  useEffect(() => {
+    const agora = new Map((rankingOrdenado ?? []).map((r, i) => [r.operator_email ?? r.operator_nome, i]));
+    const reordenou = ultimaChaveRanking.current !== chaveRanking;
+    ultimaChaveRanking.current = chaveRanking;
+    const antes = posicoesAntes.current;
+    posicoesAntes.current = agora;
+    if (!reordenou) return;
+    const mudancas = new Map<string, number>();
+    agora.forEach((i, k) => {
+      const a = antes.get(k);
+      if (a !== undefined && a !== i) mudancas.set(k, a - i);
+    });
+    setMudouPosicao(mudancas);
+    const t = setTimeout(() => setMudouPosicao(new Map()), 1500);
+    return () => clearTimeout(t);
+  }, [rankingOrdenado, chaveRanking]);
   // Maior volume do ranking: a barrinha de "Chamados" de cada linha é proporcional a ele.
   const maxChamadosRanking = Math.max(1, ...(rankingOrdenado ?? []).map((r) => r.total_atendimentos));
 
@@ -749,10 +773,10 @@ export default function Performance() {
     // telas sem animação.
     <MotionConfig reducedMotion="user">
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className={cn("flex flex-wrap items-start justify-between gap-3", PAINEL_TITULO)}>
         <div>
-          <h1 className="font-display text-display text-ink">Overview</h1>
-          <p className="mt-1 text-sm text-ink/60">
+          <TituloPagina>Overview</TituloPagina>
+          <p className="mt-1 text-sm text-white/65">
             {aba === "ranking"
               ? "Ranking de atendentes com base nas conversas do Crisp."
               : "Lista completa de conversas vindas do Crisp — 1ª resposta considera apenas atendente humano (bot da Crisp é ignorado)."}
@@ -962,9 +986,7 @@ export default function Performance() {
           {subAba === "pessoas" && (
             <motion.div
               key="pessoas"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
+              {...animacaoSubAba}
               className="space-y-8"
             >
             {/* Layout do design Verdee (Claude Design, 2026-09-24): ranking
@@ -1013,6 +1035,8 @@ export default function Performance() {
                             <motion.tr
                               key={r.operator_email ?? r.operator_nome}
                               {...entradaLinha(i)}
+                              // Ao reordenar, cada linha desliza até a posição nova (FLIP).
+                              layout="position"
                               onClick={clicavel ? () => { setPosseDetalheSoAbertos(false); setPosseDetalhe(r.operator_nome); setPosseDetalhePage(0); } : undefined}
                               className={cn(LINHA_TABELA, "text-center", clicavel && "cursor-pointer")}
                             >
@@ -1022,6 +1046,16 @@ export default function Performance() {
                                     {iniciais}
                                   </span>
                                   {r.operator_nome}
+                                  {mudouPosicao.has(r.operator_email ?? r.operator_nome) && (
+                                    <motion.span
+                                      initial={{ y: 8, opacity: 0, scale: 0.5 }}
+                                      animate={{ y: [8, -5, 0], opacity: 1, scale: 1 }}
+                                      transition={{ duration: 0.45, ease: "easeOut", delay: 0.25 }}
+                                      className={(mudouPosicao.get(r.operator_email ?? r.operator_nome) ?? 0) > 0 ? "text-forest-500" : "text-rust-500"}
+                                    >
+                                      {(mudouPosicao.get(r.operator_email ?? r.operator_nome) ?? 0) > 0 ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
+                                    </motion.span>
+                                  )}
                                 </span>
                               </td>
                               <td className="px-4 py-3">
@@ -1108,9 +1142,7 @@ export default function Performance() {
           {subAba === "velocidade" && (
             <motion.div
               key="velocidade"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
+              {...animacaoSubAba}
               className="space-y-8"
             >
             <div>
@@ -1274,9 +1306,7 @@ export default function Performance() {
           {subAba === "qualidade" && (
             <motion.div
               key="qualidade"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
+              {...animacaoSubAba}
               className="space-y-8"
             >
             <div>
@@ -1559,9 +1589,7 @@ export default function Performance() {
           {subAba === "volume" && (
             <motion.div
               key="volume"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
+              {...animacaoSubAba}
               className="space-y-8"
             >
             <div>

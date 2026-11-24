@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Navigate } from "react-router-dom";
+import { marcarEntradaDoLogin } from "@/lib/transicaoAtiva";
 import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -12,6 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { tremerInvalidos, cadeadoAbrindo, tremer } from "@/lib/efeitos";
 
 const DOMINIO_PERMITIDO = "@greenn.com.br";
 
@@ -64,11 +66,17 @@ export default function Login() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    const form = e.currentTarget;
+    const botao = (e.nativeEvent as SubmitEvent).submitter;
     setSubmitting(true);
     setLoginError(null);
     try {
       await login(email, password);
+      // Entrou: o cadeado abre sobre o botão e a primeira tela do app entra mergulhando.
+      if (botao) cadeadoAbrindo(botao);
+      marcarEntradaDoLogin();
     } catch (err) {
+      tremer(form);
       if ((err as { code?: string }).code === "email_not_confirmed") {
         setLoginError("Confirme seu e-mail pelo link que enviamos antes de entrar.");
         return;
@@ -282,7 +290,7 @@ export default function Login() {
                 </Button>
               </div>
             ) : (
-              <form onSubmit={handleSubmitSignUp(onSubmitCadastro)} className="space-y-4">
+              <form onSubmit={handleSubmitSignUp(onSubmitCadastro, tremerInvalidos)} className="space-y-4">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-ink">Nome</label>
                   <input

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { motion } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import { ChipIcone } from "@/components/ui/Indicador";
+import { useEntradaCascata } from "@/components/ui/Entrada";
 import { cn } from "@/lib/utils";
 
 // Card com título do visual do Overview: chip com ícone, título, subtítulo e
@@ -23,12 +24,13 @@ export function PainelCard({
   className?: string;
   children: ReactNode;
 }) {
+  const animacao = useEntradaCascata(indice);
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: "easeOut", delay: Math.min(indice, 10) * 0.06 }}
-      className={cn("flex flex-col gap-3 rounded-2xl bg-sand-surface p-4 shadow-card ring-1 ring-sand-line transition-shadow hover:shadow-card-hover", className)}
+      data-entrada
+      data-ui="card"
+      {...animacao}
+      className={cn("flex flex-col gap-3 rounded-[20px] bg-sand-surface p-4 shadow-card transition-shadow hover:shadow-card-hover dark:ring-1 dark:ring-sand-line", className)}
     >
       <div className="flex items-center gap-2.5">
         {icone && <ChipIcone icone={icone} />}

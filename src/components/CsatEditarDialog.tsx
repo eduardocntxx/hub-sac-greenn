@@ -6,7 +6,8 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { updateCsatResult, fetchDistinctOperadores } from "@/services/api";
 import type { DbCsatResult } from "@/types/database";
-import { useState } from "react";
+import { useState, type BaseSyntheticEvent } from "react";
+import { tremerInvalidos, salvoNoBotao } from "@/lib/efeitos";
 
 const schema = z.object({
   atendente: z.string().min(1, "Obrigatório"),
@@ -73,7 +74,7 @@ export function CsatEditarDialog({ registro: r, onClose, onSalvo }: CsatEditarDi
     if (encontrado?.email_atendente) setValue("email_atendente", encontrado.email_atendente);
   }
 
-  async function onSubmit(values: FormType) {
+  async function onSubmit(values: FormType, evento?: BaseSyntheticEvent) {
     setErro(null);
     try {
       await updateCsatResult(r.id, {
@@ -90,6 +91,7 @@ export function CsatEditarDialog({ registro: r, onClose, onSalvo }: CsatEditarDi
         comentario: values.comentario || null,
         link_chamado: values.link_chamado || null,
       });
+      await salvoNoBotao(evento);
       onSalvo();
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Erro ao salvar.");
@@ -103,7 +105,7 @@ export function CsatEditarDialog({ registro: r, onClose, onSalvo }: CsatEditarDi
         Só metadados de atribuição/classificação — a nota dada pelo cliente não é editável aqui.
       </p>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-3">
+      <form onSubmit={handleSubmit(onSubmit, tremerInvalidos)} className="mt-4 space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-medium uppercase tracking-wide text-ink/40">Atendente</label>

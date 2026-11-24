@@ -9,6 +9,36 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/hooks/usePermissions";
 
+// Busca sem resultado: a lupa olha pros lados e os pontos de interrogação pulam.
+function NadaEncontrado() {
+  return (
+    <div className="flex flex-col items-center gap-2 p-5 text-ink/40">
+      <div className="relative h-10 w-16">
+        <motion.span
+          className="absolute left-1/2 top-1 -ml-3 text-forest-500"
+          animate={{ x: [0, -14, 14, -8, 0], rotate: [0, -18, 18, -8, 0] }}
+          transition={{ duration: 1.6, ease: "easeInOut", repeat: 1 }}
+        >
+          <Search size={24} />
+        </motion.span>
+        {[0, 1, 2].map((i) => (
+          <motion.span
+            key={i}
+            className="absolute top-0 text-xs font-bold text-amber-500"
+            style={{ left: `${12 + i * 18}px` }}
+            initial={{ y: 8, opacity: 0 }}
+            animate={{ y: [8, -10, 0], opacity: [0, 1, 1] }}
+            transition={{ duration: 0.5, delay: 0.5 + i * 0.12, ease: "easeOut" }}
+          >
+            ?
+          </motion.span>
+        ))}
+      </div>
+      <p className="text-sm">Nada encontrado.</p>
+    </div>
+  );
+}
+
 interface Item {
   label: string;
   to: string;
@@ -94,11 +124,11 @@ export function GlobalSearch() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="flex h-9 items-center gap-2 rounded-lg border border-sand-line bg-sand-bg px-3 text-sm text-ink/40 transition-colors hover:border-sand-line-strong hover:text-ink/60"
+        className="flex h-[38px] w-full max-w-[380px] items-center gap-2 rounded-full border border-white/[0.12] bg-white/[0.08] px-4 text-sm text-white/60 transition-colors hover:border-white/25 hover:text-white"
       >
         <Search size={14} />
         <span className="hidden sm:inline">Buscar...</span>
-        <kbd className="ml-1 hidden rounded border border-sand-line-strong bg-sand-surface px-1.5 py-0.5 text-[10px] font-medium text-ink/40 sm:inline">
+        <kbd className="ml-auto hidden rounded border border-white/20 px-1.5 py-0.5 text-[10px] font-medium text-white/50 sm:inline">
           ⌘K
         </kbd>
       </button>
@@ -110,14 +140,16 @@ export function GlobalSearch() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15, ease: "easeOut" }}
-          className="fixed inset-0 z-[100] flex items-start justify-center bg-black/50 pt-[15vh]"
+          className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 pt-[15vh] backdrop-blur-[6px]"
           onClick={() => setOpen(false)}
         >
           <motion.div
-            initial={{ opacity: 0, y: -8, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.98 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
+            // Abre com zoom vindo do botão de busca (canto de cima à esquerda); resultados em cascata.
+            initial={{ opacity: 0, scale: 0.35, x: -320, y: -120, rotateX: -25, transformPerspective: 900 }}
+            animate={{ opacity: 1, scale: 1, x: 0, y: 0, rotateX: 0, transformPerspective: 900, transitionEnd: { transformPerspective: 0 } }}
+            exit={{ opacity: 0, scale: 0.5, x: -300, y: -110, transition: { duration: 0.2 } }}
+            transition={{ type: "spring", stiffness: 220, damping: 22, opacity: { duration: 0.15 } }}
+            data-cascata-area
             className="w-full max-w-lg overflow-hidden rounded-2xl bg-sand-surface shadow-float"
             onClick={(e) => e.stopPropagation()}
           >
@@ -140,13 +172,14 @@ export function GlobalSearch() {
             </div>
             <div className="max-h-80 overflow-y-auto p-2">
               {resultados.length === 0 ? (
-                <p className="p-4 text-center text-sm text-ink/40">Nada encontrado.</p>
+                <NadaEncontrado />
               ) : (
                 resultados.map((item, i) => {
                   const Icon = item.icon;
                   return (
                     <button
                       key={item.to}
+                      data-cascata
                       onClick={() => ir(item.to)}
                       onMouseEnter={() => setSelecionado(i)}
                       className={

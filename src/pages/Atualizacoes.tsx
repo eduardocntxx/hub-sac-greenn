@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Megaphone, Target } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -10,6 +10,7 @@ import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
 import { Entrada } from "@/components/ui/Entrada";
 import { cn } from "@/lib/utils";
 import { fetchAnnouncements } from "@/services/api";
+import { useBrotarNovos } from "@/hooks/useBrotarNovos";
 
 const prioridadeTone = {
   alta: "danger",
@@ -39,6 +40,10 @@ export default function Atualizacoes() {
     return announcements.filter((a) => a.categoria !== "missao");
   }, [announcements, aba]);
 
+  // Comunicado novo chegando em tempo real: o ícone brota (urgente ganha a chama).
+  const lista = useRef<HTMLDivElement>(null);
+  useBrotarNovos(lista, (announcements ?? []).map((a) => a.id));
+
   return (
     <div className="space-y-6">
       <CabecalhoPagina
@@ -60,7 +65,7 @@ export default function Atualizacoes() {
           description="Novos comunicados e missões publicados aparecerão aqui."
         />
       ) : (
-        <div className="relative space-y-0">
+        <div ref={lista} className="relative space-y-0">
           {filtradas.map((a, i) => {
             const isMissao = a.categoria === "missao";
             return (
@@ -69,6 +74,8 @@ export default function Atualizacoes() {
                   <span className="absolute left-[19px] top-10 h-[calc(100%-24px)] w-px bg-sand-line" />
                 )}
                 <div
+                  data-novo-id={a.id}
+                  data-urgente={a.prioridade === "urgente" || a.prioridade === "alta" ? "" : undefined}
                   className={cn(
                     "z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
                     isMissao ? "bg-forest-500/10 text-forest-600 dark:text-forest-300" : "bg-sand-subtle text-ink/50"

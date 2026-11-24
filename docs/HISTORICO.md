@@ -6463,3 +6463,52 @@ configuração de Auth (rate limit, expiração de sessão, senha vazada) não l
 criptografar coluna de PII (quebra métricas e o n8n) e dividir as policies `FOR ALL` (todas exigem admin/permissão).
 
 Aplicação: o modo automático bloqueou escrever em produção; SQL e deploy das funções ficaram para o usuário rodar.
+
+### Visual "Marca forte", menu por assunto e animações da Central (2026-11-23)
+
+Pedido do usuário: fazer todas as animações que o chat da Central de Tickets preparou
+(`~/Downloads/animacoes-para-o-hub/`: LEIA-ME, galeria de 39 cenas e o CSS do "Mergulho 2") e melhorar o visual
+("tô achando feio o Hub"). Fluxo: protótipo no próprio app com barrinha flutuante (3 transições × 3 direções
+visuais); ele escolheu **Marca forte + Mergulho suave**. O protótipo inteiro ficou em
+`~/Downloads/animacoes-para-o-hub/prototipo-hub-2026-11-23/` (fora do repo) e saiu do código.
+
+- **Visual**: menu lateral, cabeçalho e painel do título de cada tela em `forest-800` (`forest-950` no escuro);
+  cards sem borda no claro, com sombra de duas camadas com tinta da marca; primeiro indicador de cada fileira
+  (`indice={0}`) cheio de verde; rótulos sem caixa alta; título 2,25rem/800; seção com barrinha verde; esqueleto
+  verde no lugar de "..."; fundo claro `237 242 241`.
+- **Menu**: agrupado por assunto (Trabalho, Resultados, Conteúdo + Configurações embaixo), no molde da Central e
+  não mais por permissão. Pesquisas (CSAT/NPS/Reclame Aqui) e Materiais (Cursos/Documentação/Outros Links) viraram
+  itens com subitens, que só abrem no grupo atual: 15 → 10 ícones no menu recolhido. Selo no ícone: coroa amarela =
+  só admin, chave = permissão. Marcador do item ativo desliza; cada ícone tem um gesto no hover.
+- **Troca de tela** (`TransicaoTela.tsx`): versão contida do Mergulho 2 (afunda/vem da frente fora do menu, cilindro
+  entre itens do menu, título em paralaxe); subabas do Overview/Admin e mês do Calendário viram como página. Sem
+  `transform`/`filter`/`perspective` depois da troca (o relatório da RR usa `position:fixed`).
+- **Efeitos gerais**: `Dialog` em portal no `body`, a tela de trás recua e desfoca (`body[data-dialogo]`); o painel
+  lateral do Calendário também foi pro portal (abre Dialog com ele aberto). Menus 3D, cascata de cartões
+  (`useCascata`, parada durante a troca de tela), botão que afunda, números rolando, toasts com mola e barra de
+  tempo, busca abrindo do botão com "nada encontrado" animado, tema com sol/lua, sino balançando, logo respirando no
+  carregamento da sessão, ampulheta na tela de espera.
+- **Cenas nas ações**: Missões (arrastar levanta o cartão e acende a coluna; concluir = carimbo + confete; assumir =
+  avatar voando; excluir = pedaços), Helpdesks (enviar = aviãozinho; liberar = carimbo), Admin (excluir = linha varre
+  com poeira; aprovar cadastro = selo + confete; matriz de permissões com `Interruptor`), todos os formulários
+  (campo inválido balança, salvar = check verde, publicar comunicado/pedir folga = aviãozinho), login (cadeado abre e
+  o app entra mergulhando; erro balança o formulário), `BotaoCopiar` novo em Outros Links e Documentação, exportar
+  PPTX em leque, ranking do Overview deslizando ao reordenar com setinhas, mapa de calor em onda, comunicado novo
+  brotando (urgente com chama).
+- Conferido: `tsc --noEmit` e `vite build` ok; Meu Painel, Overview, Missões (pop-up) e Admin → Permissões no
+  navegador, claro e escuro. Não conferido na tela: as cenas que só disparam gravando no banco (concluir, excluir,
+  aprovar, salvar).
+
+**Auditoria do banco no mesmo dia (só leitura, nada aplicado):** 317 MB, `crisp_messages` 189 MB. Candidatos:
+`auditoria_log` (51,9 mil UPDATEs do n8n em conversas, 14 MB, ~1 mil/dia), índices `session_id` repetidos em
+mensagens/estados/roteamento (~10 MB), índices sem uso (~2 MB), `cron.job_run_details` (3 MB). Desempenho
+(`pg_stat_statements` desde 20/08): `atendente_performance` 27,9 mil chamadas e `dashboard_atendimento_summary`
+35,4 mil (~22 h de banco, Overview aberto refazendo a cada 30 s pelo Realtime mesmo com a aba escondida);
+Realtime de `crisp_conversations` 1,7 milhão de consultas (~7,5 h); `csat_results` na publicação sem ninguém
+escutando; cron `reaberturas-reais-5min` ~9 h (média 2,2 s, máx. 50 s). Aguardando decisão do usuário.
+
+**Backlog de ~3 mil (pergunta do usuário):** a conta da função está certa (3.084 abertas após filtros), mas 2.431
+não têm mensagem há 7 dias e ~97% têm a última mensagem do atendente/bot; o último estado gravado é sempre
+"unresolved". Ou estão abertas na Crisp mesmo, ou foram resolvidas lá sem evento pro Hub (ex.: resolução em massa;
+970 paradas desde 07–21/09). Falta comparar com a Crisp (precisa da liberação do usuário pra usar a API pela sessão
+do navegador).

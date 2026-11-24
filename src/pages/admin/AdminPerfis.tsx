@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type BaseSyntheticEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -11,6 +11,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { CardSkeleton } from "@/components/ui/Skeleton";
 import { Entrada } from "@/components/ui/Entrada";
 import { fetchRoles, upsertRole, deleteRole } from "@/services/api";
+import { tremerInvalidos, salvoNoBotao, excluirItem } from "@/lib/efeitos";
 
 const PERFIS_BASE = ["Administrador", "Colaborador"];
 
@@ -41,21 +42,22 @@ export default function AdminPerfis() {
     reset({ nome: r.nome, descricao: r.descricao ?? "" });
     setDialogAberto(true);
   }
-  async function onSubmit(data: FormT) {
+  async function onSubmit(data: FormT, evento?: BaseSyntheticEvent) {
     setSalvando(true); setErro(null);
     try {
       await upsertRole({ ...(editando ? { id: editando.id } : {}), ...data });
       await queryClient.invalidateQueries({ queryKey: ["roles"] });
+      await salvoNoBotao(evento);
       setDialogAberto(false);
     } catch (err) { setErro(err instanceof Error ? err.message : "Não foi possível salvar."); }
     finally { setSalvando(false); }
   }
 
-  async function remover(r: Role) {
+  async function remover(r: Role, item?: HTMLElement | null) {
     if (!confirm(`Excluir o perfil "${r.nome}"? Usuários com esse perfil ficam sem perfil vinculado.`)) return;
     setErro(null);
     try {
-      await deleteRole(r.id);
+      await deleteRole(r.id); if (item) await excluirItem(item);
       await queryClient.invalidateQueries({ queryKey: ["roles"] });
     } catch (err) { setErro(err instanceof Error ? err.message : "Não foi possível excluir."); }
   }
@@ -89,7 +91,7 @@ export default function AdminPerfis() {
                     <Badge tone={r.nome === "Administrador" ? "brand" : "neutral"}>{r.nome}</Badge>
                     <button onClick={() => abrirEdicao(r)} className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-bg hover:text-ink"><Pencil size={14} /></button>
                     {!PERFIS_BASE.includes(r.nome) && (
-                      <button onClick={() => remover(r)} className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-rust-500/10 hover:text-rust-500"><Trash2 size={14} /></button>
+                      <button onClick={(e) => remover(r, e.currentTarget.closest<HTMLElement>("tr, [data-ui='card']"))} className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-rust-500/10 hover:text-rust-500"><Trash2 size={14} /></button>
                     )}
                   </div>
                 </div>
@@ -103,7 +105,7 @@ export default function AdminPerfis() {
       {dialogAberto && (
         <Dialog onClose={() => setDialogAberto(false)}>
             <h2 className="font-display text-base font-semibold text-ink">{editando ? "Editar perfil" : "Novo perfil"}</h2>
-            <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-3">
+            <form onSubmit={handleSubmit(onSubmit, tremerInvalidos)} className="mt-4 space-y-3">
               <div>
                 <label className="mb-1 block text-xs font-medium text-ink/70">Nome</label>
                 <input {...register("nome")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm outline-none focus:border-forest-500" />

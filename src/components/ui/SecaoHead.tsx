@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { ANIMACAO_MENU } from "@/components/ui/menu3d";
 
 // Cabeçalho padrão de seção: título + uma linha de explicação + "?" com a
 // definição (no lugar de textos escondidos em `title`).
@@ -8,7 +9,8 @@ export function SecaoHead({ titulo, subtitulo, ajuda, acao, className }: { titul
   return (
     <div className={cn("mb-3 flex items-start justify-between gap-3", className)}>
       <div>
-        <h2 className="font-display text-[15px] font-bold text-ink">{titulo}</h2>
+        {/* Barrinha verde antes do título: marca da seção (Marca forte). */}
+        <h2 className="font-display text-[17px] font-bold tracking-[-0.01em] text-ink before:mr-2 before:inline-block before:h-3.5 before:w-1 before:rounded-sm before:bg-forest-500 before:align-[-1px] before:content-['']">{titulo}</h2>
         {subtitulo && <p className="mt-0.5 text-[12.5px] text-ink/50">{subtitulo}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -47,10 +49,7 @@ export function Ajuda({ children }: { children: ReactNode }) {
       <AnimatePresence>
         {aberto && (
           <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.98 }}
-            transition={{ duration: 0.15, ease: "easeOut" }}
+            {...ANIMACAO_MENU}
             className="absolute right-0 top-8 z-20 w-72 origin-top-right rounded-xl border border-sand-line-strong bg-sand-surface p-3 text-xs leading-relaxed text-ink/60 shadow-float"
           >
             {children}

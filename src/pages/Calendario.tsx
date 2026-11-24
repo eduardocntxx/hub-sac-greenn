@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { useVirarPagina } from "@/components/ui/abaLivro";
+import { useEffect, useMemo, useState, type BaseSyntheticEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -32,6 +34,7 @@ import {
 } from "@/services/api";
 import type { DbOncall, DbVacation, DbDayEntry, DbLeaveRequest } from "@/services/api";
 import { buildMonthGrid, toISODate, MESES, DIAS_SEMANA_CURTO, formatDiaCompleto } from "@/lib/calendarUtils";
+import { tremerInvalidos, enviadoNoBotao, salvoNoBotao } from "@/lib/efeitos";
 
 const leaveSchema = z.object({
   tipo: z.enum(["folga", "banco_horas", "compensacao", "outro"]),
@@ -88,6 +91,8 @@ export default function Calendario() {
   useEffect(() => setSelecionados(new Set()), [diaSelecionado]);
 
   const grid = useMemo(() => buildMonthGrid(mesRef.getFullYear(), mesRef.getMonth()), [mesRef]);
+  // Trocar de mês: a grade vira como página de calendário.
+  const virarMes = useVirarPagina(mesRef.getFullYear() * 12 + mesRef.getMonth());
   const inicioGrid = toISODate(grid[0][0]);
   const fimGrid = toISODate(grid[grid.length - 1][6]);
 
@@ -180,7 +185,7 @@ export default function Calendario() {
     return "Dia útil liberado para marcação de folga e responsável.";
   }
 
-  async function solicitarFolga(data: LeaveForm) {
+  async function solicitarFolga(data: LeaveForm, evento?: BaseSyntheticEvent) {
     if (!diaSelecionado || !user) return;
     setErro(null);
     try {
@@ -190,6 +195,7 @@ export default function Calendario() {
         await requestLeave({ user_id: user.id, data: toISODate(diaSelecionado), ...data });
       }
       await queryClient.invalidateQueries({ queryKey: ["calendario"] });
+      await enviadoNoBotao(evento);
       setDialogFolga(false);
       setFolgaEditando(null);
     } catch (err) {
@@ -331,7 +337,7 @@ export default function Calendario() {
     formState: { errors: errorsOncall, isSubmitting: enviandoOncall },
   } = useForm<OncallForm>({ resolver: zodResolver(oncallSchema) });
 
-  async function salvarSobreaviso(data: OncallForm) {
+  async function salvarSobreaviso(data: OncallForm, evento?: BaseSyntheticEvent) {
     if (!diaSelecionado || !user) return;
     try {
       if (oncallEditando) {
@@ -340,6 +346,7 @@ export default function Calendario() {
         await createOncall({ data: toISODate(diaSelecionado), ...data, created_by: user.id });
       }
       await queryClient.invalidateQueries({ queryKey: ["calendario"] });
+      await salvoNoBotao(evento);
       setDialogSobreaviso(false);
       setOncallEditando(null);
     } catch (err) {
@@ -470,9 +477,7 @@ export default function Calendario() {
       ) : (
         <motion.div
           key={`${mesRef.getFullYear()}-${mesRef.getMonth()}`}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, ease: "easeOut" }}
+          {...virarMes}
         >
         <Card className="overflow-hidden">
           <div className={cn("grid grid-cols-7 text-center font-semibold", CABECALHO_TABELA)}>
@@ -519,273 +524,277 @@ export default function Calendario() {
         </motion.div>
       )}
 
-      <AnimatePresence>
-      {diaSelecionado && infoSelecionado && (
-        <motion.div
-          key="painel-dia"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-50 flex justify-end bg-black/50"
-          onClick={() => setDiaSelecionado(null)}
-        >
+      {/* Portal no body: o pop-up aberto daqui recua a página (transform), e o painel não pode ir junto. */}
+      {createPortal(
+        <AnimatePresence>
+        {diaSelecionado && infoSelecionado && (
           <motion.div
-            initial={{ x: 40, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 40, opacity: 0 }}
-            transition={{ duration: 0.25, ease: "easeOut" }}
-            className="h-full w-full max-w-md overflow-y-auto bg-sand-surface p-6 shadow-float"
-            onClick={(e) => e.stopPropagation()}
+            key="painel-dia"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 flex justify-end bg-black/50"
+            onClick={() => setDiaSelecionado(null)}
           >
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="font-display text-lg font-semibold text-ink">{formatDiaCompleto(diaSelecionado)}</h2>
-                <p className="mt-1 text-sm text-ink/60">{descricaoDoTipo(infoSelecionado)}</p>
+            <motion.div
+              initial={{ x: 40, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: 40, opacity: 0 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+              className="h-full w-full max-w-md overflow-y-auto bg-sand-surface p-6 shadow-float"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-ink">{formatDiaCompleto(diaSelecionado)}</h2>
+                  <p className="mt-1 text-sm text-ink/60">{descricaoDoTipo(infoSelecionado)}</p>
+                </div>
+                <button onClick={() => setDiaSelecionado(null)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-bg">
+                  <X size={16} />
+                </button>
               </div>
-              <button onClick={() => setDiaSelecionado(null)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-bg">
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className="mt-6 space-y-5">
-              <Card className="p-4">
-                <h3 className="mb-2 flex items-center gap-2 font-display text-sm font-semibold text-ink">
-                  <Users size={14} /> Registro do dia
-                </h3>
-                {infoSelecionado.isSabado && (
-                  <p className="text-sm text-ink/70">
-                    Plantão de sábado:{" "}
-                    <strong className="text-ink">{infoSelecionado.oncallSabado?.usuario?.nome ?? "Não definido"}</strong>
-                    {infoSelecionado.sabadoEhAutomatico && (
-                      <span className="ml-1.5 text-xs text-ink/40">(automático — rodízio)</span>
-                    )}
-                  </p>
-                )}
-
-                {isAdmin && infoSelecionado.isSabado && (
-                  <div className="mt-3">
-                    <label className="mb-1 block text-xs font-medium text-ink/70">
-                      {infoSelecionado.sabadoEhAutomatico ? "Sobrescrever plantão de sábado" : "Definir plantão de sábado"}
-                    </label>
-                    <select
-                      defaultValue=""
-                      onChange={(e) => e.target.value && definirPlantaoSabado(e.target.value)}
-                      className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm"
-                    >
-                      <option value="">Selecionar colaborador...</option>
-                      {usuariosAtivos.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
-                    </select>
-                    {infoSelecionado.manualSabado && (
+  
+              <div className="mt-6 space-y-5">
+                <Card className="p-4">
+                  <h3 className="mb-2 flex items-center gap-2 font-display text-sm font-semibold text-ink">
+                    <Users size={14} /> Registro do dia
+                  </h3>
+                  {infoSelecionado.isSabado && (
+                    <p className="text-sm text-ink/70">
+                      Plantão de sábado:{" "}
+                      <strong className="text-ink">{infoSelecionado.oncallSabado?.usuario?.nome ?? "Não definido"}</strong>
+                      {infoSelecionado.sabadoEhAutomatico && (
+                        <span className="ml-1.5 text-xs text-ink/40">(automático — rodízio)</span>
+                      )}
+                    </p>
+                  )}
+  
+                  {isAdmin && infoSelecionado.isSabado && (
+                    <div className="mt-3">
+                      <label className="mb-1 block text-xs font-medium text-ink/70">
+                        {infoSelecionado.sabadoEhAutomatico ? "Sobrescrever plantão de sábado" : "Definir plantão de sábado"}
+                      </label>
+                      <select
+                        defaultValue=""
+                        onChange={(e) => e.target.value && definirPlantaoSabado(e.target.value)}
+                        className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm"
+                      >
+                        <option value="">Selecionar colaborador...</option>
+                        {usuariosAtivos.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                      </select>
+                      {infoSelecionado.manualSabado && (
+                        <button
+                          type="button"
+                          onClick={() => removerOverrideSabado(infoSelecionado.manualSabado!.id)}
+                          className="mt-1 text-xs text-ink/50 hover:text-ink hover:underline"
+                        >
+                          Voltar para o rodízio automático
+                        </button>
+                      )}
+                    </div>
+                  )}
+  
+                  <div className="mt-4">
+                    <Button size="sm" onClick={() => { setFolgaEditando(null); resetFolga({ tipo: "folga", motivo: "", observacao: "" }); setDialogFolga(true); }}>
+                      <Plus size={13} /> Solicitar Folga
+                    </Button>
+                  </div>
+  
+                  {isAdmin && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => { setOncallEditando(null); resetOncall({ user_id: "", horario_inicio: "", horario_fim: "", observacao: "" }); setDialogSobreaviso(true); }}>
+                        <Clock size={13} /> Adicionar Sobreaviso
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => { setFeriasEditando(null); setDialogFerias(true); }}>
+                        <Palmtree size={13} /> Cadastrar Férias
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => { setLancamentoEditando(null); setDialogLancamento(true); }}>
+                        <Plus size={13} /> Lançamento extra
+                      </Button>
+                    </div>
+                  )}
+  
+                  <div className="mt-4 rounded-lg bg-sand-bg p-3 text-sm">
+                    <span className="text-ink/60">Total do dia</span>
+                    <p className="font-display text-lg font-semibold text-ink">{totalHorasDia(infoSelecionado)}</p>
+                  </div>
+  
+                  {isAdmin && (
+                    <div className="mt-4 border-t border-sand-line pt-3">
                       <button
                         type="button"
-                        onClick={() => removerOverrideSabado(infoSelecionado.manualSabado!.id)}
-                        className="mt-1 text-xs text-ink/50 hover:text-ink hover:underline"
+                        onClick={apagarDia}
+                        className="flex items-center gap-1.5 text-xs text-rust-500 hover:text-rust-600 hover:underline"
                       >
-                        Voltar para o rodízio automático
+                        <Trash2 size={13} /> Limpar dados do dia
                       </button>
+                    </div>
+                  )}
+                </Card>
+  
+                <Card className="p-4">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="flex items-center gap-2 font-display text-sm font-semibold text-ink">
+                      <CalendarDays size={14} /> Eventos do dia
+                    </h3>
+                    {isAdmin && selecionados.size > 0 && (
+                      <Button size="sm" variant="danger" onClick={excluirSelecionados}>
+                        <Trash2 size={13} /> Excluir selecionados ({selecionados.size})
+                      </Button>
                     )}
                   </div>
-                )}
-
-                <div className="mt-4">
-                  <Button size="sm" onClick={() => { setFolgaEditando(null); resetFolga({ tipo: "folga", motivo: "", observacao: "" }); setDialogFolga(true); }}>
-                    <Plus size={13} /> Solicitar Folga
-                  </Button>
-                </div>
-
-                {isAdmin && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button size="sm" variant="secondary" onClick={() => { setOncallEditando(null); resetOncall({ user_id: "", horario_inicio: "", horario_fim: "", observacao: "" }); setDialogSobreaviso(true); }}>
-                      <Clock size={13} /> Adicionar Sobreaviso
-                    </Button>
-                    <Button size="sm" variant="secondary" onClick={() => { setFeriasEditando(null); setDialogFerias(true); }}>
-                      <Palmtree size={13} /> Cadastrar Férias
-                    </Button>
-                    <Button size="sm" variant="secondary" onClick={() => { setLancamentoEditando(null); setDialogLancamento(true); }}>
-                      <Plus size={13} /> Lançamento extra
-                    </Button>
-                  </div>
-                )}
-
-                <div className="mt-4 rounded-lg bg-sand-bg p-3 text-sm">
-                  <span className="text-ink/60">Total do dia</span>
-                  <p className="font-display text-lg font-semibold text-ink">{totalHorasDia(infoSelecionado)}</p>
-                </div>
-
-                {isAdmin && (
-                  <div className="mt-4 border-t border-sand-line pt-3">
-                    <button
-                      type="button"
-                      onClick={apagarDia}
-                      className="flex items-center gap-1.5 text-xs text-rust-500 hover:text-rust-600 hover:underline"
-                    >
-                      <Trash2 size={13} /> Limpar dados do dia
-                    </button>
-                  </div>
-                )}
-              </Card>
-
-              <Card className="p-4">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="flex items-center gap-2 font-display text-sm font-semibold text-ink">
-                    <CalendarDays size={14} /> Eventos do dia
-                  </h3>
-                  {isAdmin && selecionados.size > 0 && (
-                    <Button size="sm" variant="danger" onClick={excluirSelecionados}>
-                      <Trash2 size={13} /> Excluir selecionados ({selecionados.size})
-                    </Button>
+                  {infoSelecionado.sobreavisoDoDia.length === 0
+                    && infoSelecionado.folgasDoDia.length === 0
+                    && infoSelecionado.feriasDoDia.length === 0
+                    && infoSelecionado.lancamentosDoDia.length === 0 ? (
+                    <p className="text-sm text-ink/50">Nenhum evento registrado para este dia.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {infoSelecionado.sobreavisoDoDia.map((s) => (
+                        <li key={s.id} className="flex items-start justify-between gap-2 rounded-lg bg-sand-bg p-2.5 text-sm">
+                          <div className="flex items-start gap-2">
+                            {isAdmin && (
+                              <input
+                                type="checkbox"
+                                checked={selecionados.has(`sobreaviso|${s.id}`)}
+                                onChange={() => toggleSelecionado("sobreaviso", s.id)}
+                                className="mt-1 h-3.5 w-3.5 rounded border-sand-line"
+                              />
+                            )}
+                            <div>
+                            <Badge tone="info">Sobreaviso</Badge>
+                            <p className="mt-1 text-ink/80">
+                              <strong className="text-ink">{s.usuario?.nome}</strong> · {s.horario_inicio.slice(0, 5)}–{s.horario_fim.slice(0, 5)}
+                            </p>
+                            {s.observacao && <p className="mt-0.5 text-xs text-ink/50">{s.observacao}</p>}
+                            </div>
+                          </div>
+                          {isAdmin && (
+                            <div className="flex shrink-0 gap-1">
+                              <button type="button" onClick={() => abrirEdicaoSobreaviso(s)} title="Editar" className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-surface hover:text-ink">
+                                <Pencil size={13} />
+                              </button>
+                              <button type="button" onClick={() => excluirSobreaviso(s.id)} title="Excluir" className="flex h-7 w-7 items-center justify-center rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-500/10">
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+  
+                      {infoSelecionado.folgasDoDia.map((f) => (
+                        <li key={f.id} className="flex items-start justify-between gap-2 rounded-lg bg-sand-bg p-2.5 text-sm">
+                          <div className="flex items-start gap-2">
+                            {isAdmin && (
+                              <input
+                                type="checkbox"
+                                checked={selecionados.has(`folga|${f.id}`)}
+                                onChange={() => toggleSelecionado("folga", f.id)}
+                                className="mt-1 h-3.5 w-3.5 rounded border-sand-line"
+                              />
+                            )}
+                            <div>
+                            <div className="flex items-center gap-1.5">
+                              <Badge tone="neutral">Folga</Badge>
+                              <Badge tone={f.status === "aprovada" ? "success" : f.status === "reprovada" ? "danger" : "warning"}>{f.status}</Badge>
+                            </div>
+                            <p className="mt-1 text-ink/80">
+                              <strong className="text-ink">{f.usuario?.nome}</strong> · {f.tipo}
+                            </p>
+                            {f.motivo && <p className="mt-0.5 text-xs text-ink/50">{f.motivo}</p>}
+                            </div>
+                          </div>
+                          {isAdmin && (
+                            <div className="flex shrink-0 gap-1">
+                              <button type="button" onClick={() => abrirEdicaoFolga(f)} title="Editar" className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-surface hover:text-ink">
+                                <Pencil size={13} />
+                              </button>
+                              <button type="button" onClick={() => excluirFolga(f.id)} title="Excluir" className="flex h-7 w-7 items-center justify-center rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-500/10">
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+  
+                      {infoSelecionado.feriasDoDia.map((f) => (
+                        <li key={f.id} className="flex items-start justify-between gap-2 rounded-lg bg-sand-bg p-2.5 text-sm">
+                          <div className="flex items-start gap-2">
+                            {isAdmin && (
+                              <input
+                                type="checkbox"
+                                checked={selecionados.has(`ferias|${f.id}`)}
+                                onChange={() => toggleSelecionado("ferias", f.id)}
+                                className="mt-1 h-3.5 w-3.5 rounded border-sand-line"
+                              />
+                            )}
+                            <div>
+                            <Badge tone="ausencia">Férias</Badge>
+                            <p className="mt-1 text-ink/80">
+                              <strong className="text-ink">{f.usuario?.nome}</strong> ·{" "}
+                              {new Date(f.data_inicio + "T00:00:00").toLocaleDateString("pt-BR")}–{new Date(f.data_fim + "T00:00:00").toLocaleDateString("pt-BR")}
+                            </p>
+                            </div>
+                          </div>
+                          {isAdmin && (
+                            <div className="flex shrink-0 gap-1">
+                              <button type="button" onClick={() => abrirEdicaoFerias(f)} title="Editar" className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-surface hover:text-ink">
+                                <Pencil size={13} />
+                              </button>
+                              <button type="button" onClick={() => excluirFerias(f.id)} title="Excluir" className="flex h-7 w-7 items-center justify-center rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-500/10">
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+  
+                      {infoSelecionado.lancamentosDoDia.map((l) => (
+                        <li key={l.id} className="flex items-start justify-between gap-2 rounded-lg bg-sand-bg p-2.5 text-sm">
+                          <div className="flex items-start gap-2">
+                            {isAdmin && (
+                              <input
+                                type="checkbox"
+                                checked={selecionados.has(`lancamento|${l.id}`)}
+                                onChange={() => toggleSelecionado("lancamento", l.id)}
+                                className="mt-1 h-3.5 w-3.5 rounded border-sand-line"
+                              />
+                            )}
+                            <div>
+                            <Badge tone="brand">Lançamento</Badge>
+                            <p className="mt-1 text-ink/80"><strong className="text-ink">{l.titulo}</strong> · {l.horas}h</p>
+                            {l.observacao && <p className="mt-0.5 text-xs text-ink/50">{l.observacao}</p>}
+                            </div>
+                          </div>
+                          {isAdmin && (
+                            <div className="flex shrink-0 gap-1">
+                              <button type="button" onClick={() => abrirEdicaoLancamento(l)} title="Editar" className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-surface hover:text-ink">
+                                <Pencil size={13} />
+                              </button>
+                              <button type="button" onClick={() => excluirLancamento(l.id)} title="Excluir" className="flex h-7 w-7 items-center justify-center rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-500/10">
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
                   )}
-                </div>
-                {infoSelecionado.sobreavisoDoDia.length === 0
-                  && infoSelecionado.folgasDoDia.length === 0
-                  && infoSelecionado.feriasDoDia.length === 0
-                  && infoSelecionado.lancamentosDoDia.length === 0 ? (
-                  <p className="text-sm text-ink/50">Nenhum evento registrado para este dia.</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {infoSelecionado.sobreavisoDoDia.map((s) => (
-                      <li key={s.id} className="flex items-start justify-between gap-2 rounded-lg bg-sand-bg p-2.5 text-sm">
-                        <div className="flex items-start gap-2">
-                          {isAdmin && (
-                            <input
-                              type="checkbox"
-                              checked={selecionados.has(`sobreaviso|${s.id}`)}
-                              onChange={() => toggleSelecionado("sobreaviso", s.id)}
-                              className="mt-1 h-3.5 w-3.5 rounded border-sand-line"
-                            />
-                          )}
-                          <div>
-                          <Badge tone="info">Sobreaviso</Badge>
-                          <p className="mt-1 text-ink/80">
-                            <strong className="text-ink">{s.usuario?.nome}</strong> · {s.horario_inicio.slice(0, 5)}–{s.horario_fim.slice(0, 5)}
-                          </p>
-                          {s.observacao && <p className="mt-0.5 text-xs text-ink/50">{s.observacao}</p>}
-                          </div>
-                        </div>
-                        {isAdmin && (
-                          <div className="flex shrink-0 gap-1">
-                            <button type="button" onClick={() => abrirEdicaoSobreaviso(s)} title="Editar" className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-surface hover:text-ink">
-                              <Pencil size={13} />
-                            </button>
-                            <button type="button" onClick={() => excluirSobreaviso(s.id)} title="Excluir" className="flex h-7 w-7 items-center justify-center rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-500/10">
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        )}
-                      </li>
-                    ))}
-
-                    {infoSelecionado.folgasDoDia.map((f) => (
-                      <li key={f.id} className="flex items-start justify-between gap-2 rounded-lg bg-sand-bg p-2.5 text-sm">
-                        <div className="flex items-start gap-2">
-                          {isAdmin && (
-                            <input
-                              type="checkbox"
-                              checked={selecionados.has(`folga|${f.id}`)}
-                              onChange={() => toggleSelecionado("folga", f.id)}
-                              className="mt-1 h-3.5 w-3.5 rounded border-sand-line"
-                            />
-                          )}
-                          <div>
-                          <div className="flex items-center gap-1.5">
-                            <Badge tone="neutral">Folga</Badge>
-                            <Badge tone={f.status === "aprovada" ? "success" : f.status === "reprovada" ? "danger" : "warning"}>{f.status}</Badge>
-                          </div>
-                          <p className="mt-1 text-ink/80">
-                            <strong className="text-ink">{f.usuario?.nome}</strong> · {f.tipo}
-                          </p>
-                          {f.motivo && <p className="mt-0.5 text-xs text-ink/50">{f.motivo}</p>}
-                          </div>
-                        </div>
-                        {isAdmin && (
-                          <div className="flex shrink-0 gap-1">
-                            <button type="button" onClick={() => abrirEdicaoFolga(f)} title="Editar" className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-surface hover:text-ink">
-                              <Pencil size={13} />
-                            </button>
-                            <button type="button" onClick={() => excluirFolga(f.id)} title="Excluir" className="flex h-7 w-7 items-center justify-center rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-500/10">
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        )}
-                      </li>
-                    ))}
-
-                    {infoSelecionado.feriasDoDia.map((f) => (
-                      <li key={f.id} className="flex items-start justify-between gap-2 rounded-lg bg-sand-bg p-2.5 text-sm">
-                        <div className="flex items-start gap-2">
-                          {isAdmin && (
-                            <input
-                              type="checkbox"
-                              checked={selecionados.has(`ferias|${f.id}`)}
-                              onChange={() => toggleSelecionado("ferias", f.id)}
-                              className="mt-1 h-3.5 w-3.5 rounded border-sand-line"
-                            />
-                          )}
-                          <div>
-                          <Badge tone="ausencia">Férias</Badge>
-                          <p className="mt-1 text-ink/80">
-                            <strong className="text-ink">{f.usuario?.nome}</strong> ·{" "}
-                            {new Date(f.data_inicio + "T00:00:00").toLocaleDateString("pt-BR")}–{new Date(f.data_fim + "T00:00:00").toLocaleDateString("pt-BR")}
-                          </p>
-                          </div>
-                        </div>
-                        {isAdmin && (
-                          <div className="flex shrink-0 gap-1">
-                            <button type="button" onClick={() => abrirEdicaoFerias(f)} title="Editar" className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-surface hover:text-ink">
-                              <Pencil size={13} />
-                            </button>
-                            <button type="button" onClick={() => excluirFerias(f.id)} title="Excluir" className="flex h-7 w-7 items-center justify-center rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-500/10">
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        )}
-                      </li>
-                    ))}
-
-                    {infoSelecionado.lancamentosDoDia.map((l) => (
-                      <li key={l.id} className="flex items-start justify-between gap-2 rounded-lg bg-sand-bg p-2.5 text-sm">
-                        <div className="flex items-start gap-2">
-                          {isAdmin && (
-                            <input
-                              type="checkbox"
-                              checked={selecionados.has(`lancamento|${l.id}`)}
-                              onChange={() => toggleSelecionado("lancamento", l.id)}
-                              className="mt-1 h-3.5 w-3.5 rounded border-sand-line"
-                            />
-                          )}
-                          <div>
-                          <Badge tone="brand">Lançamento</Badge>
-                          <p className="mt-1 text-ink/80"><strong className="text-ink">{l.titulo}</strong> · {l.horas}h</p>
-                          {l.observacao && <p className="mt-0.5 text-xs text-ink/50">{l.observacao}</p>}
-                          </div>
-                        </div>
-                        {isAdmin && (
-                          <div className="flex shrink-0 gap-1">
-                            <button type="button" onClick={() => abrirEdicaoLancamento(l)} title="Editar" className="flex h-7 w-7 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-surface hover:text-ink">
-                              <Pencil size={13} />
-                            </button>
-                            <button type="button" onClick={() => excluirLancamento(l.id)} title="Excluir" className="flex h-7 w-7 items-center justify-center rounded-lg text-rust-500 hover:bg-rust-50 dark:hover:bg-rust-500/10">
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Card>
-            </div>
+                </Card>
+              </div>
+            </motion.div>
           </motion.div>
-        </motion.div>
+        )}
+        </AnimatePresence>,
+        document.body
       )}
-      </AnimatePresence>
 
       {dialogFolga && (
         <Dialog onClose={() => { setDialogFolga(false); setFolgaEditando(null); }}>
           <h2 className="font-display text-base font-semibold text-ink">{folgaEditando ? "Editar Folga" : "Solicitar Folga"}</h2>
           <p className="mt-1 text-xs text-ink/50">{diaSelecionado && formatDiaCompleto(diaSelecionado)}</p>
-          <form onSubmit={handleSubmitFolga(solicitarFolga)} className="mt-4 space-y-3">
+          <form onSubmit={handleSubmitFolga(solicitarFolga, tremerInvalidos)} className="mt-4 space-y-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-ink/70">Tipo</label>
               <select {...registerFolga("tipo")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm">
@@ -817,7 +826,7 @@ export default function Calendario() {
       {dialogSobreaviso && (
         <Dialog onClose={() => { setDialogSobreaviso(false); setOncallEditando(null); }}>
           <h2 className="font-display text-base font-semibold text-ink">{oncallEditando ? "Editar Sobreaviso" : "Adicionar Sobreaviso"}</h2>
-          <form onSubmit={handleSubmitOncall(salvarSobreaviso)} className="mt-4 space-y-3">
+          <form onSubmit={handleSubmitOncall(salvarSobreaviso, tremerInvalidos)} className="mt-4 space-y-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-ink/70">Responsável</label>
               <select {...registerOncall("user_id")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm">

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type BaseSyntheticEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { fetchAllTools, upsertTool, deleteTool, uploadToolImage } from "@/services/api";
 import { DynamicIcon, ICONES_SUGERIDOS } from "@/lib/dynamicIcon";
 import type { DbTool } from "@/types/database";
+import { tremerInvalidos, salvoNoBotao, excluirItem } from "@/lib/efeitos";
 
 const CATEGORIAS = [
   "Atendimento",
@@ -114,7 +115,7 @@ export default function AdminOutrosLinks() {
     setDialogAberto(true);
   }
 
-  async function onSubmit(data: ToolForm) {
+  async function onSubmit(data: ToolForm, evento?: BaseSyntheticEvent) {
     setSalvando(true);
     setErro(null);
     try {
@@ -133,6 +134,7 @@ export default function AdminOutrosLinks() {
         icone_url: iconeUrlFinal || null,
       });
       await queryClient.invalidateQueries({ queryKey: ["tools"] });
+      await salvoNoBotao(evento);
       setDialogAberto(false);
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível salvar.");
@@ -141,9 +143,9 @@ export default function AdminOutrosLinks() {
     }
   }
 
-  async function remover(id: string) {
+  async function remover(id: string, item?: HTMLElement | null) {
     try {
-      await deleteTool(id);
+      await deleteTool(id); if (item) await excluirItem(item);
       await queryClient.invalidateQueries({ queryKey: ["tools"] });
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível remover.");
@@ -241,7 +243,7 @@ export default function AdminOutrosLinks() {
                         <Pencil size={15} />
                       </button>
                       <button
-                        onClick={() => remover(t.id)}
+                        onClick={(e) => remover(t.id, e.currentTarget.closest<HTMLElement>("tr, [data-ui='card']"))}
                         className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-rust-500/10 hover:text-rust-500"
                       >
                         <Trash2 size={15} />
@@ -260,7 +262,7 @@ export default function AdminOutrosLinks() {
             <h2 className="font-display text-base font-semibold text-ink">
               {editando ? "Editar link" : "Novo link"}
             </h2>
-            <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-3">
+            <form onSubmit={handleSubmit(onSubmit, tremerInvalidos)} className="mt-4 space-y-3">
               <div>
                 <label className="mb-1 block text-xs font-medium text-ink/70">Nome</label>
                 <input

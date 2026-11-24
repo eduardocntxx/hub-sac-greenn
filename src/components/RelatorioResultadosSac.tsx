@@ -1,4 +1,5 @@
 import { Download, X } from "lucide-react";
+import { leque } from "@/lib/efeitos";
 import { Button } from "@/components/ui/Button";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { formatDuration, formatDurationHoras } from "@/lib/formatDuration";
@@ -214,7 +215,15 @@ export function RelatorioResultadosSac({ data, onClose, onExportarPptx, exportan
               onChange={onChangeTemaPptx}
             />
           </div>
-          <Button size="sm" disabled={exportandoPptx} onClick={onExportarPptx}>
+          <Button
+            size="sm"
+            disabled={exportandoPptx}
+            onClick={(e) => {
+              // Exportar: slides abrem em leque, viram o arquivo e a seta de baixar quica.
+              void leque(e.currentTarget);
+              void onExportarPptx();
+            }}
+          >
             <Download size={14} /> {exportandoPptx ? "Gerando PPTX..." : "Baixar PPTX"}
           </Button>
         </div>

@@ -27,6 +27,8 @@ export default {
           700: "#005952",
           800: "#002F2B",
           900: "#003B36",
+          // Menu lateral, cabeçalho e painel do título no tema escuro (Marca forte, 2026-11-23).
+          950: "#001A17",
         },
         sand: {
           bg: "rgb(var(--color-sand-bg) / <alpha-value>)",
@@ -77,7 +79,7 @@ export default {
         body: ["'Plus Jakarta Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       fontSize: {
-        display: ["2rem", { lineHeight: "1.25", fontWeight: "700" }],
+        display: ["2.25rem", { lineHeight: "1.2", fontWeight: "800", letterSpacing: "-0.03em" }],
         "card-title": ["1.125rem", { lineHeight: "1.4", fontWeight: "600" }],
         legenda: ["0.8125rem", { lineHeight: "1.4", fontWeight: "400" }],
         "kpi-lg": ["1.875rem", { lineHeight: "1.15", fontWeight: "700" }],
@@ -87,12 +89,13 @@ export default {
         xl: "0.75rem",
         "2xl": "1rem",
       },
-      // Sombras mais rasas e neutras (redesign 2026-09-05) — o conjunto
-      // anterior usava tinta verde forte e um "glow" decorativo, mais
-      // "produto com personalidade" do que minimalista refinado.
+      // Marca forte (2026-11-23): cards sem borda no claro, com sombra em duas
+      // camadas e tinta do verde da marca; no escuro a borda volta (sombra some no fundo).
       boxShadow: {
-        card: "0 1px 2px rgba(0,24,22,0.04)",
-        "card-hover": "0 4px 12px -4px rgba(0,24,22,0.10)",
+        card: "0 1px 2px rgba(0,47,43,0.06), 0 12px 32px -18px rgba(0,47,43,0.38)",
+        "card-hover": "0 1px 2px rgba(0,47,43,0.07), 0 18px 38px -18px rgba(0,47,43,0.5)",
+        destaque: "0 16px 34px -18px rgba(0,118,109,0.9)",
+        painel: "0 22px 44px -26px rgba(0,47,43,0.7)",
         soft: "0 2px 10px rgba(0,24,22,0.05)",
         float: "0 12px 32px -12px rgba(0,24,22,0.18)",
       },
