@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ladoDoPopover, POPOVER_A_ESQUERDA } from "@/components/ui/ladoPopover";
 import { useQuery } from "@tanstack/react-query";
 import { MotionConfig, motion } from "framer-motion";
 import { AlertTriangle, ArrowDown, ArrowRightLeft, ArrowUp, Bot, CircleCheck, Clock, ExternalLink, Download, Handshake, Hourglass, Inbox, LayoutGrid, Layers, ListChecks, Percent, PhoneCall, Repeat, RotateCcw, Search, Send, SlidersHorizontal, Star, StarOff, Tag, ThumbsDown, ThumbsUp, Timer, Trophy, Users, X, Zap } from "lucide-react";
@@ -182,6 +183,7 @@ export default function Performance() {
   const [backlogPage, setBacklogPage] = useState(0);
   const [backlogDirecao, setBacklogDirecao] = useState<"asc" | "desc">("asc");
   const [filtroAberto, setFiltroAberto] = useState(false);
+  const [ladoFiltro, setLadoFiltro] = useState(POPOVER_A_ESQUERDA);
   // Filtra o Dashboard inteiro (mesmo tratamento do filtro de Atendente) —
   // "" = sem filtro, mostra todos os segmentos que existirem de verdade no
   // período. CSAT e Relógio de trabalho ativo ficam de fora de propósito
@@ -792,7 +794,10 @@ export default function Performance() {
           <div className="relative">
             {filtroAberto && <div className="fixed inset-0 z-10" onClick={() => setFiltroAberto(false)} />}
             <button
-              onClick={() => setFiltroAberto((a) => !a)}
+              onClick={(e) => {
+                setLadoFiltro(ladoDoPopover(e.currentTarget, 288));
+                setFiltroAberto((a) => !a);
+              }}
               className={cn(
                 "flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[13px] transition-colors",
                 tipoClienteFiltro || atendenteNomes.length > 0 || (aba === "atendimentos" && (canal || tipoCliente || motivo))
@@ -804,7 +809,7 @@ export default function Performance() {
               Filtros
             </button>
             {filtroAberto && (
-              <div className="absolute right-0 top-full z-20 mt-1.5 w-72 space-y-3 overflow-hidden rounded-xl border border-sand-line bg-sand-surface p-3 shadow-float">
+              <div className={cn("absolute top-full z-20 mt-1.5 w-72 space-y-3 overflow-hidden rounded-xl border border-sand-line bg-sand-surface p-3 shadow-float", ladoFiltro)}>
                 <div className="space-y-2">
                   <div>
                     <div className="flex items-center justify-between">
