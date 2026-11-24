@@ -42,8 +42,6 @@ import {
   fetchTransferenciasCasos,
   fetchFcrRecontatoResumo,
   fetchRecontatoCasos,
-  fetchRespostaGenericaResumo,
-  fetchRespostaGenericaCasos,
   fetchVolumeDiaHora,
   fetchCsatFunilCanal,
   fetchAtendidoNaoResolvido,
@@ -110,19 +108,12 @@ const DIRECAO_PADRAO: Record<OrdenarCampo, "asc" | "desc"> = {
 };
 
 
-// Mesma faixa do `corTextoSla`, no formato de tom das peças das sub-abas.
+// Faixa do SLA (80% bom, 50% atenção), no formato de tom das peças das sub-abas.
 function tomPorSla(pct: number | null | undefined): Tom {
   if (pct === null || pct === undefined) return "marca";
   if (pct >= 80) return "bom";
   if (pct >= 50) return "atencao";
   return "ruim";
-}
-
-function corTextoSla(pct: number | null | undefined) {
-  if (pct === null || pct === undefined) return "text-ink/70";
-  if (pct >= 80) return "text-forest-600";
-  if (pct >= 50) return "text-amber-600";
-  return "text-rust-500";
 }
 
 
@@ -151,11 +142,12 @@ export default function Performance() {
   const podeVerNps = hasPermission("nps");
   const navigate = useNavigate();
   // Overview aberto a todo colaborador (2026-09-24): quem não é admin vê só
-  // a aba Dashboard; listas de conversas e clientes (aba Atendimentos, IA
-  // genérica, pop-ups de casos) continuam só pra admin — no banco também.
+  // a aba Dashboard; listas de conversas e clientes (aba Atendimentos,
+  // pop-ups de casos) continuam só pra admin — no banco também.
 
-  const [abaSalva, setAba] = usePersistedState<"ranking" | "atendimentos" | "generico">("overview:aba", "ranking");
-  const aba = isAdmin ? abaSalva : "ranking";
+  const [abaSalva, setAba] = usePersistedState<"ranking" | "atendimentos">("overview:aba", "ranking");
+  // "IA genérica" saiu em 2026-11-24 (pedido do usuário): quem tinha ela salva volta pro Dashboard.
+  const aba = isAdmin && abaSalva === "atendimentos" ? "atendimentos" : "ranking";
   // Toggle de horas úteis/corridas removido do Overview (pedido do usuário) —
   // Velocidade agora mostra os dois modos direto no card, sem precisar
   // escolher. O resto da página (Ranking, Motivo de contato)
@@ -200,8 +192,6 @@ export default function Performance() {
   const [reaberturaFiltroAtendente, setReaberturaFiltroAtendente] = useState("");
   const [reaberturaFiltroReaberto, setReaberturaFiltroReaberto] = useState("");
   const [mostrarTodosRecontatos, setMostrarTodosRecontatos] = useState(false);
-  const [genericoPage, setGenericoPage] = useState(0);
-  const [genericoSoSemResposta, setGenericoSoSemResposta] = useState(false);
   // Sub-abas do Dashboard (redesenho de 2026-09-24) — cada uma só busca os
   // próprios dados quando está aberta.
   // "fluxo" é o nome antigo da aba "volume": quem já tinha ele salvo no localStorage cai em "volume".
@@ -272,6 +262,9 @@ export default function Performance() {
   // anteriorHabilitado) — as queries abaixo só disparam depois que
   // contagem_periodo (rápida) resolver, reduzindo o pico de concorrência.
   const waveDoisHabilitada = contagem !== undefined;
+  // Consultas do Dashboard só rodam com ele aberto: antes, com Atendimentos aberto, backlog,
+  // reaberturas, posse etc. rodavam por trás e disputavam o banco (2026-11-24).
+  const ondaDashboard = waveDoisHabilitada && naDashboard;
 
   // Substitui os antigos percentis (Velocidade) + metricas-tipo-cliente (Por
   // tipo de cliente) — 1 query só, já traz "Geral" (time inteiro) + 1 linha
@@ -281,7 +274,7 @@ export default function Performance() {
   const { data: velocidadePorTipo, isLoading: loadingVelocidade } = useQuery({
     queryKey: ["velocidade-por-tipo", inicio, fim, atendenteNomes],
     queryFn: () => fetchVelocidadePorTipoCliente(inicio, fim, undefined, atendenteNomesFiltro),
-    enabled: waveDoisHabilitada,
+    enabled: ondaDashboard,
   });
   const velocidadeGeral = useMemo(() => velocidadePorTipo?.find((v: VelocidadePorTipoCliente) => v.tipo_cliente === "Geral"), [velocidadePorTipo]);
   const velocidadePorTipoReal = useMemo(() => (velocidadePorTipo ?? []).filter((v: VelocidadePorTipoCliente) => v.tipo_cliente !== "Geral"), [velocidadePorTipo]);
@@ -289,37 +282,37 @@ export default function Performance() {
   const { data: backlog } = useQuery({
     queryKey: ["backlog-por-idade", atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchBacklogPorIdade(undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: waveDoisHabilitada,
+    enabled: ondaDashboard,
   });
 
   const { data: posse, isLoading: loadingPosse } = useQuery({
     queryKey: ["relogio-posse", inicio, fim, tipoClienteFiltro],
     queryFn: () => fetchRelogioPosse(inicio, fim, undefined, tipoClienteRpc),
-    enabled: waveDoisHabilitada && (subAba === "pessoas" || subAba === "velocidade"),
+    enabled: ondaDashboard && (subAba === "pessoas" || subAba === "velocidade"),
   });
 
   const { data: volumeDiaHora, isLoading: loadingVolumeDiaHora } = useQuery({
     queryKey: ["volume-dia-hora", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchVolumeDiaHora(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: waveDoisHabilitada && subAba === "volume",
+    enabled: ondaDashboard && subAba === "volume",
   });
 
   const { data: esperaCliente, isLoading: loadingEspera } = useQuery({
     queryKey: ["relogio-espera-cliente", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchRelogioEsperaCliente(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: waveDoisHabilitada && subAba === "velocidade",
+    enabled: ondaDashboard && subAba === "velocidade",
   });
 
   const { data: horasExpediente, isLoading: loadingExpediente } = useQuery({
     queryKey: ["horas-expediente-periodo", inicio, fim, atendenteNomes],
     queryFn: () => fetchHorasExpedientePeriodo(inicio, fim, atendenteNomesFiltro),
-    enabled: waveDoisHabilitada && subAba === "velocidade",
+    enabled: ondaDashboard && subAba === "velocidade",
   });
 
   const { data: motivos, isLoading: loadingMotivos } = useQuery({
     queryKey: ["motivo-contato-resumo", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchMotivoContatoResumo(inicio, fim, undefined, modoTempo, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: waveDoisHabilitada && (subAba === "volume" || aba === "atendimentos"),
+    enabled: waveDoisHabilitada && ((naDashboard && subAba === "volume") || aba === "atendimentos"),
   });
 
   // Mesma ideia de velocidade-por-tipo: 1 query com "Geral" + 1 linha por
@@ -329,7 +322,7 @@ export default function Performance() {
   const { data: reaberturaPorTipo, isLoading: loadingReabertura } = useQuery({
     queryKey: ["reabertura-por-tipo", inicio, fim, atendenteNomes],
     queryFn: () => fetchReaberturaPorTipoCliente(inicio, fim, undefined, atendenteNomesFiltro),
-    enabled: waveDoisHabilitada,
+    enabled: ondaDashboard,
   });
   const reaberturaResumo = useMemo(() => reaberturaPorTipo?.find((r: ReaberturaPorTipoCliente) => r.tipo_cliente === "Geral"), [reaberturaPorTipo]);
 
@@ -415,47 +408,31 @@ export default function Performance() {
   const { data: reaberturaCasos } = useQuery({
     queryKey: ["reabertura-casos", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchReaberturaCasos(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: isAdmin && !!reaberturaResumo && reaberturaResumo.total_reabertos > 0 && subAba === "qualidade",
+    enabled: isAdmin && naDashboard && !!reaberturaResumo && reaberturaResumo.total_reabertos > 0 && subAba === "qualidade",
   });
 
   const { data: transferenciasResumo, isLoading: loadingTransferencias } = useQuery({
     queryKey: ["transferencias-resumo", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchTransferenciasResumo(inicio, fim, undefined, atendenteNomesFiltro, modoTempo, tipoClienteRpc),
-    enabled: waveDoisHabilitada && (subAba === "volume" || subAba === "pessoas"),
+    enabled: ondaDashboard && (subAba === "volume" || subAba === "pessoas"),
   });
 
   const { data: transferenciasCasos } = useQuery({
     queryKey: ["transferencias-casos", inicio, fim, modoTempo, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchTransferenciasCasos(inicio, fim, undefined, modoTempo, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: isAdmin && !!transferenciasResumo && transferenciasResumo.total_transferidos > 0,
+    enabled: isAdmin && naDashboard && !!transferenciasResumo && transferenciasResumo.total_transferidos > 0,
   });
 
   const { data: fcrRecontato, isLoading: loadingFcr } = useQuery({
     queryKey: ["fcr-recontato-resumo", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchFcrRecontatoResumo(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: waveDoisHabilitada && subAba === "qualidade",
+    enabled: ondaDashboard && subAba === "qualidade",
   });
 
   const { data: recontatoCasos } = useQuery({
     queryKey: ["recontato-casos", inicio, fim, atendenteNomes, tipoClienteFiltro],
     queryFn: () => fetchRecontatoCasos(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: isAdmin && !!fcrRecontato && fcrRecontato.total_recontato > 0,
-  });
-
-  // "IA genérica" — achado de uma auditoria qualitativa externa do SAC
-  // (leitura conversa por conversa): o bot responde com um pedido de mais
-  // detalhes mesmo quando o cliente já mandou o contexto todo. Validado
-  // contra este mesmo banco antes de virar aba (33,1% das conversas no
-  // período testado — perto do achado externo de 35%).
-  const { data: genericoResumo, isLoading: loadingGenerico } = useQuery({
-    queryKey: ["resposta-generica-resumo", inicio, fim, atendenteNomes, tipoClienteFiltro],
-    queryFn: () => fetchRespostaGenericaResumo(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc),
-    enabled: aba === "generico",
-  });
-  const { data: genericoCasos } = useQuery({
-    queryKey: ["resposta-generica-casos", inicio, fim, atendenteNomes, tipoClienteFiltro, genericoSoSemResposta, genericoPage],
-    queryFn: () => fetchRespostaGenericaCasos(inicio, fim, undefined, atendenteNomesFiltro, tipoClienteRpc, genericoSoSemResposta, genericoPage, PAGE_SIZE),
-    enabled: aba === "generico",
+    enabled: isAdmin && naDashboard && !!fcrRecontato && fcrRecontato.total_recontato > 0,
   });
 
   // Itens da Reunião de Resultados trazidos pro Overview (2026-10-16), com as mesmas funções da RR: NPS e
@@ -464,12 +441,12 @@ export default function Performance() {
   const { data: npsRespostas, isLoading: loadingNps } = useQuery({
     queryKey: ["nps-responses", inicio, fim],
     queryFn: () => fetchNpsResponses({ inicio, fim }),
-    enabled: waveDoisHabilitada && podeVerNps && subAba === "qualidade",
+    enabled: ondaDashboard && podeVerNps && subAba === "qualidade",
   });
   const { data: npsRespostasAnterior } = useQuery({
     queryKey: ["nps-responses", inicioAnterior, fimAnterior],
     queryFn: () => fetchNpsResponses({ inicio: inicioAnterior, fim: fimAnterior }),
-    enabled: waveDoisHabilitada && podeVerNps && subAba === "qualidade",
+    enabled: ondaDashboard && podeVerNps && subAba === "qualidade",
   });
   const npsResumo = useMemo(() => (npsRespostas ? resumirNps(npsRespostas) : null), [npsRespostas]);
   const npsResumoAnterior = useMemo(() => (npsRespostasAnterior ? resumirNps(npsRespostasAnterior) : null), [npsRespostasAnterior]);
@@ -478,7 +455,7 @@ export default function Performance() {
   const { data: satisfacaoSemanal, isLoading: loadingSatisfacao } = useQuery({
     queryKey: ["satisfacao-semanal", "Produtor", janelaSatisfacao.inicio.toISOString(), janelaSatisfacao.fim.toISOString()],
     queryFn: () => fetchSatisfacaoSemanal(janelaSatisfacao.inicio, janelaSatisfacao.fim, "Produtor"),
-    enabled: waveDoisHabilitada && podeVerNps && subAba === "qualidade",
+    enabled: ondaDashboard && podeVerNps && subAba === "qualidade",
   });
   const semanasSatisfacao = useMemo(() => resumirSemanas(satisfacaoSemanal ?? []), [satisfacaoSemanal]);
 
@@ -489,14 +466,14 @@ export default function Performance() {
     queryFn: () => fetchAtendimentosComMetricas({
       inicio, fim, tipoCliente: tiposTopTfr[0], atendenteNomes: atendenteNomesFiltro, ordenarPor: "tfr", direcao: "desc", page: 0, pageSize: 7,
     }),
-    enabled: isAdmin && waveDoisHabilitada && subAba === "velocidade",
+    enabled: isAdmin && ondaDashboard && subAba === "velocidade",
   });
   const { data: topTfrB, isLoading: loadingTopTfrB } = useQuery({
     queryKey: ["top-tfr-casos", tiposTopTfr[1] ?? "", inicio, fim, atendenteNomes],
     queryFn: () => fetchAtendimentosComMetricas({
       inicio, fim, tipoCliente: tiposTopTfr[1], atendenteNomes: atendenteNomesFiltro, ordenarPor: "tfr", direcao: "desc", page: 0, pageSize: 7,
     }),
-    enabled: isAdmin && waveDoisHabilitada && subAba === "velocidade" && tiposTopTfr.length > 1,
+    enabled: isAdmin && ondaDashboard && subAba === "velocidade" && tiposTopTfr.length > 1,
   });
   const gruposTopTfr = useMemo(
     () =>
@@ -512,17 +489,17 @@ export default function Performance() {
   const { data: migracoes, isLoading: loadingMigracoes } = useQuery({
     queryKey: ["migracoes-resumo", inicio, fim],
     queryFn: () => fetchMigracoesResumo(inicio, fim),
-    enabled: waveDoisHabilitada && subAba === "volume",
+    enabled: ondaDashboard && subAba === "volume",
   });
   const { data: migracoesAnterior } = useQuery({
     queryKey: ["migracoes-resumo", inicioAnterior, fimAnterior],
     queryFn: () => fetchMigracoesResumo(inicioAnterior, fimAnterior),
-    enabled: waveDoisHabilitada && subAba === "volume",
+    enabled: ondaDashboard && subAba === "volume",
   });
   const { data: migracoesPorPlataforma } = useQuery({
     queryKey: ["migracoes-por-plataforma", inicio, fim],
     queryFn: () => fetchMigracoesPorPlataforma(inicio, fim),
-    enabled: waveDoisHabilitada && subAba === "volume",
+    enabled: ondaDashboard && subAba === "volume",
   });
 
   const { data: posseDetalheAtendimentos, isLoading: loadingPosseDetalhe } = useQuery({
@@ -809,7 +786,7 @@ export default function Performance() {
               Filtros
             </button>
             {filtroAberto && (
-              <div className={cn("absolute top-full z-20 mt-1.5 w-72 space-y-3 overflow-hidden rounded-xl border border-sand-line bg-sand-surface p-3 shadow-float", ladoFiltro)}>
+              <div className={cn("absolute top-full z-20 mt-1.5 w-72 space-y-3 overflow-hidden rounded-xl border border-sand-line bg-sand-surface p-3 text-ink shadow-float", ladoFiltro)}>
                 <div className="space-y-2">
                   <div>
                     <div className="flex items-center justify-between">
@@ -899,7 +876,7 @@ export default function Performance() {
           </div>
           {isAdmin && (
             <SegmentedControl
-              options={[["ranking", "Dashboard"], ["atendimentos", "Atendimentos"], ["generico", "IA genérica"]] as const}
+              options={[["ranking", "Dashboard"], ["atendimentos", "Atendimentos"]] as const}
               value={aba}
               onChange={setAba}
             />
@@ -2034,7 +2011,7 @@ export default function Performance() {
           )}
           {csatDetalhe && <CsatDetalheDialog registro={csatDetalhe} onClose={() => setCsatDetalhe(null)} />}
         </>
-      ) : aba === "atendimentos" ? (
+      ) : (
         <>
           <Card className="flex items-center gap-2 p-3">
             <div className="relative min-w-[220px] flex-1">
@@ -2172,115 +2149,6 @@ export default function Performance() {
                   <Button variant="secondary" size="sm" disabled={page + 1 >= totalPages} onClick={() => setPage((p) => p + 1)}>Próxima</Button>
                 </div>
               </div>
-            </>
-          )}
-        </>
-      ) : (
-        <>
-          <p className="text-xs text-ink/40">
-            Achado de uma auditoria qualitativa externa do SAC (leitura de conversa por conversa): o bot às vezes responde
-            com um pedido genérico de mais detalhes mesmo quando o cliente já mandou todo o contexto (ex: e-mail com
-            fatura). Aqui embaixo é a mesma medição, ao vivo, sobre o nosso banco.
-          </p>
-          {loadingGenerico ? (
-            <CardSkeleton />
-          ) : !genericoResumo || genericoResumo.total_conversas === 0 ? (
-            <Card className="p-4"><p className="text-sm text-ink/50">Nenhuma conversa no período.</p></Card>
-          ) : (
-            <>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                  <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Resposta genérica da IA</p>
-                  <p className={cn("mt-1 font-display text-kpi-lg font-bold", corTextoSla(100 - (genericoResumo.taxa_pct ?? 0)))}>
-                    {genericoResumo.taxa_pct?.toFixed(1) ?? "0.0"}%
-                  </p>
-                  <p className="mt-1 text-[11px] text-ink/40">{genericoResumo.total_com_generico} de {genericoResumo.total_conversas} conversas</p>
-                </Card>
-                <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                  <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Sem resposta depois</p>
-                  <p className="mt-1 font-display text-kpi-lg font-bold text-rust-500">{genericoResumo.generico_sem_resposta_depois}</p>
-                  <p className="mt-1 text-[11px] text-ink/40">a conversa não recebeu mais nada de conteúdo depois do genérico</p>
-                </Card>
-                <Card className="p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover">
-                  <p className="text-xs font-medium uppercase tracking-wide text-ink/40">Conversas totais no período</p>
-                  <p className="mt-1 font-display text-kpi-lg font-bold text-ink">{genericoResumo.total_conversas}</p>
-                </Card>
-              </div>
-
-              <label className="mt-4 flex w-fit items-center gap-2 text-sm text-ink/70">
-                <input
-                  type="checkbox"
-                  checked={genericoSoSemResposta}
-                  onChange={(e) => { setGenericoSoSemResposta(e.target.checked); setGenericoPage(0); }}
-                  className="h-3.5 w-3.5 rounded border-sand-line"
-                />
-                Mostrar só as que ficaram sem resposta depois
-              </label>
-
-              {!genericoCasos || genericoCasos.rows.length === 0 ? (
-                <Card className="mt-2 p-4"><p className="text-sm text-ink/50">Nenhum caso com esse filtro.</p></Card>
-              ) : (
-                <Card className="mt-2 overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-sand-bg text-center text-xs uppercase tracking-wide text-ink/50">
-                      <tr>
-                        <th className="px-4 py-3 text-left font-medium">Cliente</th>
-                        <th className="px-4 py-3 font-medium">Atendente</th>
-                        <th className="px-4 py-3 font-medium">Canal</th>
-                        <th className="px-4 py-3 font-medium">Tópico</th>
-                        <th className="px-4 py-3 font-medium">Quando</th>
-                        <th className="px-4 py-3 font-medium">Sem resposta depois</th>
-                        <th className="px-4 py-3 font-medium">Ação</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {genericoCasos.rows.map((c) => (
-                        <tr key={c.crisp_id} className="border-t border-sand-line text-center align-top">
-                          <td className="px-4 py-3 text-left text-ink">{c.cliente_nome ?? "—"}</td>
-                          <td className="px-4 py-3 text-ink/70">{c.atendente ?? "—"}</td>
-                          <td className="px-4 py-3 text-ink/70">{c.canal ?? "—"}</td>
-                          <td className="px-4 py-3 text-ink/70">{c.topico ?? "—"}</td>
-                          <td className="px-4 py-3 text-xs text-ink/60">{new Date(c.primeira_generica_at).toLocaleString("pt-BR")}</td>
-                          <td className="px-4 py-3">
-                            {c.sem_resposta_depois
-                              ? <Badge tone="danger">Sim</Badge>
-                              : <Badge tone="neutral">Não</Badge>}
-                          </td>
-                          <td className="px-4 py-3">
-                            {c.link_chamado ? (
-                              <a href={c.link_chamado} target="_blank" rel="noreferrer">
-                                <Button variant="secondary" size="sm"><ExternalLink size={13} /> Ver</Button>
-                              </a>
-                            ) : (
-                              <span className="text-xs text-ink/30">sem link</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </Card>
-              )}
-
-              {genericoCasos && genericoCasos.count > 0 && (
-                <div className="flex items-center justify-between text-sm text-ink/60">
-                  <span>{genericoCasos.count} conversas</span>
-                  <div className="flex gap-2">
-                    <Button variant="secondary" size="sm" disabled={genericoPage === 0} onClick={() => setGenericoPage((p) => p - 1)}>Anterior</Button>
-                    <span className="flex items-center px-2 text-xs">
-                      Página {genericoPage + 1} de {Math.max(Math.ceil(genericoCasos.count / PAGE_SIZE), 1)}
-                    </span>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={(genericoPage + 1) * PAGE_SIZE >= genericoCasos.count}
-                      onClick={() => setGenericoPage((p) => p + 1)}
-                    >
-                      Próxima
-                    </Button>
-                  </div>
-                </div>
-              )}
             </>
           )}
         </>

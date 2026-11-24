@@ -95,7 +95,7 @@ export function DateRangePopover({
           {...ANIMACAO_MENU}
           data-cascata-area
           className={cn(
-            "absolute top-full z-20 mt-1.5 overflow-hidden rounded-xl border border-sand-line bg-sand-surface p-1.5 shadow-float",
+            "absolute top-full z-20 mt-1.5 overflow-hidden rounded-xl border border-sand-line bg-sand-surface p-1.5 text-ink shadow-float",
             preset === "personalizado" ? "w-72" : "w-56",
             lado
           )}

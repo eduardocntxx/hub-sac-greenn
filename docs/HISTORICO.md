@@ -6538,3 +6538,27 @@ operador fora do SAC.
 
 Banco de 317 MB pra 310 MB (índices). O espaço das linhas apagadas fica reaproveitável pro crescimento, sem
 `VACUUM FULL`.
+
+### Popovers, contraste no escuro e fim da aba IA genérica (2026-11-24)
+
+- Relato do Felipe (print do Overview, aba Atendimentos, tela estreita): o seletor de período abria cortado,
+  embaixo do menu lateral. Em tela estreita os botões do painel do título quebram pra linha de baixo, à esquerda,
+  e os popovers presos à direita do botão abriam pra esquerda. Agora o lado é decidido ao abrir
+  (`ui/ladoPopover.ts`) no período, nos Filtros do Overview e do CSAT e no "?". Os campos De/Até ganharam `min-w-0`
+  (o "Até" vazava). PR #25.
+- "Texto cinza no fundo escuro, não dá pra ver": varredura de contraste (texto x fundo efetivo, WCAG) em todas as
+  rotas nos dois temas. No escuro o `text-ink/40` dava 3,5:1 e os dias fora do mês do Calendário 2,5:1; no claro o
+  pior é o amarelo `text-amber-600` em branco (2:1) e `text-ink/40` em letra miúda (2,4:1), não mexidos. Os cinzas
+  sobem um degrau só no escuro (`/40` → 0,56, `/50` → 0,64, `/60` → 0,72...) e input/select/textarea sem cor
+  própria usam `sand-surface` (o Chrome pintava cinza no escuro).
+- Modo claro: o seletor de período aberto do painel verde do título ficava com fundo escuro e opções em letra
+  escura (print do usuário). O painel usa `dark` por dentro, mas a cor do texto herdada já vinha calculada no tema
+  claro; `PAINEL_TITULO` ganhou `text-ink` (recalcula a cor ali) e os menus de período/filtros também. A varredura
+  de contraste não pegou porque só olhava as telas sem nada aberto.
+- Overview: as consultas do Dashboard (backlog, reaberturas, velocidade, posse, transferências etc.) rodavam mesmo
+  com a aba Atendimentos aberta, disputando o banco. Agora só com o Dashboard na tela (`ondaDashboard`). Medido no
+  mesmo dia em produção: o Overview levava ~25 s pra carregar inteiro (backlog 14–26 s, velocidade 11–17 s), com o
+  banco Micro engasgando em rajadas (consulta trivial em 13 s às 13:27 UTC); nenhuma leitura de tabela inteira nas
+  tabelas grandes, então não foi a remoção dos índices.
+- Aba "IA genérica" do Overview removida a pedido do usuário (UI, consultas e `fetchRespostaGenerica*`); quem tinha
+  ela salva como aba volta pro Dashboard. As funções `resposta_generica_*` seguem no banco, sem uso.
