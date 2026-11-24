@@ -37,12 +37,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <motion.div
               key={t.id}
               layout
-              initial={{ opacity: 0, x: 24, scale: 0.95 }}
-              animate={{ opacity: 1, x: 0, scale: 1 }}
-              exit={{ opacity: 0, x: 24, scale: 0.95 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-              className="flex items-start gap-2 rounded-xl border border-rust-500/20 bg-sand-surface px-4 py-3 text-sm text-ink shadow-float"
+              // Entra de lado com mola; a barra de baixo encolhe até o aviso sumir.
+              initial={{ opacity: 0, x: 120, rotate: 4 }}
+              animate={{ opacity: 1, x: 0, rotate: 0 }}
+              exit={{ opacity: 0, x: 140, transition: { duration: 0.25, ease: "easeIn" } }}
+              transition={{ type: "spring", stiffness: 260, damping: 18 }}
+              className="relative flex items-start gap-2 overflow-hidden rounded-xl border border-rust-500/20 bg-sand-surface px-4 py-3 text-sm text-ink shadow-float"
             >
+              <motion.span
+                className="absolute inset-x-0 bottom-0 h-0.5 origin-left bg-rust-500/60"
+                initial={{ scaleX: 1 }}
+                animate={{ scaleX: 0 }}
+                transition={{ duration: 5, ease: "linear" }}
+              />
               <AlertCircle size={16} className="mt-0.5 shrink-0 text-rust-600" />
               <span className="flex-1">{t.mensagem}</span>
               <button onClick={() => remover(t.id)} className="text-ink/30 hover:text-ink/60">

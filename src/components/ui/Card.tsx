@@ -11,8 +11,9 @@ interface CardProps extends HTMLAttributes<HTMLDivElement> {
 export function Card({ className, accent, children, ...props }: CardProps) {
   return (
     <div
+      data-ui="card"
       className={cn(
-        "rounded-2xl border border-sand-line bg-sand-surface shadow-card transition-shadow duration-200 hover:shadow-card-hover",
+        "rounded-[20px] border border-transparent bg-sand-surface shadow-card transition-shadow duration-200 hover:shadow-card-hover dark:border-sand-line",
         accent && "relative overflow-hidden",
         className
       )}

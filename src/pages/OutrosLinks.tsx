@@ -8,6 +8,7 @@ import { SecaoHead } from "@/components/ui/SecaoHead";
 import { Entrada } from "@/components/ui/Entrada";
 import { fetchTools } from "@/services/api";
 import { DynamicIcon } from "@/lib/dynamicIcon";
+import { BotaoCopiar } from "@/components/ui/BotaoCopiar";
 
 export default function OutrosLinks() {
   const { data: tools, isLoading } = useQuery({
@@ -64,14 +65,17 @@ export default function OutrosLinks() {
                         {t.nome}
                       </h3>
                       <p className="mt-1 flex-1 text-legenda text-ink/55">{t.descricao}</p>
-                      <a
-                        href={t.url ?? "#"}
-                        target={t.abrir_nova_guia ? "_blank" : undefined}
-                        rel="noreferrer"
-                        className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl border border-sand-line px-4 py-2 text-sm font-medium text-ink transition-colors group-hover:border-forest-500 group-hover:bg-forest-500 group-hover:text-white"
-                      >
-                        Acessar <ExternalLink size={13} className="transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
-                      </a>
+                      <div className="mt-4 flex gap-2">
+                        <a
+                          href={t.url ?? "#"}
+                          target={t.abrir_nova_guia ? "_blank" : undefined}
+                          rel="noreferrer"
+                          className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-sand-line px-4 py-2 text-sm font-medium text-ink transition-colors group-hover:border-forest-500 group-hover:bg-forest-500 group-hover:text-white"
+                        >
+                          Acessar <ExternalLink size={13} className="transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
+                        </a>
+                        {t.url && <BotaoCopiar texto={t.url} />}
+                      </div>
                     </div>
                   </Card>
                   </Entrada>

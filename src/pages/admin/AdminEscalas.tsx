@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { excluirItem } from "@/lib/efeitos";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, GripVertical, CalendarDays } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -81,9 +82,10 @@ export default function AdminEscalas() {
     }
   }
 
-  async function remover(id: string) {
+  async function remover(id: string, item?: HTMLElement | null) {
     try {
       await removeEscalaSabadoItem(id);
+      if (item) await excluirItem(item);
       await queryClient.invalidateQueries({ queryKey: ["escala-sabado"] });
       await queryClient.invalidateQueries({ queryKey: ["escalados-sabados"] });
     } catch (err) {
@@ -146,7 +148,7 @@ export default function AdminEscalas() {
                     {e.users?.ativo === false && (
                       <Badge tone="warning" title="Usuário inativo: é pulado no rodízio. Remova da lista se não for voltar.">Inativo</Badge>
                     )}
-                    <button onClick={() => remover(e.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-rust-500/10 hover:text-rust-500">
+                    <button onClick={(ev) => remover(e.id, ev.currentTarget.closest<HTMLElement>("tr, [data-ui='card']"))} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-rust-500/10 hover:text-rust-500">
                       <Trash2 size={15} />
                     </button>
                   </motion.li>

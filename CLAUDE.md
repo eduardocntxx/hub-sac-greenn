@@ -400,12 +400,15 @@ conversas (avaliadas ou não).
     .subscribe();
   // cleanup: supabase.removeChannel(channel)
   ```
-  Hooks existentes: `useRealtimeUserStatus`, `useRealtimeCsat`,
-  `useRealtimeConversas`, `useRealtimeHelpdesks`, `useRealtimeCalendario`,
-  `useRealtimeAnnouncementsNotifier` (este último toca som via
-  `notificationSound.ts` e atualiza o contador do sino no Header). A
-  tabela precisa estar na publicação `supabase_realtime` no Postgres para
-  o canal funcionar — isso é configurado no banco, não no frontend.
+  Hooks existentes: `useRealtimeUserStatus`, `useRealtimeHelpdesks`,
+  `useRealtimeCalendario`, `useRealtimeAnnouncementsNotifier` (este último
+  toca som via `notificationSound.ts` e atualiza o contador do sino no
+  Header). A tabela precisa estar na publicação `supabase_realtime` no
+  Postgres para o canal funcionar — isso é configurado no banco, não no
+  frontend. **Tabela que o n8n grava o tempo todo não entra no Realtime**
+  (cada gravação vira consulta do Realtime): desde 2026-11-24
+  `crisp_conversations` e `csat_results` saíram da publicação e o Overview
+  atualiza a cada 2 min com a aba visível (`useAtualizacaoOverview`).
 - **Storage**: bucket `tool-images` (leitura pública, escrita só admin, só
   imagem até 5 MB), usado por `uploadToolImage()` para imagens de "Outros
   Links". `avatars` não é usado e não aceita escrita (2026-10-22).
@@ -650,6 +653,13 @@ conversas (avaliadas ou não).
 - `reopened_count_real_periodo` (regra antiga, ~2 s/chamada) é recalculada por 10 funções (saiu de
   `_atendente_performance_base` em 2026-10-14, onde era descartada); o Overview chama várias delas juntas. Trocar por leitura de `reaberturas_reais` dá ~10× menos custo, mas muda ~0,8% dos totais (eventos antes de
   08/09, eventos de estado com mesmo horário, mensagem que chega atrasada) — decisão de produto pendente.
+- Backlog (2026-11-24): o número está certo, as conversas estão abertas na própria Crisp (4.290 não
+  resolvidas lá, desde 2022; 39 de 40 sorteadas do Hub abertas na Crisp). O time responde e não resolve.
+  ~2,5% (1 de 40) foi apagada na Crisp e segue aberta no Hub (webhook `crisp-removidos`, pendência acima).
+- Retenção (2026-11-24): `auditoria_log` guarda 30 dias dos UPDATEs automáticos do n8n em `crisp_conversations`
+  (cron `auditoria-n8n-30-dias`); o resto da auditoria fica pra sempre. `cron.job_run_details` guarda 7 dias.
+  Reaberturas recalculadas a cada 15 min (`reaberturas-reais-15min`). SQL e rollback em
+  `supabase/sql/2026-11-24_limpeza_e_desempenho*.sql`.
 - Código morto tolerado: `horario_por_nome`, `duracao_dentro_expediente`,
   `csat_tempo_resposta_correlacao`, `fetchConversasFiltered`,
   `p_somente_risco`.
@@ -660,27 +670,45 @@ Todos em `src/components/ui/`:
 
 - **`Button`** — variantes `primary`/`secondary`/`ghost`/`danger`, tamanhos
   `sm`/`md`. `forwardRef`, aceita todas as props nativas de `<button>`.
+  Afunda no clique e volta com mola (classe `botao-fundo`, index.css).
 - **`Card` / `CardHeader` / `CardTitle` / `CardDescription` /
-  `CardContent`** — bloco base de praticamente toda a UI (`rounded-2xl
-  border border-sand-line bg-sand-surface`).
+  `CardContent`** — bloco base de praticamente toda a UI (`rounded-[20px]
+  bg-sand-surface shadow-card`, sem borda no claro e `dark:border-sand-line`
+  no escuro; Marca forte, 2026-11-23). `data-ui="card"` é o gancho da cascata.
 - **`Badge`** — tons `neutral`/`success`/`warning`/`danger`/`info`/
   `ausencia`/`brand`, usado para status/categorias em toda a aplicação
   (componente mais reutilizado do projeto, 28+ usos).
 - **`Kpi`** — card de indicador com label, valor, delta vs. período
   anterior (seta + cor automática) e ícone opcional;
   `invertDeltaColor` para métricas onde "menor é melhor" (ex: tempo médio).
-  Desde 2026-10-20 desenha o `Indicador` (mesma API).
+  Desde 2026-10-20 desenha o `Indicador` (mesma API). `indice={0}` = primeiro
+  da fileira, que vem cheio de verde (destaque); valor "..." vira esqueleto.
 - **Visual do Overview** (desde 2026-10-20, em toda a plataforma):
   `CabecalhoPagina` (título + subtítulo + ações de toda tela), `Indicador`
   (+ `ChipIcone`, `SeloDelta`, `MetricaTile`), `PainelCard` (card com ícone,
   título e ação), `SecaoHead` (+ `Ajuda`, o "?"), `Tabela.tsx`
   (`CABECALHO_TABELA`, `LINHA_TABELA`, `entradaLinha(i)` para `motion.tr`,
   `SelectPainel`), `BarraAnimada`/`ColunaAnimada`/`BarrasRanking`,
-  `NumeroAnimado` e `Entrada` (fade em sequência por `indice`, `elevar` no
+  `NumeroAnimado` (rola como contador, `NumeroRolante`) e `Entrada` (tomba do
+  fundo em cascata por `indice`, parada durante a troca de tela; `elevar` no
   hover). `overview/PecasSubAbas.tsx` e `OverviewBlocos.tsx` só reexportam.
+  `CabecalhoPagina` é um painel verde-escuro (`PAINEL_TITULO`, com a classe
+  `dark` dentro pra botões e selos ficarem legíveis); tela sem ele (Overview)
+  usa `PAINEL_TITULO` + `TituloPagina`.
+- **Animações (2026-11-23, linguagem da Central de Tickets)**: troca de tela
+  "Mergulho suave" em `components/TransicaoTela.tsx` (`useTransicao().ativo`
+  diz se há troca em curso); efeitos de ação em `lib/efeitos.ts` (carimbar,
+  desintegrar/`excluirItem`, aprovado, decolar, celebrarSalvo, efeitoCopiado,
+  leque, cadeadoAbrindo, chamaUrgente, brotar...) e peças em `lib/animacoes.ts`
+  (curvas, faíscas, `trocarTemaAnimado`); formulários: `handleSubmit(salvar,
+  tremerInvalidos)` e `await salvoNoBotao(evento)`/`enviadoNoBotao(evento)`
+  antes de fechar o pop-up; `useCascata` (AppLayout), `useBrotarNovos`,
+  `ui/menu3d.ts`, `ui/abaLivro.ts` (subaba e mês virando página),
+  `Interruptor`, `BotaoCopiar`. Tudo respeita "reduzir movimento".
 - **`EmptyState`** — estado vazio padrão (ícone + título + descrição +
   ação opcional), usado em toda listagem sem resultado.
-- **`Skeleton` / `CardSkeleton`** — loading state padrão (`animate-pulse`).
+- **`Skeleton` / `CardSkeleton`** — loading state padrão (fundo verde claro
+  com brilho verde passando).
 - **`Avatar`** — iniciais + cor determinística por hash do nome (paleta
   fixa de 5 cores), tamanhos `sm`/`md`/`lg`, aceita `statusDot`.
 - **`DateRangePopover`** — único componente de filtro de período da
@@ -693,10 +721,13 @@ Todos em `src/components/ui/`:
   substitui o markup `fixed inset-0 ... bg-ink/40` + `<Card>` que era
   replicado manualmente em ~11 páginas. Fecha com Escape ou clique no
   backdrop, e expõe `role="dialog"`/`aria-modal`. Usar sempre este
-  componente para novos modais — não recriar o markup manual.
+  componente para novos modais — não recriar o markup manual. Desde
+  2026-11-23 vai num portal no `body` e, aberto, marca `body[data-dialogo]`:
+  `#conteudo-tela` recua (transform). Painel `position:fixed` que fica aberto
+  junto com um Dialog (ex.: o lateral do Calendário) também precisa de portal.
 
-Fora de `ui/`: `components/layout/Sidebar.tsx` e `Header.tsx` (chrome fixo,
-ver seção 6 para a lógica de seções por permissão),
+Fora de `ui/`: `components/layout/Sidebar.tsx` e `Header.tsx` (chrome fixo
+verde-escuro; menu agrupado por assunto, ver seção 15),
 `components/GlobalSearch.tsx` (busca no Header) e
 `components/CollaboratorsOnline.tsx` (seção da Home, Realtime).
 
@@ -795,7 +826,11 @@ CSAT etc.) em `docs/HISTORICO.md`.
   tom minimalista/refinado) — gradientes decorativos (barra de destaque de
   `Card accent`, semáforo de `corPorFaixa`, nav ativo da Sidebar, fundo do
   Login) foram todos trocados por cor sólida; o único gradiente que
-  sobrou é funcional (sweep do `Skeleton`/shimmer), não decorativo.
+  sobrou é funcional (sweep do `Skeleton`/shimmer), não decorativo (o círculo
+  do `PAINEL_TITULO` é um recorte de borda dura, cor sólida). **Marca forte
+  (2026-11-23, escolhida pelo usuário num protótipo)**: menu lateral,
+  cabeçalho e painel do título em `forest-800` (`forest-950` no escuro),
+  fundo claro `237 242 241`.
 - **Modo escuro** (desde 2026-08-31, ver `docs/HISTORICO.md` para o histórico
   completo): `ink`/`sand` são variáveis CSS (`.dark` em `<html>` troca o
   valor), então `bg-sand-surface`/`text-ink`/`border-sand-line` já
@@ -820,16 +855,16 @@ CSAT etc.) em `docs/HISTORICO.md`.
 - **Raio de borda**: `rounded-xl`/`rounded-2xl` em praticamente todo
   elemento (cards, inputs, botões, modais) — nunca `rounded-none`/`rounded-sm`
   sem motivo.
-- **Sombras**: `shadow-card` (base), `shadow-soft`, `shadow-float` (modais,
-  sidebar expandida) — valores mais rasos/neutros desde o redesign de
-  2026-09-05 (antes tinham tinta verde forte). `shadow-glow` foi **removida**
+- **Sombras**: `shadow-card` (base, duas camadas com tinta da marca desde
+  2026-11-23), `shadow-destaque` (indicador cheio), `shadow-painel` (painel
+  do título), `shadow-soft`, `shadow-float` (modais, sidebar expandida). `shadow-glow` foi **removida**
   junto com o teal — não usar `shadow-lg`/`shadow-xl` padrão do Tailwind.
 - **Motion**: `framer-motion` já é dependência instalada — usar em vez de
   CSS `@keyframes` sempre que a animação depende de estado React (entrada/
   saída condicional, `layoutId` pra elemento que desliza entre posições).
-  `@keyframes` em `index.css` (hoje só `shimmer`, do Skeleton — os blobs
-  decorativos do Login foram removidos no redesign de 2026-09-05) só faz
-  sentido pra animação puramente decorativa e sempre-ativa, sem estado.
+  `@keyframes` em `index.css` (`shimmer` do Skeleton e os `gesto-*` dos ícones
+  do menu) só faz sentido pra animação sem estado. Efeito pontual de uma
+  ação (partículas, carimbo, pedaços) usa Web Animations em `lib/efeitos.ts`.
   Toda animação nova (própria ou herdada de `prefers-reduced-motion`)
   precisa continuar funcionando com `prefers-reduced-motion: reduce` — ver
   o bloco já existente em `index.css`. `MotionConfig reducedMotion="user"`
@@ -843,7 +878,7 @@ CSAT etc.) em `docs/HISTORICO.md`.
   envolvido pelo `{condicao && <Dialog>...}` do estado local — não recriar o
   markup `fixed inset-0 ... bg-black/50` manualmente. Já tem animação de
   entrada (`framer-motion`, fade + scale) e `max-h-[90vh] overflow-y-auto`
-  embutidos; fechamento continua instantâneo (ver `docs/HISTORICO.md`, 2026-09-04) —
+  embutidos (vem do fundo com mola, tela de trás recua); fechamento continua instantâneo (ver `docs/HISTORICO.md`, 2026-09-04) —
   não é um bug esquecido, é limitação conhecida de escopo. Passe
   `className` para ajustar `max-w-*`/altura quando o formulário for maior
   que o padrão (`max-w-xl`).
@@ -904,10 +939,12 @@ CSAT etc.) em `docs/HISTORICO.md`.
    handler do clique, nunca no topo do arquivo. Se for admin-only, envolver em
    `<Route element={<AdminOnlyRoute />}>`; se depender de permissão
    granular, em `<Route element={<RequirePermission slug="..." />}>`.
-3. Se a página deve aparecer na sidebar, adicionar em
-   `src/components/layout/Sidebar.tsx` — na seção certa (`sacItems` para
-   área comum, bloco condicional `hasPermission(...)` para módulo com
-   permissão granular, ou bloco `isAdmin` para área de administradores).
+3. Se a página deve aparecer na sidebar, adicionar em `SECOES` de
+   `src/components/layout/Sidebar.tsx`, no grupo do assunto (Trabalho,
+   Resultados, Conteúdo; desde 2026-11-23 não se agrupa por permissão).
+   Restrição vira selo no ícone: `acesso: "admin"` (coroa amarela) ou
+   `"permissao"` (chave); subitem com permissão usa `filhos: [{ perm }]`.
+   Telas parecidas viram subitens de um item só (Pesquisas, Materiais).
 4. Buscar dados só via funções novas/existentes de `src/services/api.ts`
    (nunca `supabase.from` direto na página) — criar as funções necessárias
    lá primeiro, seguindo a convenção `fetchX`.
@@ -948,8 +985,9 @@ CSAT etc.) em `docs/HISTORICO.md`.
    isso, removida em 2026-08-18, ver `docs/HISTORICO.md`).
 2. Proteger a rota com `<Route element={<RequirePermission
    slug="meu_slug" />}>` em `App.tsx`.
-3. Na Sidebar, mostrar o item condicionado a `hasPermission("meu_slug")`
-   (seguir o padrão do bloco "Módulos com permissão" em `Sidebar.tsx`).
+3. Na Sidebar, pôr o item no grupo do assunto com `perm: "meu_slug"` num
+   subitem (o item some se a pessoa não tiver nenhum) e `acesso: "permissao"`
+   no item (selo de chave). Ver `SECOES` em `Sidebar.tsx`.
 4. No banco, qualquer política de RLS que precise liberar escrita para
    quem tem essa permissão deve chamar `has_permission('meu_slug')` — não
    confiar só no bloqueio de rota do frontend.

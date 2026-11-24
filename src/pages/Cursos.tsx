@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type BaseSyntheticEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -15,6 +15,7 @@ import { Entrada } from "@/components/ui/Entrada";
 import { ChipIcone } from "@/components/ui/Indicador";
 import { useAuth } from "@/contexts/AuthContext";
 import { fetchCourses, fetchAllCourses, upsertCourse } from "@/services/api";
+import { tremerInvalidos, salvoNoBotao } from "@/lib/efeitos";
 
 const schema = z.object({
   titulo: z.string().min(1, "Informe o título"),
@@ -46,11 +47,12 @@ export default function Cursos() {
     setDialogAberto(true);
   }
 
-  async function onSubmit(data: FormT) {
+  async function onSubmit(data: FormT, evento?: BaseSyntheticEvent) {
     setSalvando(true); setErro(null);
     try {
       await upsertCourse(data);
       await queryClient.invalidateQueries({ queryKey: ["courses"] });
+      await salvoNoBotao(evento);
       setDialogAberto(false);
     } catch (err) { setErro(err instanceof Error ? err.message : "Não foi possível salvar."); }
     finally { setSalvando(false); }
@@ -119,7 +121,7 @@ export default function Cursos() {
       {dialogAberto && (
         <Dialog onClose={() => setDialogAberto(false)}>
           <h2 className="font-display text-base font-semibold text-ink">Novo curso</h2>
-          <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-3">
+          <form onSubmit={handleSubmit(onSubmit, tremerInvalidos)} className="mt-4 space-y-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-ink/70">Título</label>
               <input {...register("titulo")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm outline-none focus:border-forest-500" />

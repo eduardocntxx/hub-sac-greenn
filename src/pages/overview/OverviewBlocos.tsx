@@ -31,7 +31,7 @@ function BlocoAtencao({ icone: Icone, titulo, children }: { icone: LucideIcon; t
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
-      className="flex flex-col gap-3 rounded-2xl bg-sand-surface p-4 shadow-card ring-1 ring-sand-line transition-shadow hover:shadow-card-hover"
+      className="flex flex-col gap-3 rounded-[20px] bg-sand-surface p-4 shadow-card transition-shadow hover:shadow-card-hover dark:ring-1 dark:ring-sand-line"
     >
       <div className="flex items-center gap-2.5">
         <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-forest-500/10 text-forest-600 dark:text-forest-300">

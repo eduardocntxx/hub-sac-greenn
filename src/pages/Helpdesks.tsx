@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type BaseSyntheticEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -26,6 +26,7 @@ import {
   HELPDESK_LINK_PREFIX,
 } from "@/services/api";
 import type { DbHelpdesk } from "@/types/database";
+import { carimbar, confete, desintegrar, enviadoNoBotao, tremerInvalidos } from "@/lib/efeitos";
 
 const statusLabel: Record<DbHelpdesk["status"], string> = {
   solicitando: "Solicitando",
@@ -53,6 +54,7 @@ export default function Helpdesks() {
   const [detalhe, setDetalhe] = useState<DbHelpdesk | null>(null);
   const [linkParaFinalizar, setLinkParaFinalizar] = useState<{ h: DbHelpdesk; link: string } | null>(null);
   const [arrastando, setArrastando] = useState<string | null>(null);
+  const [colunaAlvo, setColunaAlvo] = useState<string | null>(null);
 
   const { data: helpdesks, isLoading } = useQuery({ queryKey: ["helpdesks"], queryFn: fetchHelpdesks });
 
@@ -69,13 +71,26 @@ export default function Helpdesks() {
     setDialogAberto(true);
   }
 
-  async function onSubmit(data: RequestForm) {
+  // Ferramenta liberada: carimbo "Liberado" no cartão já na coluna nova, com confete.
+  function celebrarLiberacao(id: string) {
+    setTimeout(() => {
+      const el = document.querySelector(`[data-helpdesk="${id}"]`);
+      if (!el) return;
+      void carimbar(el, "Liberado", "#16a34a");
+      const r = el.getBoundingClientRect();
+      confete({ x: r.left + r.width / 2, y: r.top + r.height / 2 }, 22);
+    }, 120);
+  }
+
+  async function onSubmit(data: RequestForm, evento?: BaseSyntheticEvent) {
     if (!user) return;
     setSalvando(true);
     setErro(null);
     try {
       await requestHelpdesk({ ...data, created_by: user.id });
       await queryClient.invalidateQueries({ queryKey: ["helpdesks"] });
+      // Solicitação enviada: o aviãozinho decola do botão.
+      await enviadoNoBotao(evento);
       setDialogAberto(false);
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível enviar a solicitação.");
@@ -95,6 +110,7 @@ export default function Helpdesks() {
       const aprovarAgora = !h.approved_by;
       await updateHelpdeskStatus(h.id, novoStatus, aprovarAgora ? user.id : undefined);
       await queryClient.invalidateQueries({ queryKey: ["helpdesks"] });
+      if (novoStatus === "finalizado") celebrarLiberacao(h.id);
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível mover a solicitação.");
     }
@@ -115,6 +131,7 @@ export default function Helpdesks() {
         linkParaFinalizar.link
       );
       await queryClient.invalidateQueries({ queryKey: ["helpdesks"] });
+      celebrarLiberacao(linkParaFinalizar.h.id);
       setLinkParaFinalizar(null);
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível finalizar.");
@@ -126,8 +143,11 @@ export default function Helpdesks() {
     setErro(null);
     try {
       await deleteHelpdesk(h.id);
-      await queryClient.invalidateQueries({ queryKey: ["helpdesks"] });
       setDetalhe(null);
+      // Excluída: o cartão se desfaz em pedaços antes de sumir.
+      const cartao = document.querySelector<HTMLElement>(`[data-helpdesk="${h.id}"]`);
+      if (cartao) await desintegrar(cartao);
+      await queryClient.invalidateQueries({ queryKey: ["helpdesks"] });
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível excluir.");
     }
@@ -161,14 +181,19 @@ export default function Helpdesks() {
               <div
                 key={coluna}
                 onDragOver={(e) => e.preventDefault()}
+                onDragEnter={() => setColunaAlvo(coluna)}
                 onDrop={(e) => {
                   e.preventDefault();
                   const id = e.dataTransfer.getData("text/plain");
                   const h = (helpdesks ?? []).find((x) => x.id === id);
                   if (h && h.status !== coluna) moverPara(h, coluna);
                   setArrastando(null);
+                  setColunaAlvo(null);
                 }}
-                className="rounded-2xl bg-sand-subtle/60 p-3 ring-1 ring-sand-line"
+                className={cn(
+                  "rounded-2xl bg-sand-subtle/60 p-3 ring-1 ring-sand-line transition-[box-shadow,background-color] duration-200",
+                  arrastando && colunaAlvo === coluna && "bg-forest-500/[0.07] ring-2 ring-forest-500"
+                )}
               >
                 <div className="mb-3 flex items-center justify-between px-1">
                   <h2 className="font-display text-[13.5px] font-bold text-ink">{statusLabel[coluna]}</h2>
@@ -184,15 +209,19 @@ export default function Helpdesks() {
                       <Entrada key={h.id} indice={i}>
                       <Card
                         draggable
+                        data-helpdesk={h.id}
                         onDragStart={(e) => {
                           e.dataTransfer.setData("text/plain", h.id);
                           setArrastando(h.id);
                         }}
-                        onDragEnd={() => setArrastando(null)}
+                        onDragEnd={() => {
+                          setArrastando(null);
+                          setColunaAlvo(null);
+                        }}
                         onClick={() => setDetalhe(h)}
                         className={cn(
                           "cursor-grab p-3 transition-[opacity,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:ring-1 hover:ring-forest-500/40 active:cursor-grabbing",
-                          arrastando === h.id && "rotate-1 opacity-50"
+                          arrastando === h.id && "-rotate-2 scale-95 opacity-40"
                         )}
                       >
                         <p className="text-[13.5px] font-bold text-ink">{h.nome}</p>
@@ -267,7 +296,7 @@ export default function Helpdesks() {
             <p className="mt-1 text-xs text-ink/50">
               O link será definido pelo administrador apenas na finalização.
             </p>
-            <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-3">
+            <form onSubmit={handleSubmit(onSubmit, tremerInvalidos)} className="mt-4 space-y-3">
               <div>
                 <label className="mb-1 block text-xs font-medium text-ink/70">Nome do Helpdesk</label>
                 <input {...register("nome")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm outline-none focus:border-forest-500" />

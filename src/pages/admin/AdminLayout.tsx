@@ -1,5 +1,7 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { motion } from "framer-motion";
+import { useRef } from "react";
+import { NavLink, useLocation } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import { OutletDaTela, useTransicao } from "@/components/TransicaoTela";
 import { cn } from "@/lib/utils";
 import { CabecalhoPagina } from "@/components/ui/CabecalhoPagina";
 
@@ -35,6 +37,40 @@ const grupos: { nome: string; tabs: { to: string; label: string; end?: boolean }
     ],
   },
 ];
+
+const ORDEM_ABAS = grupos.flatMap((g) => g.tabs.map((t) => t.to));
+
+// Subaba: o conteúdo vira como página de livro a partir da borda do lado da aba clicada;
+// título e abas ficam parados.
+function ConteudoDaAba() {
+  const { pathname } = useLocation();
+  const { ativo } = useTransicao();
+  const indice = Math.max(0, ORDEM_ABAS.indexOf(pathname));
+  const anterior = useRef(indice);
+  const lado = indice >= anterior.current ? "direita" : "esquerda";
+  anterior.current = indice;
+  const giro = 10;
+  return (
+    <div className="relative" style={{ perspective: "1200px" }}>
+      <AnimatePresence initial={false} mode="popLayout" custom={lado}>
+        <motion.div
+          key={pathname}
+          custom={lado}
+          variants={{
+            entrar: (l: string) => ({ opacity: 0, rotateY: l === "direita" ? giro : -giro, x: l === "direita" ? "6%" : "-6%", z: -160, originX: l === "direita" ? 0 : 1 }),
+            centro: { opacity: 1, rotateY: 0, x: 0, z: 0, transition: { type: "spring", stiffness: 170, damping: 20, delay: 0.06 } },
+            sair: { opacity: 0, z: -120, transition: { duration: 0.28, ease: "easeIn" } },
+          }}
+          initial={ativo ? false : "entrar"}
+          animate="centro"
+          exit="sair"
+        >
+          <OutletDaTela />
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+}
 
 export default function AdminLayout() {
   return (
@@ -81,7 +117,7 @@ export default function AdminLayout() {
         ))}
       </div>
 
-      <Outlet />
+      <ConteudoDaAba />
     </div>
   );
 }

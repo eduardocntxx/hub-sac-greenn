@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Interruptor } from "@/components/ui/Interruptor";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -170,9 +171,8 @@ export default function AdminPermissoes() {
                       const granted = grantedSet.has(`${u.id}:${m.id}`);
                       return (
                         <td key={m.id} className="px-3 py-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={granted}
+                          <Interruptor
+                            ligado={granted}
                             onChange={() =>
                               toggleMutation.mutate({
                                 userId: u.id,
@@ -180,8 +180,7 @@ export default function AdminPermissoes() {
                                 granted,
                               })
                             }
-                            className="h-4 w-4 accent-forest-500"
-                            title={`Gerenciar ${m.nome}`}
+                            rotulo={`${u.nome}: gerenciar ${m.nome}`}
                           />
                         </td>
                       );

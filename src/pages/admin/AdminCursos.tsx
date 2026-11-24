@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type BaseSyntheticEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -15,6 +15,7 @@ import { CABECALHO_TABELA, LINHA_TABELA, entradaLinha } from "@/components/ui/Ta
 import { cn } from "@/lib/utils";
 import { fetchAllCourses, upsertCourse, deleteCourse } from "@/services/api";
 import type { DbCourse } from "@/types/database";
+import { tremerInvalidos, salvoNoBotao, excluirItem } from "@/lib/efeitos";
 
 const schema = z.object({
   titulo: z.string().min(1, "Informe o título"),
@@ -47,17 +48,18 @@ export default function AdminCursos() {
     reset({ titulo: c.titulo, descricao: c.descricao ?? "", categoria: c.categoria ?? "", link: c.link ?? "", ordem: c.ordem, publicado: c.publicado });
     setDialogAberto(true);
   }
-  async function onSubmit(data: FormT) {
+  async function onSubmit(data: FormT, evento?: BaseSyntheticEvent) {
     setSalvando(true); setErro(null);
     try {
       await upsertCourse({ ...(editando ? { id: editando.id } : {}), ...data });
       await queryClient.invalidateQueries({ queryKey: ["courses"] });
+      await salvoNoBotao(evento);
       setDialogAberto(false);
     } catch (err) { setErro(err instanceof Error ? err.message : "Não foi possível salvar."); }
     finally { setSalvando(false); }
   }
-  async function remover(id: string) {
-    try { await deleteCourse(id); await queryClient.invalidateQueries({ queryKey: ["courses"] }); }
+  async function remover(id: string, item?: HTMLElement | null) {
+    try { await deleteCourse(id); if (item) await excluirItem(item); await queryClient.invalidateQueries({ queryKey: ["courses"] }); }
     catch (err) { setErro(err instanceof Error ? err.message : "Não foi possível remover."); }
   }
 
@@ -96,7 +98,7 @@ export default function AdminCursos() {
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-1">
                       <button onClick={() => abrirEdicao(c)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-sand-bg hover:text-ink"><Pencil size={15} /></button>
-                      <button onClick={() => remover(c.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-rust-500/10 hover:text-rust-500"><Trash2 size={15} /></button>
+                      <button onClick={(e) => remover(c.id, e.currentTarget.closest<HTMLElement>("tr, [data-ui='card']"))} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink/50 hover:bg-rust-500/10 hover:text-rust-500"><Trash2 size={15} /></button>
                     </div>
                   </td>
                 </motion.tr>
@@ -108,7 +110,7 @@ export default function AdminCursos() {
       {dialogAberto && (
         <Dialog onClose={() => setDialogAberto(false)}>
             <h2 className="font-display text-base font-semibold text-ink">{editando ? "Editar curso" : "Novo curso"}</h2>
-            <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-3">
+            <form onSubmit={handleSubmit(onSubmit, tremerInvalidos)} className="mt-4 space-y-3">
               <div>
                 <label className="mb-1 block text-xs font-medium text-ink/70">Título</label>
                 <input {...register("titulo")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm outline-none focus:border-forest-500" />

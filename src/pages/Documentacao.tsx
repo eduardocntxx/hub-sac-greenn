@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { BotaoCopiar } from "@/components/ui/BotaoCopiar";
 import { useQuery } from "@tanstack/react-query";
 import { Search, FileText } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -65,7 +66,10 @@ export default function Documentacao() {
                     <p className="text-xs text-ink/50">{d.descricao}</p>
                   </div>
                 </div>
-                <Badge tone="neutral">{d.categoria ?? "Geral"}</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge tone="neutral">{d.categoria ?? "Geral"}</Badge>
+                  {d.link && <BotaoCopiar texto={d.link} />}
+                </div>
               </Card>
             </a>
             </Entrada>

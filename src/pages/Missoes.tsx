@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type BaseSyntheticEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -27,6 +27,7 @@ import {
   updateMyMissionProgress,
 } from "@/services/api";
 import type { DbMission } from "@/types/database";
+import { carimbar, confete, desintegrar, iniciaisDoNome, salvoNoBotao, tremerInvalidos, voarAvatar } from "@/lib/efeitos";
 
 const dificuldadeTone = { facil: "success", media: "warning", dificil: "danger" } as const;
 const statusTone = {
@@ -114,7 +115,24 @@ export default function Missoes() {
     setDialogAberto(true);
   }
 
-  async function onSubmit(data: MissionForm) {
+  // Quadro "minhas missões": destino do avatar que voa ao assumir. Arrastar: o cartão
+  // levanta e a coluna de destino acende.
+  const quadro = useRef<HTMLDivElement>(null);
+  const [arrastando, setArrastando] = useState<string | null>(null);
+  const [colunaAlvo, setColunaAlvo] = useState<string | null>(null);
+
+  // Missão concluída: carimbo "Concluída" no cartão já na coluna nova, com confete.
+  function celebrarConclusao(seletor: string) {
+    setTimeout(() => {
+      const el = document.querySelector(seletor);
+      if (!el) return;
+      void carimbar(el, "Concluída", "#16a34a");
+      const r = el.getBoundingClientRect();
+      confete({ x: r.left + r.width / 2, y: r.top + r.height / 2 }, 24);
+    }, 120);
+  }
+
+  async function onSubmit(data: MissionForm, evento?: BaseSyntheticEvent) {
     setSalvando(true);
     setErro(null);
     try {
@@ -128,6 +146,7 @@ export default function Missoes() {
       });
       await queryClient.invalidateQueries({ queryKey: ["missions"] });
       await queryClient.invalidateQueries({ queryKey: ["mission-progress"] });
+      await salvoNoBotao(evento);
       setDialogAberto(false);
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível salvar.");
@@ -136,20 +155,24 @@ export default function Missoes() {
     }
   }
 
-  async function remover(id: string) {
+  async function remover(id: string, cartao?: HTMLElement | null) {
     try {
       await deleteMission(id);
+      // Excluída: o cartão se desfaz em pedaços antes de sumir da lista.
+      if (cartao) await desintegrar(cartao);
       await queryClient.invalidateQueries({ queryKey: ["missions"] });
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível remover.");
     }
   }
 
-  async function assumir(missionId: string) {
+  async function assumir(missionId: string, botao?: HTMLElement) {
     setAssumindo(missionId);
     setErro(null);
     try {
       await claimMission(missionId);
+      // Assumiu: o avatar voa do botão até o quadro das suas missões.
+      if (botao && quadro.current && user) void voarAvatar(botao, quadro.current, iniciaisDoNome(user.nome));
       await queryClient.invalidateQueries({ queryKey: ["missions"] });
       await queryClient.invalidateQueries({ queryKey: ["mission-progress"] });
     } catch (err) {
@@ -180,11 +203,12 @@ export default function Missoes() {
     return { novas, emProgresso, concluidas };
   }, [minhasMissoes]);
 
-  async function moverProgresso(missionId: string, atualAlvo: number) {
+  async function moverProgresso(missionId: string, atualAlvo: number, concluiu = false) {
     setErro(null);
     try {
       await updateMyMissionProgress(missionId, atualAlvo);
       await queryClient.invalidateQueries({ queryKey: ["mission-progress"] });
+      if (concluiu) celebrarConclusao(`[data-minha-missao="${missionId}"]`);
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Não foi possível mover a missão.");
     }
@@ -225,7 +249,7 @@ export default function Missoes() {
             description="Assuma uma missão disponível abaixo ou aguarde uma nova atribuição."
           />
         ) : (
-          <div className="grid gap-4 md:grid-cols-3">
+          <div ref={quadro} className="grid gap-4 md:grid-cols-3">
             {(
               [
                 { chave: "novas" as const, titulo: "Novas Missões", dot: "bg-amber-500", alvo: () => 0 },
@@ -241,17 +265,22 @@ export default function Missoes() {
               <div
                 key={col.chave}
                 onDragOver={(e) => e.preventDefault()}
+                onDragEnter={() => setColunaAlvo(col.chave)}
                 onDrop={(e) => {
                   e.preventDefault();
+                  setColunaAlvo(null);
                   const missionId = e.dataTransfer.getData("text/plain");
                   const item = minhasMissoes.find((p) => p.mission_id === missionId);
                   if (!item) return;
                   const meta = item.missions?.meta ?? 1;
                   const jaEstaAqui = colunas[col.chave].some((p) => p.mission_id === missionId);
                   if (jaEstaAqui) return;
-                  moverProgresso(missionId, col.alvo(meta));
+                  moverProgresso(missionId, col.alvo(meta), col.chave === "concluidas");
                 }}
-                className="rounded-2xl bg-sand-subtle/60 p-3 ring-1 ring-sand-line"
+                className={cn(
+                  "rounded-2xl bg-sand-subtle/60 p-3 ring-1 ring-sand-line transition-[box-shadow,background-color] duration-200",
+                  arrastando && colunaAlvo === col.chave && "bg-forest-500/[0.07] ring-2 ring-forest-500"
+                )}
               >
                 <div className="mb-3 flex items-center gap-2 px-1">
                   <span className={cn("h-2 w-2 rounded-full", col.dot)} />
@@ -268,9 +297,20 @@ export default function Missoes() {
                         <Entrada key={p.id} indice={i}>
                         <Card
                           draggable
-                          onDragStart={(e) => e.dataTransfer.setData("text/plain", p.mission_id)}
+                          data-minha-missao={p.mission_id}
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData("text/plain", p.mission_id);
+                            setArrastando(p.mission_id);
+                          }}
+                          onDragEnd={() => {
+                            setArrastando(null);
+                            setColunaAlvo(null);
+                          }}
                           onClick={() => m && setDetalhe(m)}
-                          className="cursor-grab p-4 transition-transform duration-200 hover:-translate-y-0.5 hover:ring-1 hover:ring-forest-500/40 active:cursor-grabbing"
+                          className={cn(
+                            "cursor-grab p-4 transition-[transform,opacity] duration-200 hover:-translate-y-0.5 hover:ring-1 hover:ring-forest-500/40 active:cursor-grabbing",
+                            arrastando === p.mission_id && "-rotate-2 scale-95 opacity-40"
+                          )}
                         >
                           <div className="flex items-start gap-2">
                             <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", col.dot)} />
@@ -317,7 +357,7 @@ export default function Missoes() {
                     <div className="flex items-center gap-3">
                       <span className="flex items-center gap-1 text-xs text-ink/60"><Coins size={12} /> {m.moedas} moedas</span>
                     </div>
-                    <Button size="sm" disabled={assumindo === m.id} onClick={() => assumir(m.id)}>
+                    <Button size="sm" disabled={assumindo === m.id} onClick={(e) => assumir(m.id, e.currentTarget)}>
                       <Hand size={14} /> {assumindo === m.id ? "Assumindo..." : "Assumir"}
                     </Button>
                   </div>
@@ -344,16 +384,22 @@ export default function Missoes() {
                   <div
                     key={coluna}
                     onDragOver={(e) => e.preventDefault()}
+                    onDragEnter={() => setColunaAlvo(coluna)}
                     onDrop={async (e) => {
                       e.preventDefault();
+                      setColunaAlvo(null);
                       const id = e.dataTransfer.getData("text/plain");
                       const missao = todasMissoes.find((x) => x.id === id);
                       if (missao && missao.status !== coluna) {
                         await upsertMission({ id, status: coluna });
                         await queryClient.invalidateQueries({ queryKey: ["missions"] });
+                        if (coluna === "concluida") celebrarConclusao(`[data-missao-admin="${id}"]`);
                       }
                     }}
-                    className="rounded-2xl bg-sand-subtle/60 p-3 ring-1 ring-sand-line"
+                    className={cn(
+                      "rounded-2xl bg-sand-subtle/60 p-3 ring-1 ring-sand-line transition-[box-shadow,background-color] duration-200",
+                      arrastando && colunaAlvo === coluna && "bg-forest-500/[0.07] ring-2 ring-forest-500"
+                    )}
                   >
                     <div className="mb-3 flex items-center justify-between px-1">
                       <h3 className="font-display text-[13.5px] font-bold capitalize text-ink">{coluna}</h3>
@@ -367,9 +413,20 @@ export default function Missoes() {
                           <Card
                             key={m.id}
                             draggable
-                            onDragStart={(e) => e.dataTransfer.setData("text/plain", m.id)}
+                            data-missao-admin={m.id}
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/plain", m.id);
+                              setArrastando(m.id);
+                            }}
+                            onDragEnd={() => {
+                              setArrastando(null);
+                              setColunaAlvo(null);
+                            }}
                             onClick={() => abrirEdicao(m)}
-                            className="cursor-grab p-3 transition-transform duration-200 hover:-translate-y-0.5 hover:ring-1 hover:ring-forest-500/40 active:cursor-grabbing"
+                            className={cn(
+                              "cursor-grab p-3 transition-[transform,opacity] duration-200 hover:-translate-y-0.5 hover:ring-1 hover:ring-forest-500/40 active:cursor-grabbing",
+                              arrastando === m.id && "-rotate-2 scale-95 opacity-40"
+                            )}
                           >
                             <p className="text-sm font-medium text-ink">{m.titulo}</p>
                             <p className="mt-1 text-xs text-ink/50">{m.categoria}</p>
@@ -378,7 +435,7 @@ export default function Missoes() {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  remover(m.id);
+                                  remover(m.id, e.currentTarget.closest<HTMLElement>("[data-missao-admin]"));
                                 }}
                                 className="flex h-6 w-6 items-center justify-center rounded text-ink/40 hover:bg-rust-50 hover:text-rust-600 dark:hover:bg-rust-500/15 dark:hover:text-rust-400"
                               >
@@ -402,7 +459,7 @@ export default function Missoes() {
             <h2 className="font-display text-base font-semibold text-ink">
               {editando ? "Editar missão" : "Nova missão"}
             </h2>
-            <form onSubmit={handleSubmit(onSubmit)} className="mt-4 space-y-3">
+            <form onSubmit={handleSubmit(onSubmit, tremerInvalidos)} className="mt-4 space-y-3">
               <div>
                 <label className="mb-1 block text-xs font-medium text-ink/70">Título</label>
                 <input {...register("titulo")} className="w-full rounded-lg border border-sand-line px-3 py-2 text-sm outline-none focus:border-forest-500" />
