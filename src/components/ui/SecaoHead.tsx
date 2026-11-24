@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ladoDoPopover, POPOVER_A_ESQUERDA } from "@/components/ui/ladoPopover";
 import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { ANIMACAO_MENU } from "@/components/ui/menu3d";
@@ -23,6 +24,7 @@ export function SecaoHead({ titulo, subtitulo, ajuda, acao, className }: { titul
 
 export function Ajuda({ children }: { children: ReactNode }) {
   const [aberto, setAberto] = useState(false);
+  const [lado, setLado] = useState(POPOVER_A_ESQUERDA);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!aberto) return;
@@ -38,7 +40,10 @@ export function Ajuda({ children }: { children: ReactNode }) {
         type="button"
         aria-label="O que significa"
         aria-expanded={aberto}
-        onClick={() => setAberto((a) => !a)}
+        onClick={(e) => {
+          setLado(ladoDoPopover(e.currentTarget, 288));
+          setAberto((a) => !a);
+        }}
         className={cn(
           "flex h-6 w-6 items-center justify-center rounded-full border border-sand-line-strong text-xs font-bold text-ink/50 transition hover:text-ink",
           aberto && "bg-sand-subtle text-ink"
@@ -50,7 +55,7 @@ export function Ajuda({ children }: { children: ReactNode }) {
         {aberto && (
           <motion.div
             {...ANIMACAO_MENU}
-            className="absolute right-0 top-8 z-20 w-72 origin-top-right rounded-xl border border-sand-line-strong bg-sand-surface p-3 text-xs leading-relaxed text-ink/60 shadow-float"
+            className={cn("absolute top-8 z-20 w-72 rounded-xl border border-sand-line-strong bg-sand-surface p-3 text-xs leading-relaxed text-ink/60 shadow-float", lado)}
           >
             {children}
           </motion.div>

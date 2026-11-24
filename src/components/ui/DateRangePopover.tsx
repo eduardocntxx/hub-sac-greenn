@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ladoDoPopover, POPOVER_A_ESQUERDA } from "@/components/ui/ladoPopover";
 import { AnimatePresence, motion } from "framer-motion";
 import { CalendarDays, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { PERIODO_LABELS, resolvePeriodo, type PeriodoPreset } from "@/lib/dateRanges";
@@ -27,6 +28,7 @@ export function DateRangePopover({
   className,
 }: DateRangePopoverProps) {
   const [aberto, setAberto] = useState(false);
+  const [lado, setLado] = useState(POPOVER_A_ESQUERDA);
   const [mesExibido, setMesExibido] = useState(() => new Date());
   const { inicio, fim } = resolvePeriodo(preset, personalizado);
 
@@ -77,7 +79,10 @@ export function DateRangePopover({
     <div className={cn("relative", className)}>
       {aberto && <div className="fixed inset-0 z-10" onClick={() => setAberto(false)} />}
       <button
-        onClick={() => setAberto((a) => !a)}
+        onClick={(e) => {
+          setLado(ladoDoPopover(e.currentTarget, 300));
+          setAberto((a) => !a);
+        }}
         className="flex h-8 items-center gap-1.5 rounded-lg border border-sand-line bg-sand-surface px-2.5 text-[13px] text-ink/60 transition-colors hover:border-sand-line-strong"
       >
         <CalendarDays size={14} className="text-ink/40" />
@@ -90,8 +95,9 @@ export function DateRangePopover({
           {...ANIMACAO_MENU}
           data-cascata-area
           className={cn(
-            "absolute right-0 top-full z-20 mt-1.5 origin-top-right overflow-hidden rounded-xl border border-sand-line bg-sand-surface p-1.5 shadow-float",
-            preset === "personalizado" ? "w-72" : "w-56"
+            "absolute top-full z-20 mt-1.5 overflow-hidden rounded-xl border border-sand-line bg-sand-surface p-1.5 shadow-float",
+            preset === "personalizado" ? "w-72" : "w-56",
+            lado
           )}
         >
           {(Object.entries(PERIODO_LABELS) as [PeriodoPreset, string][]).map(([valor, label]) => (
@@ -115,22 +121,22 @@ export function DateRangePopover({
           {preset === "personalizado" && (
             <div className="mt-1 space-y-2 border-t border-sand-line p-2">
               <div className="flex gap-2">
-                <div className="flex-1">
+                <div className="min-w-0 flex-1">
                   <label className="mb-1 block text-[11px] font-medium text-ink/50">De</label>
                   <input
                     type="date"
                     value={personalizado.inicio}
                     onChange={(e) => onChangePersonalizado({ ...personalizado, inicio: e.target.value })}
-                    className="w-full rounded-lg border border-sand-line px-2 py-1.5 text-[13px]"
+                    className="w-full min-w-0 rounded-lg border border-sand-line bg-sand-surface px-1.5 py-1.5 text-[12.5px] text-ink"
                   />
                 </div>
-                <div className="flex-1">
+                <div className="min-w-0 flex-1">
                   <label className="mb-1 block text-[11px] font-medium text-ink/50">Até</label>
                   <input
                     type="date"
                     value={personalizado.fim}
                     onChange={(e) => onChangePersonalizado({ ...personalizado, fim: e.target.value })}
-                    className="w-full rounded-lg border border-sand-line px-2 py-1.5 text-[13px]"
+                    className="w-full min-w-0 rounded-lg border border-sand-line bg-sand-surface px-1.5 py-1.5 text-[12.5px] text-ink"
                   />
                 </div>
               </div>

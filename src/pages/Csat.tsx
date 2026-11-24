@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ladoDoPopover, POPOVER_A_ESQUERDA } from "@/components/ui/ladoPopover";
 import { useLocation, useNavigate } from "react-router-dom";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { useQuery } from "@tanstack/react-query";
@@ -71,13 +72,17 @@ function FiltrosPopover({
   topicos: (string | null)[];
 }) {
   const [aberto, setAberto] = useState(false);
+  const [lado, setLado] = useState(POPOVER_A_ESQUERDA);
   const ativos = Object.values(filtros).filter(Boolean).length;
 
   return (
     <div className="relative">
       {aberto && <div className="fixed inset-0 z-10" onClick={() => setAberto(false)} />}
       <button
-        onClick={() => setAberto((a) => !a)}
+        onClick={(e) => {
+          setLado(ladoDoPopover(e.currentTarget, 256));
+          setAberto((a) => !a);
+        }}
         className="flex h-9 items-center gap-1.5 rounded-lg border border-sand-line bg-sand-surface px-3 text-sm text-ink/70 transition-colors hover:border-sand-line-strong"
       >
         <SlidersHorizontal size={14} className="text-ink/40" />
@@ -86,7 +91,7 @@ function FiltrosPopover({
       </button>
 
       {aberto && (
-        <div className="absolute right-0 top-full z-20 mt-1.5 w-64 space-y-3 rounded-xl border border-sand-line bg-sand-surface p-3 shadow-float">
+        <div className={cn("absolute top-full z-20 mt-1.5 w-64 space-y-3 rounded-xl border border-sand-line bg-sand-surface p-3 shadow-float", lado)}>
           <div>
             <label className="mb-1 block text-[11px] font-medium text-ink/50">Colaborador</label>
             <select
