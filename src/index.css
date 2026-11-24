@@ -51,9 +51,42 @@
     outline: 2px solid theme("colors.forest.500");
     outline-offset: 2px;
   }
+  /* Campo sem cor própria: sem isto, no tema escuro o Chrome pinta um cinza padrão. */
+  input,
+  select,
+  textarea {
+    background-color: rgb(var(--color-sand-surface));
+    color: rgb(var(--color-ink));
+  }
 }
 
 @layer utilities {
+  /* Tema escuro (e o painel verde do título, que usa .dark por dentro): os cinzas (ink com
+     transparência) ficavam apagados demais no fundo verde quase preto, 3,5:1 no /40 (relato
+     de 2026-11-24). Sobem um degrau só no escuro; o claro não muda. */
+  .dark .text-ink\/25,
+  .dark .text-ink\/30 {
+    color: rgb(var(--color-ink) / 0.45);
+  }
+  .dark .text-ink\/40 {
+    color: rgb(var(--color-ink) / 0.56);
+  }
+  .dark .text-ink\/50 {
+    color: rgb(var(--color-ink) / 0.64);
+  }
+  .dark .text-ink\/55 {
+    color: rgb(var(--color-ink) / 0.68);
+  }
+  .dark .text-ink\/60 {
+    color: rgb(var(--color-ink) / 0.72);
+  }
+  .dark .text-ink\/70 {
+    color: rgb(var(--color-ink) / 0.8);
+  }
+  .dark .placeholder\:text-ink\/30::placeholder {
+    color: rgb(var(--color-ink) / 0.45);
+  }
+
   .scrollbar-thin::-webkit-scrollbar {
     width: 6px;
   }

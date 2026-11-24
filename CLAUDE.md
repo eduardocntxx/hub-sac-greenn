@@ -840,7 +840,11 @@ CSAT etc.) em `docs/HISTORICO.md`.
   bem claro + texto "700", usado em badge/chip/ícone-circular) precisam
   de um par manual `dark:bg-{cor}-500/15 dark:text-{cor}-400` toda vez
   que forem usados — não existe atalho automático pra esse padrão
-  específico (ver `Badge.tsx`/`Avatar.tsx` como referência).
+  específico (ver `Badge.tsx`/`Avatar.tsx` como referência). Os cinzas
+  `text-ink/25` a `/70` sobem um degrau no escuro (`index.css`, 2026-11-24:
+  apagados demais no fundo quase preto), e campo sem cor própria usa
+  `sand-surface` (senão o Chrome pinta cinza). Texto cinza novo: usar esses
+  níveis, não cor fixa.
 - **Tipografia**: `Sora` como única família (`font-display` e `font-body`
   apontam pra ela — redesign 2026-09-05, substituiu o par Poppins/Inter),
   pesos 400/500/600/700/800, diferenciação entre display/body é só
@@ -1013,7 +1017,7 @@ CSAT etc.) em `docs/HISTORICO.md`.
 | CSAT | `/csat` | Permissão granular `csat` ou admin |
 | Reclame Aqui | `/reclame-aqui` | Permissão granular `reclame_aqui` ou admin |
 | NPS | `/nps` | Permissão granular `nps` ou admin |
-| Overview (ex-Performance) | `/performance` | Todo colaborador ativo e aprovado vê a aba Dashboard (indicadores de saúde, "Precisa de atenção", sub-abas Pessoas/Velocidade/Qualidade/Volume); abas Atendimentos e IA genérica, pop-ups e listas de conversas são admin-only. Desde 2026-10-16 tem também o que só existia na Reunião (`overview/SecoesReuniao.tsx`): NPS e CSAT × NPS em Qualidade (admin ou permissão `nps`), maiores TFR em Velocidade (admin) e Migrações em Volume (todos). Reclame Aqui não entra: na RR é digitado à mão e fica só no navegador de quem digitou. `/analytics` redireciona pra cá (página Analytics excluída em 2026-09-24); `/em-risco` foi removida em 2026-08-31 |
+| Overview (ex-Performance) | `/performance` | Todo colaborador ativo e aprovado vê a aba Dashboard (indicadores de saúde, "Precisa de atenção", sub-abas Pessoas/Velocidade/Qualidade/Volume); aba Atendimentos, pop-ups e listas de conversas são admin-only (a aba IA genérica saiu em 2026-11-24, pedido do usuário; as funções `resposta_generica_*` ficaram no banco sem uso). Desde 2026-10-16 tem também o que só existia na Reunião (`overview/SecoesReuniao.tsx`): NPS e CSAT × NPS em Qualidade (admin ou permissão `nps`), maiores TFR em Velocidade (admin) e Migrações em Volume (todos). Reclame Aqui não entra: na RR é digitado à mão e fica só no navegador de quem digitou. `/analytics` redireciona pra cá (página Analytics excluída em 2026-09-24); `/em-risco` foi removida em 2026-08-31 |
 | Suporte Estratégico | `/suporte-estrategico` | Todo colaborador ativo e aprovado (`pode_ver_overview()` na função `taxa_oferta`). Desde 2026-11-12: taxa de oferta do playbook do Felipe (meta 80%) por pessoa e por ferramenta, a partir das tags `oferta`/`oferta-*` do Crisp gravadas em `crisp_conversations.segmentos` pelo "Crisp → Hub" ao resolver a conversa. Pessoa = quem resolveu (`resolved_operator_*`); conversas sem `segmentos` (resolvidas antes de 12/11 ~11:15) ficam fora da taxa. SQL em `supabase/sql/2026-11-12_segmentos_oferta.sql` e `2026-11-12_taxa_oferta.sql`. Taxa de ativação e ticket dos ativados dependem de dev/BI |
 | Administração (Usuários, Perfis, Permissões, Escalas, Metas, Cursos, Documentação, Atualizações, Outros Links) | `/admin/*` | Admin-only estrito |
 

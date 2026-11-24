@@ -91,7 +91,7 @@ function FiltrosPopover({
       </button>
 
       {aberto && (
-        <div className={cn("absolute top-full z-20 mt-1.5 w-64 space-y-3 rounded-xl border border-sand-line bg-sand-surface p-3 shadow-float", lado)}>
+        <div className={cn("absolute top-full z-20 mt-1.5 w-64 space-y-3 rounded-xl border border-sand-line bg-sand-surface p-3 text-ink shadow-float", lado)}>
           <div>
             <label className="mb-1 block text-[11px] font-medium text-ink/50">Colaborador</label>
             <select
