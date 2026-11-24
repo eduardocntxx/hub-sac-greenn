@@ -13,7 +13,7 @@ import { AtendimentoDetalheDialog } from "@/components/AtendimentoDetalheDialog"
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { SortableHeader } from "@/components/ui/SortableHeader";
 import { useAuth } from "@/contexts/AuthContext";
-import { useRealtimeConversas } from "@/hooks/useRealtimeConversas";
+import { useAtualizacaoOverview } from "@/hooks/useAtualizacaoOverview";
 import { usePersistedState } from "@/hooks/usePersistedState";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useNavigate } from "react-router-dom";
@@ -143,7 +143,7 @@ function tempoCurto(min: number | null | undefined): string {
 }
 
 export default function Performance() {
-  useRealtimeConversas();
+  useAtualizacaoOverview();
   const { isAdmin } = useAuth();
   const { hasPermission } = usePermissions();
   const podeVerCsat = hasPermission("csat");

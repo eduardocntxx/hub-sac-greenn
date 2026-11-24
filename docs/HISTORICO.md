@@ -6512,3 +6512,29 @@ não têm mensagem há 7 dias e ~97% têm a última mensagem do atendente/bot; o
 "unresolved". Ou estão abertas na Crisp mesmo, ou foram resolvidas lá sem evento pro Hub (ex.: resolução em massa;
 970 paradas desde 07–21/09). Falta comparar com a Crisp (precisa da liberação do usuário pra usar a API pela sessão
 do navegador).
+
+### Backlog conferido na Crisp, limpeza do banco e desempenho aplicados (2026-11-24)
+
+**Backlog:** com a liberação do usuário, consulta só de leitura à API da Crisp pela sessão do navegador
+(`filter_not_resolved=1`, `filter_inbox_id=all`): **4.290 conversas não resolvidas na própria Crisp** (4.270
+`unresolved`, 20 `pending`; a mais antiga de 2022; 3.741 sem movimento há 7 dias). Amostra de 40 abertas no Hub
+(20 com mais de 30 dias, 20 de 3 a 30 dias): 39 abertas na Crisp, 1 apagada lá (404) e ainda aberta no Hub. Ou seja,
+o card está certo: o time responde e não resolve. As 3.084 do Hub são as de agosto pra cá, sem teste e sem
+operador fora do SAC.
+
+**Aplicado** (`supabase/sql/2026-11-24_limpeza_e_desempenho.sql`, rollback ao lado):
+- 3 índices `session_id` repetidos (mensagens, estados, roteamento) e 7 sem uso. Teste antes, numa transação
+  desfeita com `hypopg_hide_index` (escondendo só na sessão, sem lock), alternando com/sem e `discard plans`:
+  mesmo hash de resultado e tempo igual ou menor (`relogio_espera_cliente` 8.784 → 5.651 ms; as outras iguais).
+  O primeiro teste numa transação só passou dos 100 s da API (524); a consulta foi cancelada com `pg_cancel_backend`.
+- `auditoria_log`: apagadas as 22.754 linhas de UPDATE automático do n8n (`service_role`, sem `origem`) antes de
+  25/10; backup em `~/Downloads/hub-backups/auditoria_log_n8n_ate_2026-10-25.csv` (JSON como texto; reimportar
+  com `\copy`, ver rollback). Cron `auditoria-n8n-30-dias` (diário). App e script manual ficam pra sempre.
+- `cron.job_run_details` com 7 dias (cron `cron-log-7-dias`, semanal).
+- `crisp_conversations` e `csat_results` fora da publicação `supabase_realtime`; o Overview troca
+  `useRealtimeConversas` por `useAtualizacaoOverview` (2 min, só com a aba visível). `useRealtimeCsat` apagado
+  (ninguém usava). Enquanto o front novo não for publicado, o Overview só atualiza ao navegar/focar a aba.
+- Reaberturas de 5 em 5 min pra 15 em 15 (`reaberturas-reais-15min`, mesma janela de 2 dias).
+
+Banco de 317 MB pra 310 MB (índices). O espaço das linhas apagadas fica reaproveitável pro crescimento, sem
+`VACUUM FULL`.

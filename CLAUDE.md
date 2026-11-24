@@ -400,12 +400,15 @@ conversas (avaliadas ou não).
     .subscribe();
   // cleanup: supabase.removeChannel(channel)
   ```
-  Hooks existentes: `useRealtimeUserStatus`, `useRealtimeCsat`,
-  `useRealtimeConversas`, `useRealtimeHelpdesks`, `useRealtimeCalendario`,
-  `useRealtimeAnnouncementsNotifier` (este último toca som via
-  `notificationSound.ts` e atualiza o contador do sino no Header). A
-  tabela precisa estar na publicação `supabase_realtime` no Postgres para
-  o canal funcionar — isso é configurado no banco, não no frontend.
+  Hooks existentes: `useRealtimeUserStatus`, `useRealtimeHelpdesks`,
+  `useRealtimeCalendario`, `useRealtimeAnnouncementsNotifier` (este último
+  toca som via `notificationSound.ts` e atualiza o contador do sino no
+  Header). A tabela precisa estar na publicação `supabase_realtime` no
+  Postgres para o canal funcionar — isso é configurado no banco, não no
+  frontend. **Tabela que o n8n grava o tempo todo não entra no Realtime**
+  (cada gravação vira consulta do Realtime): desde 2026-11-24
+  `crisp_conversations` e `csat_results` saíram da publicação e o Overview
+  atualiza a cada 2 min com a aba visível (`useAtualizacaoOverview`).
 - **Storage**: bucket `tool-images` (leitura pública, escrita só admin, só
   imagem até 5 MB), usado por `uploadToolImage()` para imagens de "Outros
   Links". `avatars` não é usado e não aceita escrita (2026-10-22).
@@ -650,12 +653,13 @@ conversas (avaliadas ou não).
 - `reopened_count_real_periodo` (regra antiga, ~2 s/chamada) é recalculada por 10 funções (saiu de
   `_atendente_performance_base` em 2026-10-14, onde era descartada); o Overview chama várias delas juntas. Trocar por leitura de `reaberturas_reais` dá ~10× menos custo, mas muda ~0,8% dos totais (eventos antes de
   08/09, eventos de estado com mesmo horário, mensagem que chega atrasada) — decisão de produto pendente.
-- Backlog (2026-11-23): 3.084 abertas, 2.431 sem mensagem há 7 dias, último estado sempre "unresolved".
-  Falta comparar com a Crisp (abertas lá de verdade ou resolvidas sem evento pro Hub).
-- Desempenho (2026-11-23, não aplicado): Overview refaz as RPCs a cada 30 s pelo Realtime mesmo com a aba
-  escondida (~22 h de banco desde 20/08); Realtime de `crisp_conversations` ~7,5 h; `csat_results` na publicação
-  sem uso; cron de reaberturas a cada 5 min ~9 h. Limpeza proposta: `auditoria_log` dos UPDATEs do n8n (30 dias),
-  índices `session_id` repetidos, log do cron. Detalhes em `docs/HISTORICO.md`.
+- Backlog (2026-11-24): o número está certo, as conversas estão abertas na própria Crisp (4.290 não
+  resolvidas lá, desde 2022; 39 de 40 sorteadas do Hub abertas na Crisp). O time responde e não resolve.
+  ~2,5% (1 de 40) foi apagada na Crisp e segue aberta no Hub (webhook `crisp-removidos`, pendência acima).
+- Retenção (2026-11-24): `auditoria_log` guarda 30 dias dos UPDATEs automáticos do n8n em `crisp_conversations`
+  (cron `auditoria-n8n-30-dias`); o resto da auditoria fica pra sempre. `cron.job_run_details` guarda 7 dias.
+  Reaberturas recalculadas a cada 15 min (`reaberturas-reais-15min`). SQL e rollback em
+  `supabase/sql/2026-11-24_limpeza_e_desempenho*.sql`.
 - Código morto tolerado: `horario_por_nome`, `duracao_dentro_expediente`,
   `csat_tempo_resposta_correlacao`, `fetchConversasFiltered`,
   `p_somente_risco`.
